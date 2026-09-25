@@ -110,6 +110,21 @@ test("createClient exposes baseUrl and auth for health checks", () => {
   expect(client.auth).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
 })
 
+test("createClient surfaces SDK errors instead of resolving an error tuple", async () => {
+  const server = createServer((_req, res) => {
+    res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ data: { message: "bad request" } }))
+  })
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    const client = createClient(`http://127.0.0.1:${port}`, "pw")
+    await expect(client.session.promptAsync({ path: { id: "s1" }, body: { parts: [] } } as any)).rejects.toThrow(/bad request/)
+  } finally {
+    server.close()
+    server.closeAllConnections()
+  }
+})
+
 test("resolveClient builds the loopback baseUrl from the project", () => {
   const client = resolveClient({ hostPort: 4321, serverPassword: "pw" } as any)
   expect(client.baseUrl).toBe("http://127.0.0.1:4321")

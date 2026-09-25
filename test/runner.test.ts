@@ -321,6 +321,20 @@ test("session.idle during abort clears the force-idle timer and clears the queue
   }
 })
 
+test("a 4xx from promptAsync surfaces and resets the run to idle", async () => {
+  const { db, states } = makeDb()
+  const idle: string[] = []
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async () => { throw new Error("opencode server POST /session → 400 Bad Request: bad request") } } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 1,
+    onThreadIdle: (threadId) => { idle.push(threadId) } })
+  await expect(runner.prompt("t1", "a", "u")).rejects.toThrow(/400/)
+  expect(states).toContain("idle")
+  expect(runner.activeCount).toBe(0)
+  expect(idle).toEqual(["t1"])
+})
+
 test("prompt releases the concurrency slot when starting the run throws", async () => {
   const { db } = makeDb()
   db.threads.setRenderState = () => { throw new Error("db down") }

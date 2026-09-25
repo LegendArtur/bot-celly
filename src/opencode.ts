@@ -8,7 +8,7 @@ function basicAuth(password: string): string {
 }
 export function createClient(baseUrl: string, password: string): OpencodeClient {
   const auth = basicAuth(password)
-  return Object.assign(createOpencodeClient({ baseUrl, headers: { Authorization: auth } }), { baseUrl, auth })
+  return Object.assign(createOpencodeClient({ baseUrl, headers: { Authorization: auth }, throwOnError: true }), { baseUrl, auth })
 }
 export function resolveClient(p: Project): OpencodeClient {
   return createClient(`http://127.0.0.1:${p.hostPort}`, p.serverPassword)
