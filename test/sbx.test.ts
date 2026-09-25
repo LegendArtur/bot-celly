@@ -1,6 +1,6 @@
 // test/sbx.test.ts
 import { expect, test } from "vitest"
-import { buildSandboxName, isPathInside, parseSbxLs, parseSbxPorts, sanitizeAttachmentName, slugify } from "../src/sbx.ts"
+import { SbxRunner, buildSandboxName, isPathInside, parseSbxLs, parseSbxPorts, sanitizeAttachmentName, slugify } from "../src/sbx.ts"
 import ls from "./fixtures/sbx-ls.json"
 import ports from "./fixtures/sbx-ports.json"
 
@@ -26,6 +26,17 @@ test("path containment is case-insensitive and rejects traversal", () => {
   expect(isPathInside("C:\\projects", "C:\\projects\\demo\\src")).toBe(true)
   expect(isPathInside("C:\\projects", "C:\\PROJECTS\\Demo")).toBe(true)
   expect(isPathInside("C:\\projects", "C:\\projects\\..\\Windows")).toBe(false)
+})
+test("path containment handles POSIX-style paths and boundaries", () => {
+  expect(isPathInside("/srv/projects", "/srv/projects/demo/src")).toBe(true)
+  expect(isPathInside("/srv/projects", "/srv/projects/../Windows")).toBe(false)
+  expect(isPathInside("/srv/projects", "/srv/projects-evil")).toBe(false)
+})
+test("SbxRunner passes argv without a shell", async () => {
+  const r = new SbxRunner(process.execPath)
+  const out = await r.run(["-e", "console.log(process.argv[1])", "literal ; && $(echo pwned)"])
+  expect(out.code).toBe(0)
+  expect(out.stdout.trim()).toBe("literal ; && $(echo pwned)")
 })
 test("attachment names are basenamed and special names rejected", () => {
   expect(sanitizeAttachmentName("..\\..\\evil.txt")).toBe("evil.txt")
