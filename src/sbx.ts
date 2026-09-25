@@ -1,9 +1,21 @@
 // src/sbx.ts
 import { spawn } from "node:child_process"
+import type { ChildProcess } from "node:child_process"
 import { realpathSync } from "node:fs"
 import { basename, dirname, join, resolve, win32 } from "node:path"
 
+export type { ChildProcess }
 export interface RunResult { code: number; stdout: string; stderr: string }
+export class SbxError extends Error {}
+function requireNumber(value: unknown, field: string): number {
+  if (value === undefined || value === null || value === "") throw new SbxError(`sbx json: missing ${field}`)
+  const n = typeof value === "number" ? value : Number(value)
+  if (!Number.isFinite(n)) throw new SbxError(`sbx json: invalid ${field}: ${String(value)}`)
+  return n
+}
+function parseJson(text: string, what: string): unknown {
+  try { return JSON.parse(text) } catch (e) { throw new SbxError(`sbx ${what}: invalid JSON: ${(e as Error).message}`) }
+}
 export class SbxRunner {
   constructor(private readonly bin = "sbx") {}
   run(args: string[], opts: { timeoutMs?: number } = {}): Promise<RunResult> {
@@ -36,21 +48,21 @@ export function buildSandboxName(name: string, taken: Set<string>): string {
 }
 
 export function parseSbxLs(json: unknown) {
-  if (!Array.isArray(json)) throw new Error("sbx ls --json: expected array")
+  if (!Array.isArray(json)) throw new SbxError("sbx ls --json: expected array")
   return json.map((raw: any) => ({
     name: String(raw.name),
     agent: String(raw.agent ?? ""),
     status: String(raw.status ?? ""),
-    hostPort: Array.isArray(raw.ports) && raw.ports[0] ? Number(raw.ports[0].host_port) : undefined,
+    hostPort: Array.isArray(raw.ports) && raw.ports[0] ? requireNumber(raw.ports[0].host_port, "ports[0].host_port") : undefined,
     workspace: raw.workspace === undefined ? undefined : String(raw.workspace),
   }))
 }
 export function parseSbxPorts(json: unknown) {
-  if (!Array.isArray(json)) throw new Error("sbx ports --json: expected array")
+  if (!Array.isArray(json)) throw new SbxError("sbx ports --json: expected array")
   return json.map((raw: any) => ({
     hostIp: String(raw.host_ip ?? "127.0.0.1"),
-    hostPort: Number(raw.host_port),
-    sandboxPort: Number(raw.sandbox_port),
+    hostPort: requireNumber(raw.host_port, "host_port"),
+    sandboxPort: requireNumber(raw.sandbox_port, "sandbox_port"),
     protocol: String(raw.protocol ?? "tcp4"),
   }))
 }
@@ -111,7 +123,10 @@ export function defaultForbiddenPaths(dataDir?: string): string[] {
 }
 
 export interface CreateOpts { name: string; directory: string; hostPort: number; cpus: number; memory: string; template?: string }
-export class SbxError extends Error {}
+export function validateCreateOpts(o: CreateOpts): void {
+  if (!Number.isInteger(o.hostPort) || o.hostPort < 1 || o.hostPort > 65535) throw new SbxError(`invalid hostPort: ${String(o.hostPort)}`)
+  if (!Number.isInteger(o.cpus) || o.cpus < 0) throw new SbxError(`invalid cpus: ${String(o.cpus)}`)
+}
 export class Sbx {
   constructor(private readonly runner: SbxRunner, private readonly template = "opencode") {}
   private async must(args: string[], timeoutMs?: number) {
@@ -119,9 +134,10 @@ export class Sbx {
     if (r.code !== 0) throw new SbxError(`sbx ${args[0]} failed (${r.code}): ${r.stderr.trim() || r.stdout.trim()}`)
     return r
   }
-  async list() { const r = await this.must(["ls", "--json"]); return parseSbxLs(JSON.parse(r.stdout)) }
-  async ports(name: string) { const r = await this.must(["ports", name, "--json"]); return parseSbxPorts(JSON.parse(r.stdout)) }
+  async list() { const r = await this.must(["ls", "--json"]); return parseSbxLs(parseJson(r.stdout, "ls --json")) }
+  async ports(name: string) { const r = await this.must(["ports", name, "--json"]); return parseSbxPorts(parseJson(r.stdout, "ports --json")) }
   async create(o: CreateOpts) {
+    validateCreateOpts(o)
     await this.must(["create", o.template ?? this.template, o.directory, "--name", o.name, "--publish", `${o.hostPort}:4096`, "--cpus", String(o.cpus), "--memory", o.memory])
   }
   async exec(name: string, args: string[], opts: { timeoutMs?: number } = {}) { return this.must(["exec", name, ...args], opts.timeoutMs) }

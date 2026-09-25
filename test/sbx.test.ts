@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
-import { SbxRunner, buildSandboxName, isPathInside, isSensitivePath, parseSbxLs, parseSbxPorts, sanitizeAttachmentName, sanitizeProjectDirName, slugify } from "../src/sbx.ts"
+import { SbxError, SbxRunner, buildSandboxName, isPathInside, isSensitivePath, parseSbxLs, parseSbxPorts, sanitizeAttachmentName, sanitizeProjectDirName, slugify } from "../src/sbx.ts"
 import ls from "./fixtures/sbx-ls.json"
 import ports from "./fixtures/sbx-ports.json"
 
@@ -25,6 +25,18 @@ test("parses sbx ls fixtures", () => {
 test("parses sbx ports fixtures", () => {
   expect(parseSbxPorts(ports)).toEqual([{ hostIp: "127.0.0.1", hostPort: 4399, sandboxPort: 4096, protocol: "tcp4" }])
 })
+test("parsers throw SbxError on non-array input", () => {
+  expect(() => parseSbxLs({})).toThrow(SbxError)
+  expect(() => parseSbxPorts(null)).toThrow(SbxError)
+})
+test("parseSbxLs throws SbxError when a published port lacks a host_port", () => {
+  expect(() => parseSbxLs([{ name: "s", ports: [{ sandbox_port: 4096 }] }])).toThrow(SbxError)
+})
+test("parseSbxPorts throws SbxError on missing or non-numeric fields", () => {
+  expect(() => parseSbxPorts([{ host_port: 1 }])).toThrow(SbxError)
+  expect(() => parseSbxPorts([{ host_port: 1, sandbox_port: "nope" }])).toThrow(SbxError)
+  expect(() => parseSbxPorts([{ host_port: "", sandbox_port: 4096 }])).toThrow(SbxError)
+})
 test("path containment is case-insensitive and rejects traversal", () => {
   expect(isPathInside("C:\\projects", "C:\\projects\\demo\\src")).toBe(true)
   expect(isPathInside("C:\\projects", "C:\\PROJECTS\\Demo")).toBe(true)
@@ -40,6 +52,17 @@ test("SbxRunner passes argv without a shell", async () => {
   const out = await r.run(["-e", "console.log(process.argv[1])", "literal ; && $(echo pwned)"])
   expect(out.code).toBe(0)
   expect(out.stdout.trim()).toBe("literal ; && $(echo pwned)")
+})
+test("spawnStream passes argv without a shell", async () => {
+  const runner = new SbxRunner(process.execPath)
+  const child: any = runner.spawnStream(["-e", "console.log(process.argv[1])", "literal ; && $(echo pwned)"])
+  const out = await new Promise<string>((resolve, reject) => {
+    let buf = ""
+    child.stdout.on("data", (d: Buffer) => { buf += d.toString() })
+    child.on("error", reject)
+    child.on("close", () => resolve(buf))
+  })
+  expect(out.trim()).toBe("literal ; && $(echo pwned)")
 })
 test("attachment names are basenamed and special names rejected", () => {
   expect(sanitizeAttachmentName("..\\..\\evil.txt")).toBe("evil.txt")

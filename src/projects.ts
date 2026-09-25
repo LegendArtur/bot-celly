@@ -7,6 +7,7 @@ import type { Config } from "./config.ts"
 import type { Db } from "./db.ts"
 import type { Project } from "./types.ts"
 import { allocatePort, buildSandboxName, defaultForbiddenPaths, isPathInside, isSensitivePath, sanitizeProjectDirName, Sbx, SbxRunner } from "./sbx.js"
+import type { ChildProcess } from "./sbx.js"
 import { BOOTSTRAP_SCRIPT, BOOTSTRAP_VERIFY, buildCelyConfigJson, buildOpencodeEnv, buildServeArgs, createClient, waitForHealth } from "./opencode.js"
 
 export interface ProjectDeps {
@@ -21,13 +22,13 @@ export interface ProjectDeps {
 }
 
 export class ProjectService {
-  private children = new Map<string, import("node:child_process").ChildProcess>()
+  private children = new Map<string, ChildProcess>()
   private inflight = new Map<string, Promise<void>>()
   private intentional = new Set<string>()
   private addQueue: Promise<unknown> = Promise.resolve()
   constructor(private readonly deps: ProjectDeps) {}
 
-  childFor(channelId: string): import("node:child_process").ChildProcess | undefined { return this.children.get(channelId) }
+  childFor(channelId: string): ChildProcess | undefined { return this.children.get(channelId) }
 
   async createProjectDirectory(name: string): Promise<string> {
     const directory = join(this.deps.config.projectsRoot, sanitizeProjectDirName(name))

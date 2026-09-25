@@ -1,7 +1,7 @@
 // test/opencode.test.ts
 import { createServer } from "node:http"
 import { expect, test } from "vitest"
-import { buildCelyConfigJson, buildOpencodeEnv, buildServeArgs, celyPolicy, createClient, waitForHealth } from "../src/opencode.ts"
+import { buildCelyConfigJson, buildOpencodeEnv, buildServeArgs, celyPolicy, createClient, resolveClient, waitForHealth } from "../src/opencode.ts"
 
 test("serve args source the sandbox env and never contain a password", () => {
   const args = buildServeArgs()
@@ -70,6 +70,12 @@ test("createClient attaches basic auth derived from the password", async () => {
 test("createClient exposes baseUrl and auth for health checks", () => {
   const client = createClient("http://127.0.0.1:9", "pw")
   expect(client.baseUrl).toBe("http://127.0.0.1:9")
+  expect(client.auth).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
+})
+
+test("resolveClient builds the loopback baseUrl from the project", () => {
+  const client = resolveClient({ hostPort: 4321, serverPassword: "pw" } as any)
+  expect(client.baseUrl).toBe("http://127.0.0.1:4321")
   expect(client.auth).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
 })
 

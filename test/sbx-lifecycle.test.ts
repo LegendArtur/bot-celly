@@ -1,6 +1,6 @@
 // test/sbx-lifecycle.test.ts
 import { expect, test } from "vitest"
-import { allocatePort, Sbx } from "../src/sbx.ts"
+import { allocatePort, Sbx, SbxError } from "../src/sbx.ts"
 
 class FakeRunner {
   calls: string[][] = []
@@ -24,6 +24,29 @@ test("create throws on non-zero exit", async () => {
   const r = new FakeRunner({ "create opencode": [{ code: 1, stderr: "boom" }] })
   await expect(new Sbx(r as any).create({ name: "cely-demo", directory: "C:\\p", hostPort: 4300, cpus: 2, memory: "4g" }))
     .rejects.toThrow(/boom/)
+})
+
+test("create rejects an out-of-range or non-integer host port before spawning", async () => {
+  const r = new FakeRunner({})
+  for (const hostPort of [0, 70000, 4300.5, Number.NaN]) {
+    await expect(new Sbx(r as any).create({ name: "cely-demo", directory: "C:\\p", hostPort, cpus: 2, memory: "4g" }))
+      .rejects.toThrow(SbxError)
+  }
+  expect(r.calls).toEqual([])
+})
+
+test("create rejects a negative or fractional cpu count", async () => {
+  const r = new FakeRunner({})
+  await expect(new Sbx(r as any).create({ name: "cely-demo", directory: "C:\\p", hostPort: 4300, cpus: -1, memory: "4g" }))
+    .rejects.toThrow(SbxError)
+  await expect(new Sbx(r as any).create({ name: "cely-demo", directory: "C:\\p", hostPort: 4300, cpus: 1.5, memory: "4g" }))
+    .rejects.toThrow(SbxError)
+  expect(r.calls).toEqual([])
+})
+
+test("list wraps malformed JSON stdout in SbxError", async () => {
+  const r = new FakeRunner({ "ls --json": [{ code: 0, stdout: "not json" }] })
+  await expect(new Sbx(r as any).list()).rejects.toThrow(SbxError)
 })
 
 test("allocatePort skips used and busy ports", async () => {
