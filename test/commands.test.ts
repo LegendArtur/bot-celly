@@ -86,6 +86,21 @@ test("project status reports unhealthy when the health probe fails", async () =>
   expect(editOf(i)).toContain("unhealthy")
   expect(editOf(i)).toContain("0 sessions")
 })
+test("project list includes sandbox status and health", async () => {
+  const i = interaction({ sub: "list" })
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  await handleCommand(i, { projects: { health: async () => true } as any, runner: {} as any, db, authorized: () => true })
+  const out = editOf(i)
+  expect(out).toContain("demo")
+  expect(out).toContain("ready")
+  expect(out).toContain("healthy")
+})
+test("project list reports unhealthy projects without hiding them", async () => {
+  const i = interaction({ sub: "list" })
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  await handleCommand(i, { projects: { health: async () => false } as any, runner: {} as any, db, authorized: () => true })
+  expect(editOf(i)).toContain("unhealthy")
+})
 test("unauthorized interactions are rejected before defer", async () => {
   const i = interaction({ sub: "status", strings: { name: "demo" } })
   await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => false })

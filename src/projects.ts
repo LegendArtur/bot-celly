@@ -27,6 +27,11 @@ export interface ProjectDeps {
   killTimeoutMs?: number
 }
 
+function isLoopbackHost(hostIp: string | undefined): boolean {
+  const ip = (hostIp ?? "127.0.0.1").replace(/^\[|\]$/g, "").toLowerCase()
+  return ip === "127.0.0.1" || ip === "localhost" || ip === "::1" || ip === "0:0:0:0:0:0:0:1"
+}
+
 export class ProjectService {
   private children = new Map<string, ChildProcess>()
   private adopted = new Set<string>()
@@ -134,10 +139,12 @@ export class ProjectService {
   ): Promise<Project> {
     const { config, db, sbx } = this.deps
     this.validateDirectory(input.directory)
-    const taken = new Set((await sbx.list()).map((s) => s.name))
+    const listed = await sbx.list()
+    const taken = new Set(listed.map((s) => s.name))
     for (const p of db.projects.list()) taken.add(p.sandboxName)
     const sandboxName = buildSandboxName(input.name, taken)
     const used = new Set(db.projects.list().map((p) => p.hostPort))
+    for (const s of listed) if (typeof s.hostPort === "number" && Number.isInteger(s.hostPort)) used.add(s.hostPort)
     const hostPort = await allocatePort({ start: config.portRangeStart, end: config.portRangeEnd, used, isFree: (p) => this.isPortFree(p) })
     const serverPassword = randomBytes(16).toString("hex")
     let channelId: string | undefined
@@ -179,9 +186,9 @@ export class ProjectService {
       this.deps.log.warn("host port read-back failed; using the requested host port", { channelId, requested, error: String(e) })
       return requested
     }
-    const mapping = mappings.find((m) => m.sandboxPort === 4096)
+    const mapping = mappings.find((m) => m.sandboxPort === 4096 && isLoopbackHost(m.hostIp))
     if (!mapping || !Number.isFinite(mapping.hostPort)) {
-      this.deps.log.warn("no sandbox 4096 port mapping; using the requested host port", { channelId, requested })
+      this.deps.log.warn("no loopback sandbox 4096 port mapping; using the requested host port", { channelId, requested })
       return requested
     }
     if (mapping.hostPort !== requested) {
@@ -216,9 +223,9 @@ export class ProjectService {
    * 4096 mapping under a timeout (re-publish can prompt on conflict).
    */
   private async reconcileHostPort(channelId: string, p: Project): Promise<number> {
-    let mappings: Array<{ hostPort: number; sandboxPort: number }> = []
+    let mappings: Array<{ hostIp?: string; hostPort: number; sandboxPort: number }> = []
     try { mappings = await this.deps.sbx.ports(p.sandboxName) } catch { return p.hostPort }
-    const mapping = mappings.find((m) => m.sandboxPort === 4096)
+    const mapping = mappings.find((m) => m.sandboxPort === 4096 && isLoopbackHost(m.hostIp))
     if (mapping && Number.isFinite(mapping.hostPort)) {
       if (mapping.hostPort !== p.hostPort) {
         this.deps.log.info("host port mapping reconciled at wake", { channelId, stored: p.hostPort, actual: mapping.hostPort })
@@ -230,7 +237,7 @@ export class ProjectService {
     try {
       await this.deps.sbx.publish(p.sandboxName, `${p.hostPort}:4096`, { timeoutMs: 15_000 })
       const again = await this.deps.sbx.ports(p.sandboxName)
-      const remapped = again.find((m) => m.sandboxPort === 4096)
+      const remapped = again.find((m) => m.sandboxPort === 4096 && isLoopbackHost(m.hostIp))
       if (remapped && Number.isFinite(remapped.hostPort)) {
         if (remapped.hostPort !== p.hostPort) this.deps.db.projects.setHostPort(channelId, remapped.hostPort)
         return remapped.hostPort

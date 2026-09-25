@@ -42,11 +42,16 @@ const num = (e: NodeJS.ProcessEnv, k: string, d: number) => {
   const n = Number(raw); if (!Number.isFinite(n)) throw new Error(`${k} must be a number, got "${raw}"`)
   return n
 }
+const int = (e: NodeJS.ProcessEnv, k: string, d: number, min = 1) => {
+  const n = num(e, k, d)
+  if (!Number.isInteger(n) || n < min) throw new Error(`${k} must be an integer >= ${min}, got "${e[k]}"`)
+  return n
+}
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const missing = ["DISCORD_TOKEN", "DISCORD_GUILD_ID", "PROJECTS_ROOT"].filter((k) => !str(env, k))
   if (missing.length) throw new Error(`Missing required env: ${missing.join(", ")}`)
-  const portRangeStart = num(env, "PORT_RANGE_START", 4300)
-  const portRangeEnd = num(env, "PORT_RANGE_END", 4399)
+  const portRangeStart = int(env, "PORT_RANGE_START", 4300, 1)
+  const portRangeEnd = int(env, "PORT_RANGE_END", 4399, 1)
   if (portRangeEnd <= portRangeStart) throw new Error("PORT_RANGE_END must exceed PORT_RANGE_START")
   const level = str(env, "LOG_LEVEL") ?? "info"
   if (!["debug", "info", "warn", "error"].includes(level)) throw new Error(`LOG_LEVEL invalid: ${level}`)
@@ -57,13 +62,13 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     ownerRoleId: str(env, "OWNER_ROLE_ID"),
     categoryId: str(env, "CATEGORY_ID"),
     sandboxTemplate: str(env, "SANDBOX_TEMPLATE") ?? "opencode",
-    sandboxCpus: num(env, "SANDBOX_CPUS", 2), sandboxMemory: str(env, "SANDBOX_MEMORY") ?? "4g",
+    sandboxCpus: int(env, "SANDBOX_CPUS", 2, 1), sandboxMemory: str(env, "SANDBOX_MEMORY") ?? "4g",
     portRangeStart, portRangeEnd,
     defaultModel: str(env, "DEFAULT_MODEL"), defaultAgent: str(env, "DEFAULT_AGENT"),
-    bootTimeoutMs: num(env, "BOOT_TIMEOUT_MS", 120000), healthTimeoutMs: num(env, "HEALTH_TIMEOUT_MS", 30000),
-    editIntervalMs: num(env, "EDIT_INTERVAL_MS", 1200),
-    attachmentMaxBytes: num(env, "ATTACHMENT_MAX_BYTES", 102400),
-    maxQueue: num(env, "MAX_QUEUE", 20), maxConcurrentRuns: num(env, "MAX_CONCURRENT_RUNS", 4),
+    bootTimeoutMs: int(env, "BOOT_TIMEOUT_MS", 120000, 1), healthTimeoutMs: int(env, "HEALTH_TIMEOUT_MS", 30000, 1),
+    editIntervalMs: int(env, "EDIT_INTERVAL_MS", 1200, 1),
+    attachmentMaxBytes: int(env, "ATTACHMENT_MAX_BYTES", 102400, 1),
+    maxQueue: int(env, "MAX_QUEUE", 20, 1), maxConcurrentRuns: int(env, "MAX_CONCURRENT_RUNS", 4, 1),
     dataDir: str(env, "DATA_DIR") ?? "./data",
     logLevel: level as Config["logLevel"],
   }

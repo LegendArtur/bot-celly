@@ -91,7 +91,16 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         await deps.postConnected?.(added.channelId, added.name)
         return void await interaction.editReply(noMentions(sub === "create" ? `created ${added.name}` : `added ${added.name}`))
       }
-      if (sub === "list") return void await interaction.editReply(noMentions(deps.db.projects.list().map((p) => `${p.name} (${p.status})`).join("\n") || "no projects"))
+      if (sub === "list") {
+        const projects = deps.db.projects.list()
+        const lines = await Promise.all(projects.map(async (p) => {
+          let healthy: boolean | undefined
+          try { healthy = await deps.projects.health?.(p.channelId) } catch { healthy = false }
+          const health = healthy === undefined ? "" : healthy ? " healthy" : " unhealthy"
+          return `${p.name} (${p.status}${health})`
+        }))
+        return void await interaction.editReply(noMentions(lines.join("\n") || "no projects"))
+      }
       if (sub === "status") {
         const p = deps.db.projects.getByName(name)
         if (!p) return void await interaction.editReply(noMentions("not found"))

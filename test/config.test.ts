@@ -27,6 +27,19 @@ test("rejects non-numeric overrides", () => {
   expect(() => loadConfig({ ...base, MAX_QUEUE: "lots" })).toThrow(/MAX_QUEUE/)
 })
 
+test("rejects a non-positive EDIT_INTERVAL_MS", () => {
+  expect(() => loadConfig({ ...base, EDIT_INTERVAL_MS: "0" })).toThrow(/EDIT_INTERVAL_MS/)
+  expect(() => loadConfig({ ...base, EDIT_INTERVAL_MS: "-5" })).toThrow(/EDIT_INTERVAL_MS/)
+  expect(loadConfig({ ...base, EDIT_INTERVAL_MS: "1" }).editIntervalMs).toBe(1)
+})
+
+test("rejects fractional counts and ports and non-positive cpu counts", () => {
+  expect(() => loadConfig({ ...base, MAX_QUEUE: "1.5" })).toThrow(/MAX_QUEUE/)
+  expect(() => loadConfig({ ...base, MAX_CONCURRENT_RUNS: "0" })).toThrow(/MAX_CONCURRENT_RUNS/)
+  expect(() => loadConfig({ ...base, PORT_RANGE_START: "4300.5" })).toThrow(/PORT_RANGE_START/)
+  expect(() => loadConfig({ ...base, SANDBOX_CPUS: "0" })).toThrow(/SANDBOX_CPUS/)
+})
+
 test("ensureDataDir creates nested directories", () => {
   const root = mkdtempSync(join(tmpdir(), "cely-data-"))
   const nested = join(root, "a", "b", "c")

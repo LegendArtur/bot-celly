@@ -536,6 +536,26 @@ test("addProject persists the actual host port read back from sbx ports", async 
   } finally { await server.close() }
 })
 
+test("addProject ignores a non-loopback port mapping and keeps the requested loopback port", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
+  const server = await healthServer(true)
+  try {
+    sbx.ports = async () => [{ hostIp: "0.0.0.0", hostPort: server.port + 1, sandboxPort: 4096, protocol: "tcp4" }]
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
+    const p = await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
+    expect(p.hostPort).toBe(server.port)
+  } finally { await server.close() }
+})
+
+test("addProject does not reuse a host port held by an orphan sandbox", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
+  sbx.list = async () => [{ name: "cely-orphan", agent: "opencode", status: "running", hostPort: 4700 }]
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4700, 4700), log: logger(),
+    isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
+  await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })).rejects.toThrow(/exhausted/)
+})
+
 test("addProject rejects a directory inside a forbidden root", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
   const svc = new ProjectService({ sbx, runner: runner as any, db,
