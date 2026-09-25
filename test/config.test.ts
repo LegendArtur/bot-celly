@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
-import { ensureDataDir, loadConfig, loadDotEnv } from "../src/config.ts"
+import { ensureDataDir, loadConfig, loadDotEnv, seedSettings } from "../src/config.ts"
 
 const base = { DISCORD_TOKEN: "t", DISCORD_GUILD_ID: "g", PROJECTS_ROOT: "C:\\projects" }
 
@@ -35,6 +35,17 @@ test("ensureDataDir creates nested directories", () => {
     ensureDataDir(nested)
     expect(existsSync(nested)).toBe(true)
   } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test("seedSettings writes defaults only when a key is unset", () => {
+  const store = new Map<string, string>()
+  const db = { settings: { get: (k: string) => store.get(k), set: (k: string, v: string) => { store.set(k, v) } } }
+  seedSettings(db, { defaultModel: "anthropic/claude", defaultAgent: "build" })
+  expect(store.get("default_model")).toBe("anthropic/claude")
+  expect(store.get("default_agent")).toBe("build")
+  seedSettings(db, { defaultModel: "openai/gpt", defaultAgent: "plan" })
+  expect(store.get("default_model")).toBe("anthropic/claude")
+  expect(store.get("default_agent")).toBe("build")
 })
 
 test("loadDotEnv reports success and failure without throwing", () => {

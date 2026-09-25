@@ -23,6 +23,19 @@ export function loadDotEnv(path = ".env", loader: (p: string) => void = (p) => {
   try { loader(path); return true } catch { return false }
 }
 
+/**
+ * Spec §6: `settings` is seeded from env on first boot only. An existing value
+ * (set by the user or a future admin surface) is authoritative and never
+ * overwritten by re-reading `.env` at every boot.
+ */
+export function seedSettings(
+  db: { settings: { get(key: string): string | undefined; set(key: string, value: string): void } },
+  cfg: { defaultModel?: string; defaultAgent?: string },
+): void {
+  if (cfg.defaultModel && db.settings.get("default_model") === undefined) db.settings.set("default_model", cfg.defaultModel)
+  if (cfg.defaultAgent && db.settings.get("default_agent") === undefined) db.settings.set("default_agent", cfg.defaultAgent)
+}
+
 const str = (e: NodeJS.ProcessEnv, k: string) => e[k]?.trim() || undefined
 const num = (e: NodeJS.ProcessEnv, k: string, d: number) => {
   const raw = e[k]; if (raw === undefined || raw === "") return d
