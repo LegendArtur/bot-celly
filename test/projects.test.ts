@@ -1,5 +1,7 @@
 import { createServer } from "node:http"
-import { readFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { expect, test } from "vitest"
 import { openDb } from "../src/db.ts"
 import { ProjectService } from "../src/projects.ts"
@@ -62,6 +64,23 @@ test("addProject rejects a prefix-sibling directory", async () => {
   const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
     isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
   await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects-evil" })).rejects.toThrow(/PROJECTS_ROOT/)
+})
+
+test("createProjectDirectory sanitizes the name and creates it under PROJECTS_ROOT", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cely-root-"))
+  try {
+    const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
+    const svc = new ProjectService({ sbx, runner: runner as any, db,
+      config: { ...makeCfg(4600, 4600), projectsRoot: root }, log: logger(),
+      isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
+    const dir = await svc.createProjectDirectory("My App/../evil")
+    expect(dir.startsWith(root)).toBe(true)
+    expect(existsSync(dir)).toBe(true)
+    expect(dir).toContain("My App-..-evil")
+    await expect(svc.createProjectDirectory("..")).rejects.toThrow(/invalid/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test("addProject writes and verifies the cely bootstrap before starting the serve child", async () => {

@@ -34,6 +34,16 @@ test("upsert updates the session id on conflict", () => {
   db.threads.upsert({ ...row, sessionId: "s2", lastActiveAt: 9 })
   expect(db.threads.get("t1")).toMatchObject({ sessionId: "s2", lastActiveAt: 9 })
 })
+test("updates per-thread model and agent overrides", () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
+    worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 })
+  db.threads.setModel("t1", "anthropic/claude")
+  db.threads.setAgent("t1", "build")
+  expect(db.threads.get("t1")).toMatchObject({ model: "anthropic/claude", agent: "build" })
+  db.threads.setModel("t1", null)
+  expect(db.threads.get("t1")?.model).toBeNull()
+})
 test("migrate is idempotent", () => { const db = fresh(); db.migrate(); expect(db.projects.list()).toEqual([]) })
 test("removing a project cascades to its threads", () => {
   const db = fresh(); db.projects.insertProvisioning(proj)

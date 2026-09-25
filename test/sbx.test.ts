@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
-import { SbxRunner, buildSandboxName, isPathInside, parseSbxLs, parseSbxPorts, sanitizeAttachmentName, slugify } from "../src/sbx.ts"
+import { SbxRunner, buildSandboxName, isPathInside, isSensitivePath, parseSbxLs, parseSbxPorts, sanitizeAttachmentName, sanitizeProjectDirName, slugify } from "../src/sbx.ts"
 import ls from "./fixtures/sbx-ls.json"
 import ports from "./fixtures/sbx-ports.json"
 
@@ -69,4 +69,19 @@ test("path containment resolves symlinked ancestors", () => {
     rmSync(root, { recursive: true, force: true })
     rmSync(outside, { recursive: true, force: true })
   }
+})
+
+test("project directory names are sanitized without allowing traversal", () => {
+  expect(sanitizeProjectDirName("My Web App")).toBe("My Web App")
+  expect(sanitizeProjectDirName("  spaced  ")).toBe("spaced")
+  expect(sanitizeProjectDirName("a/../b")).toBe("a-..-b")
+  expect(() => sanitizeProjectDirName("..")).toThrow()
+  expect(() => sanitizeProjectDirName("   ")).toThrow()
+})
+
+test("isSensitivePath rejects ancestors and descendants of forbidden roots", () => {
+  expect(isSensitivePath("/srv/projects/demo/data/x", ["/srv/projects/demo/data"])).toBe(true)
+  expect(isSensitivePath("/srv", ["/srv/projects"])).toBe(true)
+  expect(isSensitivePath("/srv/projects/demo", ["/srv/projects/other"])).toBe(false)
+  expect(isSensitivePath("C:\\projects\\demo", ["C:\\projects\\demo\\secret"])).toBe(true)
 })

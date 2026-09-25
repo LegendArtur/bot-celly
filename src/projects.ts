@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdir } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { Config } from "./config.ts"
 import type { Db } from "./db.ts"
 import type { Project } from "./types.ts"
-import { allocatePort, buildSandboxName, isPathInside, Sbx, SbxRunner } from "./sbx.js"
+import { allocatePort, buildSandboxName, isPathInside, sanitizeProjectDirName, Sbx, SbxRunner } from "./sbx.js"
 import { BOOTSTRAP_SCRIPT, BOOTSTRAP_VERIFY, buildCelyConfigJson, buildOpencodeEnv, buildServeArgs, createClient, waitForHealth } from "./opencode.js"
 
 export interface ProjectDeps {
@@ -24,6 +25,13 @@ export class ProjectService {
   constructor(private readonly deps: ProjectDeps) {}
 
   childFor(channelId: string): import("node:child_process").ChildProcess | undefined { return this.children.get(channelId) }
+
+  async createProjectDirectory(name: string): Promise<string> {
+    const directory = join(this.deps.config.projectsRoot, sanitizeProjectDirName(name))
+    if (!isPathInside(this.deps.config.projectsRoot, directory)) throw new Error("invalid project directory")
+    await mkdir(directory, { recursive: true })
+    return directory
+  }
 
   private async isPortFree(port: number): Promise<boolean> {
     if (this.deps.isPortFree) return this.deps.isPortFree(port)

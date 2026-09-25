@@ -1,6 +1,6 @@
 // test/commands.test.ts
 import { expect, test } from "vitest"
-import { commandData, handleCommand } from "../src/commands.ts"
+import { commandData, handleCommand, handleSelect } from "../src/commands.ts"
 import { openDb } from "../src/db.ts"
 
 function fresh() { const db = openDb(":memory:"); db.migrate(); return db }
@@ -16,13 +16,31 @@ function interaction(over: any = {}) {
     guildId: over.guildId ?? "g",
     channelId: over.channelId ?? "c",
     channel: over.channel,
+    user: over.user ?? { id: "u1" },
     calls,
     options: {
       getSubcommand: () => over.sub,
       getString: (n: string) => strings[n],
     },
     deferReply: async (o: any) => { calls.push({ kind: "defer", o }) },
-    editReply: async (c: string) => { calls.push({ kind: "edit", c }) },
+    editReply: async (c: any) => { calls.push({ kind: "edit", c }) },
+    reply: async (c: any) => { calls.push({ kind: "reply", c }) },
+  }
+  return i
+}
+
+function select(over: any = {}) {
+  const calls: any[] = []
+  const i: any = {
+    customId: over.customId,
+    values: over.values ?? [],
+    channelId: over.channelId ?? "c",
+    user: over.user ?? { id: "u1" },
+    inGuild: () => true, member: {}, memberPermissions: {},
+    calls,
+    deferUpdate: async () => { calls.push({ kind: "deferUpdate" }) },
+    update: async (o: any) => { calls.push({ kind: "update", o }) },
+    editReply: async (c: any) => { calls.push({ kind: "edit", c }) },
     reply: async (c: any) => { calls.push({ kind: "reply", c }) },
   }
   return i
@@ -104,4 +122,120 @@ test("abort in a project channel aborts its active threads", async () => {
   await handleCommand(i, { projects: {} as any, runner: { abort: async (id: string) => { aborted.push(id) } } as any, db, authorized: () => true })
   expect(aborted).toEqual(["t1"])
   expect(editOf(i)).toBe("aborted")
+})
+
+function threadRow(threadId = "t1", channelId = "c", over: any = {}) {
+  return { threadId, channelId, sessionId: "s1", title: null, model: null, agent: null,
+    worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 1, ...over }
+}
+
+test("project create makes a sanitized directory then adds the project", async () => {
+  const i = interaction({ sub: "create", strings: { name: "My App" } })
+  const order: string[] = []
+  const projects: any = {
+    createProjectDirectory: async (name: string) => { order.push("mkdir:" + name); return "C:\\projects\\my-app" },
+    addProject: async (input: any) => { order.push("add:" + input.directory); return { ...proj, name: "My App" } },
+  }
+  await handleCommand(i, { projects, runner: {} as any, db: fresh(), authorized: () => true })
+  expect(order).toEqual(["mkdir:My App", "add:C:\\projects\\my-app"])
+  expect(editOf(i)).toBe("created My App")
+})
+
+test("new creates a thread in the project channel and prompts", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  const i = interaction({ commandName: "new", channelId: "c", strings: { prompt: "hello" }, user: { id: "u1" } })
+  let captured: any
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    createThread: async (input: any) => { captured = input; return { threadId: "t1", sessionId: "s1" } } })
+  expect(captured).toEqual({ channelId: "c", title: "hello", prompt: "hello", authorId: "u1" })
+  expect(editOf(i)).toBe("created <#t1>")
+})
+
+test("new outside a project channel is rejected", async () => {
+  const i = interaction({ commandName: "new", channelId: "other" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, createThread: async () => { throw new Error("should not run") } })
+  expect(editOf(i)).toBe("this channel is not a project")
+})
+
+test("resume lists sessions and shows an ephemeral select", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  const i = interaction({ commandName: "resume", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    listSessions: async () => [{ id: "s1", title: "First" }, { id: "s2", title: "Second" }] })
+  const edit = editOf(i)
+  expect(edit.content).toMatch(/Choose a session/)
+  const menu = edit.components[0].components[0]
+  expect(menu.custom_id).toBe("cely:resume:c")
+  expect(menu.options).toEqual([{ label: "First", value: "s1" }, { label: "Second", value: "s2" }])
+})
+
+test("model and agent show selects for the current thread", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert(threadRow("t1"))
+  const modelInteraction = interaction({ commandName: "model", channelId: "t1" })
+  await handleCommand(modelInteraction, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    listModels: async () => [{ id: "anthropic/claude", name: "Claude" }] })
+  const modelMenu = editOf(modelInteraction).components[0].components[0]
+  expect(modelMenu.custom_id).toBe("cely:model:t1")
+  expect(modelMenu.options).toEqual([{ label: "Claude", value: "anthropic/claude" }])
+
+  const agentInteraction = interaction({ commandName: "agent", channelId: "t1" })
+  await handleCommand(agentInteraction, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    listAgents: async () => [{ id: "build", name: "build" }] })
+  const agentMenu = editOf(agentInteraction).components[0].components[0]
+  expect(agentMenu.custom_id).toBe("cely:agent:t1")
+  expect(agentMenu.options).toEqual([{ label: "build", value: "build" }])
+})
+
+test("model outside a thread is rejected", async () => {
+  const i = interaction({ commandName: "model", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
+  expect(editOf(i)).toBe("use /model inside a thread")
+})
+
+test("project start resubscribes before waking the sandbox", async () => {
+  const i = interaction({ sub: "start", strings: { name: "demo" } })
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  const order: string[] = []
+  await handleCommand(i, { projects: { ensureReady: async () => { order.push("ready") } } as any,
+    runner: {} as any, db, authorized: () => true, startSubscription: (channelId: string) => { order.push(`sub:${channelId}`) } })
+  expect(order).toEqual(["sub:c", "ready"])
+})
+
+test("selecting a session resumes it in a new thread", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  const i = select({ customId: "cely:resume:c", values: ["s1"] })
+  let captured: any
+  await handleSelect(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    createThread: async (input: any) => { captured = input; return { threadId: "t9", sessionId: "s1" } } })
+  expect(i.calls[0]).toEqual({ kind: "deferUpdate" })
+  expect(captured).toMatchObject({ channelId: "c", sessionId: "s1" })
+  expect(i.calls[1].c).toMatchObject({ content: "resumed in <#t9>", components: [] })
+})
+
+test("selecting a model updates the thread", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert(threadRow("t1"))
+  const i = select({ customId: "cely:model:t1", values: ["openai/gpt"] })
+  let set: any
+  await handleSelect(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    setThreadModel: (id: string, m: string | null) => { set = [id, m] } })
+  expect(set).toEqual(["t1", "openai/gpt"])
+  expect(i.calls[1].c).toMatchObject({ content: "model set to openai/gpt", components: [] })
+})
+
+test("selecting an agent updates the thread", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const i = select({ customId: "cely:agent:t1", values: ["build"] })
+  let set: any
+  await handleSelect(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    setThreadAgent: (id: string, a: string | null) => { set = [id, a] } })
+  expect(set).toEqual(["t1", "build"])
+  expect(i.calls[1].c).toMatchObject({ content: "agent set to build", components: [] })
+})
+
+test("unauthorized selects are rejected before deferUpdate", async () => {
+  const i = select({ customId: "cely:model:t1", values: ["x"] })
+  await handleSelect(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => false })
+  expect(i.calls).toEqual([{ kind: "reply", c: { content: "You are not authorized.", flags: 64 } }])
 })

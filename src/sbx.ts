@@ -90,6 +90,26 @@ export function isPathInside(root: string, target: string): boolean {
   return t === r || t.startsWith(r.endsWith(sep) ? r : r + sep)
 }
 
+export function pathsOverlap(a: string, b: string): boolean {
+  return isPathInside(a, b) || isPathInside(b, a)
+}
+
+export function isSensitivePath(target: string, forbidden: string[]): boolean {
+  return forbidden.some((f) => f !== "" && pathsOverlap(f, target))
+}
+
+export function defaultForbiddenPaths(dataDir?: string): string[] {
+  const paths = [process.cwd(), resolve(process.env.HOME ?? process.env.USERPROFILE ?? "/")]
+  if (dataDir) paths.push(resolve(dataDir))
+  if (process.platform === "win32") {
+    const systemRoot = process.env.SystemRoot ?? "C:\\Windows"
+    paths.push(systemRoot, `${systemRoot}\\System32`, process.env.ProgramFiles ?? "C:\\Program Files", process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)", process.env.ProgramData ?? "C:\\ProgramData")
+  } else {
+    paths.push("/etc", "/usr", "/bin", "/sbin", "/var", "/opt", "/System", "/Library")
+  }
+  return paths
+}
+
 export interface CreateOpts { name: string; directory: string; hostPort: number; cpus: number; memory: string; template?: string }
 export class SbxError extends Error {}
 export class Sbx {
@@ -135,4 +155,14 @@ export function sanitizeAttachmentName(name: string): string {
   const result = base.replace(/[. ]+$/g, "")
   if (!result) throw new Error("invalid attachment name")
   return result
+}
+
+export function sanitizeProjectDirName(name: string): string {
+  const cleaned = name
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001f]+/g, "-")
+    .replace(/^[.\s]+/, "")
+    .replace(/[.\s]+$/g, "")
+  if (!cleaned || cleaned === "." || cleaned === "..") throw new Error("invalid project name")
+  return cleaned
 }

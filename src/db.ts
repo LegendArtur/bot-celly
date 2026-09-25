@@ -19,6 +19,8 @@ export interface Db {
     getBySession(sessionId: string): Thread[]
     setRenderState(threadId: string, s: RenderState): void
     setLiveMessage(threadId: string, messageId: string | null): void
+    setModel(threadId: string, model: string | null): void
+    setAgent(threadId: string, agent: string | null): void
     touch(threadId: string): void
     byChannel(channelId: string): Thread[]
     recent(limit: number): Thread[]
@@ -81,6 +83,8 @@ export function openDb(path: string): Db {
       getBySession(sessionId) { return raw.prepare(`SELECT * FROM threads WHERE session_id=? ORDER BY last_active_at DESC`).all(sessionId).map(rowToThread) },
       setRenderState(threadId, s) { raw.prepare(`UPDATE threads SET render_state=? WHERE thread_id=?`).run(s, threadId) },
       setLiveMessage(threadId, m) { raw.prepare(`UPDATE threads SET live_message_id=? WHERE thread_id=?`).run(m, threadId) },
+      setModel(threadId, model) { raw.prepare(`UPDATE threads SET model=? WHERE thread_id=?`).run(model, threadId) },
+      setAgent(threadId, agent) { raw.prepare(`UPDATE threads SET agent=? WHERE thread_id=?`).run(agent, threadId) },
       touch(threadId) { raw.prepare(`UPDATE threads SET last_active_at=? WHERE thread_id=?`).run(Date.now(), threadId) },
       byChannel(channelId) { return raw.prepare(`SELECT * FROM threads WHERE channel_id=? ORDER BY last_active_at DESC`).all(channelId).map(rowToThread) },
       recent(limit) { return raw.prepare(`SELECT * FROM threads ORDER BY last_active_at DESC LIMIT ?`).all(limit).map(rowToThread) },

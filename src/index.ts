@@ -8,7 +8,8 @@ import { openDb } from "./db.js"
 import { Sbx, SbxRunner } from "./sbx.js"
 import { ProjectService } from "./projects.js"
 import { createDiscordClient, isAuthorized, rolesOf, shouldHandleMessage } from "./discord.js"
-import { commandData, handleCommand } from "./commands.js"
+import { commandData, handleCommand, handleSelect } from "./commands.js"
+import type { CommandDeps, CreateThreadInput } from "./commands.js"
 import { acquireLock } from "./lock.js"
 import { Runner } from "./runner.js"
 import { EventRouter } from "./events.js"
@@ -117,6 +118,44 @@ async function main(): Promise<void> {
     return createClient(`http://127.0.0.1:${project.hostPort}`, project.serverPassword)
   }
 
+  const createSessionFor = async (project: Project, title: string): Promise<string> => {
+    const sdk = createClient(`http://127.0.0.1:${project.hostPort}`, project.serverPassword)
+    const created = await sdk.session.create({ body: { title } })
+    const sessionId = sessionIdFrom(created)
+    if (!sessionId) throw new Error("opencode session.create returned no id")
+    return sessionId
+  }
+  const registerThread = (project: Project, threadId: string, title: string, sessionId: string): Thread => {
+    const now = Date.now()
+    const record: Thread = {
+      threadId, channelId: project.channelId, sessionId, title,
+      model: db.settings.get("default_model") ?? null, agent: db.settings.get("default_agent") ?? null,
+      worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: now, lastActiveAt: now,
+    }
+    db.threads.upsert(record)
+    registerSession(threadId, sessionId)
+    return record
+  }
+
+  const typingTimers = new Map<string, ReturnType<typeof setInterval>>()
+  const stopTyping = (threadId: string): void => {
+    const timer = typingTimers.get(threadId)
+    if (timer) { clearInterval(timer); typingTimers.delete(threadId) }
+  }
+  const startTyping = (threadId: string): void => {
+    if (typingTimers.has(threadId)) return
+    const tick = async (): Promise<void> => {
+      try {
+        const channel = await client.channels.fetch(threadId)
+        if (channel && "sendTyping" in channel) await (channel as any).sendTyping()
+      } catch {}
+    }
+    void tick()
+    const timer = setInterval(() => { void tick() }, 8000)
+    if (typeof (timer as any).unref === "function") (timer as any).unref()
+    typingTimers.set(threadId, timer)
+  }
+
   const runnerSvc = new Runner({
     db, clientFor,
     createRenderer: async (threadId) => {
@@ -156,6 +195,7 @@ async function main(): Promise<void> {
     log: (message, fields) => log.info(message, fields),
     maxQueue: cfg.maxQueue,
     maxConcurrentRuns: cfg.maxConcurrentRuns,
+    onThreadIdle: (threadId) => stopTyping(threadId),
   })
 
   const controllers = new Map<string, AbortController>()
@@ -189,6 +229,87 @@ async function main(): Promise<void> {
   const isMemberAuthorized = (guildOwnerId: string, member: { id: string; roles: string[]; permissions: { has(bit: bigint): boolean } }): boolean =>
     isAuthorized(member, guildOwnerId, cfg)
 
+  const authorize = (interaction: any): boolean => {
+    if (!interaction.inGuild?.() || !interaction.member || !interaction.memberPermissions) return false
+    const member = interaction.member
+    const roles = Array.isArray(member.roles) ? member.roles as string[] : rolesOf(member)
+    return isMemberAuthorized(interaction.guild!.ownerId, { id: interaction.user.id, roles, permissions: interaction.memberPermissions })
+  }
+
+  const startSubscription = (channelId: string): void => {
+    const project = db.projects.getByChannel(channelId)
+    if (project) subscribeProject(project)
+  }
+
+  const createThreadForProject = async (input: CreateThreadInput): Promise<{ threadId: string; sessionId: string }> => {
+    const project = db.projects.getByChannel(input.channelId)
+    if (!project) throw new Error(`unknown project channel ${input.channelId}`)
+    await projects.ensureReady(project.channelId)
+    subscribeProject(project)
+    const channel = await client.channels.fetch(project.channelId)
+    if (!channel || !("threads" in channel)) throw new Error("project channel unavailable")
+    const title = sanitizeThreadName(input.title)
+    const thread = await (channel as any).threads.create({ name: title })
+    if (input.authorId) await thread.members.add(input.authorId).catch(() => {})
+    const sessionId = input.sessionId ?? (await createSessionFor(project, title))
+    registerThread(project, thread.id, title, sessionId)
+    if (input.prompt) {
+      const notice = await runnerSvc.prompt(thread.id, input.prompt, input.authorId ?? "n/a")
+      if (notice === undefined) startTyping(thread.id)
+    }
+    return { threadId: thread.id, sessionId }
+  }
+
+  const listSessions = async (channelId: string): Promise<{ id: string; title: string }[]> => {
+    const project = db.projects.getByChannel(channelId)
+    if (!project) return []
+    await projects.ensureReady(channelId).catch(() => {})
+    try {
+      const sdk = createClient(`http://127.0.0.1:${project.hostPort}`, project.serverPassword)
+      const res: any = await sdk.session.list()
+      const data = res?.data ?? res
+      const list = Array.isArray(data) ? data : []
+      return list.map((s: any) => ({ id: String(s.id), title: String(s.title ?? s.id) }))
+    } catch { return [] }
+  }
+  const listModels = async (channelId: string): Promise<{ id: string; name: string }[]> => {
+    const project = db.projects.getByChannel(channelId)
+    if (!project) return []
+    try {
+      const sdk = createClient(`http://127.0.0.1:${project.hostPort}`, project.serverPassword)
+      const res: any = await sdk.config.providers()
+      const data = res?.data ?? res
+      const providers = Array.isArray(data?.providers) ? data.providers : []
+      const out: { id: string; name: string }[] = []
+      for (const p of providers) {
+        for (const [mid, model] of Object.entries(p.models ?? {})) out.push({ id: `${p.id}/${mid}`, name: (model as any)?.name ?? `${p.name ?? p.id}/${mid}` })
+      }
+      return out
+    } catch { return [] }
+  }
+  const listAgents = async (channelId: string): Promise<{ id: string; name: string }[]> => {
+    const project = db.projects.getByChannel(channelId)
+    if (!project) return []
+    try {
+      const sdk = createClient(`http://127.0.0.1:${project.hostPort}`, project.serverPassword)
+      const res: any = await sdk.app.agents()
+      const data = res?.data ?? res
+      const list = Array.isArray(data) ? data : []
+      return list.filter((a: any) => a?.mode !== "subagent").map((a: any) => ({ id: String(a.name), name: a.description ? `${a.name} — ${a.description}` : String(a.name) }))
+    } catch { return [] }
+  }
+  const setThreadModel = (threadId: string, model: string | null): void => { if (db.threads.get(threadId)) db.threads.setModel(threadId, model) }
+  const setThreadAgent = (threadId: string, agent: string | null): void => { if (db.threads.get(threadId)) db.threads.setAgent(threadId, agent) }
+
+  const commandDeps: CommandDeps = {
+    projects, runner: runnerSvc, db,
+    authorized: authorize,
+    stopSubscription, startSubscription,
+    createThread: createThreadForProject,
+    listSessions, listModels, listAgents,
+    setThreadModel, setThreadAgent,
+  }
+
   const onMessage = async (message: Message): Promise<void> => {
     try {
       if (!message.inGuild() || !message.member) return
@@ -218,27 +339,19 @@ async function main(): Promise<void> {
         if (existing.sessionId) registerSession(existing.threadId, existing.sessionId)
         const notice = await runnerSvc.prompt(existing.threadId, text, message.author.id)
         if (notice) await message.reply({ content: notice, allowedMentions: { parse: [] } })
+        else startTyping(existing.threadId)
         return
       }
       if (message.channel.isThread()) return
       await projects.ensureReady(project.channelId)
       subscribeProject(project)
-      const thread = await message.startThread({ name: sanitizeThreadName(text) })
+      const title = sanitizeThreadName(text)
+      const thread = await message.startThread({ name: title })
       await thread.members.add(message.author.id)
-      const sdk = createClient(`http://127.0.0.1:${project.hostPort}`, project.serverPassword)
-      const created = await sdk.session.create({ body: { title: sanitizeThreadName(text) } })
-      const sessionId = sessionIdFrom(created)
-      if (!sessionId) throw new Error("opencode session.create returned no id")
-      const now = Date.now()
-      const record: Thread = {
-        threadId: thread.id, channelId: project.channelId, sessionId,
-        title: sanitizeThreadName(text), model: db.settings.get("default_model") ?? null,
-        agent: db.settings.get("default_agent") ?? null, worktreePath: null,
-        liveMessageId: null, renderState: "idle", createdAt: now, lastActiveAt: now,
-      }
-      db.threads.upsert(record)
-      registerSession(thread.id, sessionId)
-      await runnerSvc.prompt(thread.id, text, message.author.id)
+      const sessionId = await createSessionFor(project, title)
+      registerThread(project, thread.id, title, sessionId)
+      const notice = await runnerSvc.prompt(thread.id, text, message.author.id)
+      if (notice === undefined) startTyping(thread.id)
     } catch (err) {
       log.error("message handler failed", { error: String(err) })
     }
@@ -246,16 +359,9 @@ async function main(): Promise<void> {
 
   const onInteraction = async (interaction: Interaction): Promise<void> => {
     try {
+      if (interaction.isStringSelectMenu()) { await handleSelect(interaction, commandDeps); return }
       if (!interaction.isChatInputCommand()) return
-      await handleCommand(interaction, {
-        projects, runner: runnerSvc, db, stopSubscription,
-        authorized: () => {
-          if (!interaction.inGuild() || !interaction.member || !interaction.memberPermissions) return false
-          const member = interaction.member
-          const roles = Array.isArray((member as any).roles) ? (member as any).roles as string[] : rolesOf(member as any)
-          return isMemberAuthorized(interaction.guild!.ownerId, { id: interaction.user.id, roles, permissions: interaction.memberPermissions })
-        },
-      })
+      await handleCommand(interaction, commandDeps)
     } catch (err) {
       log.error("interaction handler failed", { error: String(err) })
     }
