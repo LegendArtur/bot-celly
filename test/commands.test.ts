@@ -224,7 +224,7 @@ test("project start resubscribes before waking the sandbox", async () => {
   const i = interaction({ sub: "start", strings: { name: "demo" } })
   const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
   const order: string[] = []
-  await handleCommand(i, { projects: { ensureReady: async () => { order.push("ready") } } as any,
+  await handleCommand(i, { projects: { start: async () => { order.push("ready") } } as any,
     runner: {} as any, db, authorized: () => true, isOwner: () => true, startSubscription: (channelId: string) => { order.push(`sub:${channelId}`) } })
   expect(order).toEqual(["sub:c", "ready"])
 })

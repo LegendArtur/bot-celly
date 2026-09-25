@@ -21,6 +21,7 @@ export interface ProjectDeps {
   isPortFree?(port: number): Promise<boolean>
   forbiddenPaths?: string[]
   onProjectDown?(channelId: string, projectName: string): void
+  onProjectMissing?(channelId: string, projectName: string): void
   onProjectReady?(project: Project): void
   applyPolicy?(client: OpencodeClient): Promise<void>
   killTimeoutMs?: number
@@ -88,7 +89,7 @@ export class ProjectService {
     return run
   }
 
-  private async bootstrapSandbox(sandboxName: string, serverPassword: string): Promise<void> {
+  private async runBootstrap(sandboxName: string, serverPassword: string): Promise<void> {
     const dir = mkdtempSync(join(tmpdir(), "cely-boot-"))
     const configFile = join(dir, "opencode.json")
     const envFile = join(dir, "opencode.env")
@@ -101,6 +102,17 @@ export class ProjectService {
       await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_VERIFY])
     } finally {
       rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  // Spec §14: a transient `sbx cp`/bootstrap failure gets one retry before the
+  // saga rolls the sandbox back.
+  private async bootstrapSandbox(sandboxName: string, serverPassword: string): Promise<void> {
+    try {
+      await this.runBootstrap(sandboxName, serverPassword)
+    } catch (first) {
+      this.deps.log.warn("sandbox bootstrap failed; retrying once", { sandboxName, error: String(first) })
+      await this.runBootstrap(sandboxName, serverPassword)
     }
   }
 
@@ -175,6 +187,85 @@ export class ProjectService {
     }
   }
 
+  private async isSandboxMissing(sandboxName: string): Promise<boolean> {
+    try {
+      const list = await this.deps.sbx.list()
+      return !list.some((s) => s.name === sandboxName)
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Spec §7: the persisted host port can drift when a sandbox is recreated.
+   * Read the live mapping, persist it, and best-effort re-publish a missing
+   * 4096 mapping under a timeout (re-publish can prompt on conflict).
+   */
+  private async reconcileHostPort(channelId: string, p: Project): Promise<number> {
+    let mappings: Array<{ hostPort: number; sandboxPort: number }> = []
+    try { mappings = await this.deps.sbx.ports(p.sandboxName) } catch { return p.hostPort }
+    const mapping = mappings.find((m) => m.sandboxPort === 4096)
+    if (mapping && Number.isFinite(mapping.hostPort)) {
+      if (mapping.hostPort !== p.hostPort) {
+        this.deps.log.info("host port mapping reconciled at wake", { channelId, stored: p.hostPort, actual: mapping.hostPort })
+        this.deps.db.projects.setHostPort(channelId, mapping.hostPort)
+      }
+      return mapping.hostPort
+    }
+    this.deps.log.warn("sandbox 4096 mapping missing; re-publishing best-effort", { channelId, hostPort: p.hostPort })
+    try {
+      await this.deps.sbx.publish(p.sandboxName, `${p.hostPort}:4096`, { timeoutMs: 15_000 })
+      const again = await this.deps.sbx.ports(p.sandboxName)
+      const remapped = again.find((m) => m.sandboxPort === 4096)
+      if (remapped && Number.isFinite(remapped.hostPort)) {
+        if (remapped.hostPort !== p.hostPort) this.deps.db.projects.setHostPort(channelId, remapped.hostPort)
+        return remapped.hostPort
+      }
+    } catch (e) {
+      this.deps.log.warn("sandbox port re-publish failed", { channelId, error: String(e) })
+    }
+    return p.hostPort
+  }
+
+  /** `/project start`: wake the sandbox, recreating it via the create path if gone. */
+  async start(channelId: string): Promise<void> {
+    const p = this.deps.db.projects.getByChannel(channelId)
+    if (!p) throw new Error(`unknown project ${channelId}`)
+    if (await this.isSandboxMissing(p.sandboxName)) return this.recreate(channelId)
+    return this.ensureReady(channelId)
+  }
+
+  private recreate(channelId: string): Promise<void> {
+    return this.withAddLock(() => this.doRecreate(channelId))
+  }
+
+  private async doRecreate(channelId: string): Promise<void> {
+    const { config, db, sbx } = this.deps
+    const p = db.projects.getByChannel(channelId)
+    if (!p) throw new Error(`unknown project ${channelId}`)
+    this.validateDirectory(p.directory)
+    db.projects.setStatus(channelId, "provisioning")
+    try {
+      await sbx.create({ name: p.sandboxName, directory: p.directory, hostPort: p.hostPort, cpus: config.sandboxCpus, memory: config.sandboxMemory, template: config.sandboxTemplate })
+      await sbx.exec(p.sandboxName, ["true"])
+      await this.bootstrapSandbox(p.sandboxName, p.serverPassword)
+      const actualPort = await this.readBackPort(channelId, p.sandboxName, p.hostPort)
+      const sandboxPath = await this.resolveSandboxPath(channelId, p.sandboxName, p.directory)
+      this.killChild(channelId)
+      this.bootServer(channelId)
+      const client = createClient(`http://127.0.0.1:${actualPort}`, p.serverPassword)
+      await waitForHealth(client, config.bootTimeoutMs)
+      await this.applyPolicy(client)
+      db.projects.setReady(channelId, sandboxPath)
+      this.deps.onProjectReady?.(db.projects.getByChannel(channelId)!)
+    } catch (e) {
+      this.killChild(channelId)
+      await sbx.remove(p.sandboxName).catch(() => {})
+      db.projects.setStatus(channelId, "degraded")
+      throw e
+    }
+  }
+
   private bootServer(channelId: string): void {
     const project = this.deps.db.projects.getByChannel(channelId)
     if (!project) throw new Error(`project ${channelId} not found`)
@@ -213,8 +304,18 @@ export class ProjectService {
       const p = this.deps.db.projects.getByChannel(channelId)
       if (!p) throw new Error(`unknown project ${channelId}`)
       if (p.status === "provisioning") throw new Error(`project ${channelId} is still provisioning`)
-      await this.deps.sbx.start(p.sandboxName)
-      const client = createClient(`http://127.0.0.1:${p.hostPort}`, p.serverPassword)
+      try {
+        await this.deps.sbx.start(p.sandboxName)
+      } catch (e) {
+        if (await this.isSandboxMissing(p.sandboxName)) {
+          this.deps.db.projects.setStatus(channelId, "degraded")
+          this.deps.onProjectMissing?.(channelId, p.name)
+          throw new Error(`sandbox ${p.sandboxName} is missing; run /project start to recreate it`)
+        }
+        throw e
+      }
+      const hostPort = await this.reconcileHostPort(channelId, p)
+      const client = createClient(`http://127.0.0.1:${hostPort}`, p.serverPassword)
       let healthy = false
       try { await waitForHealth(client, this.deps.config.healthTimeoutMs); healthy = true } catch {}
       if (healthy) {

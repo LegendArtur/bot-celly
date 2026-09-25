@@ -22,7 +22,7 @@ import { runShell } from "./shell.js"
 import { attachmentDestination, attachmentSandboxPath, downloadAttachment, ensureSafeInbox, shouldIngestAttachment } from "./attachments.js"
 import { ChannelBuckets, TokenBucket } from "./bucket.js"
 import { SessionRoutes } from "./routing.js"
-import { createMessageHandler, createProjectDownHandler, createReadyHandler, createReconcileThreads, createShutdown } from "./handlers.js"
+import { createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "./handlers.js"
 import { buildPromptText, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
 export { buildPromptText, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
@@ -112,6 +112,10 @@ async function main(): Promise<void> {
       return path
     },
     onProjectDown: createProjectDownHandler({
+      runner: { handleProjectDown: (channelId) => runnerSvc.handleProjectDown(channelId) },
+      client, bucketFor, log,
+    }),
+    onProjectMissing: createProjectMissingHandler({
       runner: { handleProjectDown: (channelId) => runnerSvc.handleProjectDown(channelId) },
       client, bucketFor, log,
     }),

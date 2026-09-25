@@ -102,6 +102,20 @@ export function createProjectDownHandler(deps: ProjectDownDeps): (channelId: str
   }
 }
 
+export function createProjectMissingHandler(deps: ProjectDownDeps): (channelId: string, projectName: string) => void {
+  return (channelId: string, projectName: string): void => {
+    void deps.runner.handleProjectDown(channelId)
+    const channel = deps.client.channels.cache.get(channelId)
+    if (channel && "send" in channel) {
+      void deps.bucketFor(channelId)
+        .schedule(() => channel.send({ content: `The sandbox for **${projectName}** is missing. Run /project start to recreate it.`, allowedMentions: { parse: [] } }))
+        .catch(() => {})
+    } else {
+      deps.log.warn("sandbox missing but the channel is unavailable", { channelId })
+    }
+  }
+}
+
 export interface ShutdownDeps {
   log: Logger
   abortControllers(): Iterable<AbortController>

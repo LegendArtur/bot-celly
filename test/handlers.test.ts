@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest"
 import { openDb } from "../src/db.ts"
-import { createMessageHandler, createProjectDownHandler, createReadyHandler, createReconcileThreads, createShutdown } from "../src/handlers.ts"
+import { createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "../src/handlers.ts"
 import type { Project, Thread } from "../src/types.ts"
 
 const silent = { debug() {}, info() {}, warn() {}, error() {}, child() { return this } } as any
@@ -148,6 +148,24 @@ test("project-down handler fans out to the runner and notifies the channel once"
   expect(send).toHaveBeenCalledTimes(1)
   const payload = send.mock.calls[0][0]
   expect(payload.content).toMatch(/stopped unexpectedly/)
+  expect(payload.allowedMentions).toEqual({ parse: [] })
+})
+
+test("project-missing handler notifies the channel with a recreate action", async () => {
+  const handleProjectDown = vi.fn(async () => {})
+  const send = vi.fn(async () => ({}))
+  const handler = createProjectMissingHandler({
+    runner: { handleProjectDown },
+    client: { channels: { cache: { get: (id: string) => (id === "c" ? { send } : undefined) } } },
+    bucketFor: () => ({ schedule: (fn: any) => fn() }),
+    log: silent,
+  })
+  handler("c", "demo")
+  await new Promise((r) => setTimeout(r, 0))
+  expect(handleProjectDown).toHaveBeenCalledWith("c")
+  const payload = send.mock.calls[0][0]
+  expect(payload.content).toMatch(/demo/)
+  expect(payload.content).toMatch(/\/project start/)
   expect(payload.allowedMentions).toEqual({ parse: [] })
 })
 

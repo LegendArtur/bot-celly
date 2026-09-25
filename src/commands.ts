@@ -97,7 +97,7 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         const p = deps.db.projects.getByName(name)
         if (!p) return void await interaction.editReply("not found")
         deps.startSubscription?.(p.channelId)
-        await deps.projects.ensureReady(p.channelId)
+        await deps.projects.start(p.channelId)
         return void await interaction.editReply("started")
       }
       if (sub === "stop") {
