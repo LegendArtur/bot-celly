@@ -19,6 +19,14 @@ test("rejects default deny-listed publish and clean commands", () => {
 test("allows an allowed tool with no deny matches", () => {
   expect(evaluatePermission({ tool: "read", patterns: [] })).toBe("once")
 })
+test("allows the real opencode tool ids surfaced in permission requests", () => {
+  const tools = ["list", "patch", "todowrite", "todoread", "multiedit", "write", "glob", "grep",
+    "webfetch", "websearch", "task", "skill", "lsp", "doom_loop", "edit"]
+  for (const tool of tools) expect(evaluatePermission({ tool, patterns: [] })).toBe("once")
+})
+test("still rejects a genuinely unknown tool", () => {
+  expect(evaluatePermission({ tool: "totally_unknown_tool", patterns: [] })).toBe("reject")
+})
 
 test("normalizes commands before deny matching", () => {
   expect(normalizeCommand("  git    -c   x=y   push  ")).toBe("git push")

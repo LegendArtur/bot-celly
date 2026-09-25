@@ -5,7 +5,14 @@ import type { Renderer } from "./render.ts"
 import type { Db } from "./db.ts"
 
 const DEFAULT_DENY = bashDenyPatterns()
-const ALLOWED_TOOLS = new Set(["bash", "edit", "write", "read", "glob", "grep", "webfetch", "websearch", "task", "skill", "lsp", "doom_loop"])
+// The real opencode tool ids (see @opencode-ai/sdk PermissionConfig) plus the
+// ids older builds surfaced (patch/todoread/multiedit). Anything outside this
+// list is default-rejected rather than silently allowed.
+const ALLOWED_TOOLS = new Set([
+  "bash", "edit", "write", "read", "glob", "grep", "list",
+  "webfetch", "websearch", "task", "skill", "lsp", "doom_loop",
+  "todowrite", "todoread", "patch", "multiedit",
+])
 const ABORT_TIMEOUT_MS = 10_000
 
 const WRAPPERS = new Set(["command", "npx", "bunx", "pnpx", "doas", "sudo", "time", "nice"])
