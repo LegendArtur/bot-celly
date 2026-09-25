@@ -1,4 +1,7 @@
 import { pathToFileURL } from "node:url"
+import { randomUUID } from "node:crypto"
+import { mkdir, writeFile } from "node:fs/promises"
+import { dirname } from "node:path"
 import { ChannelType, Events } from "discord.js"
 import type { Guild, Interaction, Message } from "discord.js"
 import type { Project, Thread } from "./types.ts"
@@ -16,6 +19,7 @@ import { EventRouter } from "./events.js"
 import { Renderer, sanitizeThreadName } from "./render.js"
 import { createClient } from "./opencode.js"
 import { runShell } from "./shell.js"
+import { attachmentDestination, shouldIngestAttachment } from "./attachments.js"
 
 export function findCategoryId(
   guild: { channels: { cache: { values(): IterableIterator<{ id: string; name: string; type: ChannelType }> } } },
@@ -148,6 +152,27 @@ async function main(): Promise<void> {
     db.threads.upsert(record)
     registerSession(threadId, sessionId)
     return record
+  }
+
+  const ingestAttachments = async (project: Project, message: Message): Promise<string[]> => {
+    const paths: string[] = []
+    for (const attachment of message.attachments.values()) {
+      const like = { name: attachment.name, size: attachment.size, contentType: attachment.contentType }
+      if (!shouldIngestAttachment(like, cfg.attachmentMaxBytes)) continue
+      try {
+        const destination = attachmentDestination(project.directory, attachment.name, randomUUID())
+        const res = await fetch(attachment.url)
+        if (!res.ok) continue
+        const body = Buffer.from(await res.arrayBuffer())
+        if (body.byteLength > cfg.attachmentMaxBytes) continue
+        await mkdir(dirname(destination), { recursive: true })
+        await writeFile(destination, body)
+        paths.push(destination)
+      } catch (e) {
+        log.warn("attachment ingest failed", { name: attachment.name, error: String(e) })
+      }
+    }
+    return paths
   }
 
   const typingTimers = new Map<string, ReturnType<typeof setInterval>>()
@@ -344,13 +369,15 @@ async function main(): Promise<void> {
         }
         return
       }
-      if (!text.trim()) return
+      const imported = await ingestAttachments(project, message)
+      const promptText = [text, ...imported.map((p) => `[attachment] ${p}`)].filter((part) => part.trim().length > 0).join("\n\n")
+      if (!promptText.trim()) return
       const existing = db.threads.get(message.channelId)
       if (existing) {
         await projects.ensureReady(project.channelId)
         subscribeProject(project)
         if (existing.sessionId) registerSession(existing.threadId, existing.sessionId)
-        const notice = await runnerSvc.prompt(existing.threadId, text, message.author.id)
+        const notice = await runnerSvc.prompt(existing.threadId, promptText, message.author.id)
         if (notice) await message.reply({ content: notice, allowedMentions: { parse: [] } })
         else startTyping(existing.threadId)
         return
@@ -358,12 +385,12 @@ async function main(): Promise<void> {
       if (message.channel.isThread()) return
       await projects.ensureReady(project.channelId)
       subscribeProject(project)
-      const title = sanitizeThreadName(text)
+      const title = sanitizeThreadName(text.trim() || message.attachments.first()?.name || "")
       const thread = await message.startThread({ name: title })
       await thread.members.add(message.author.id)
       const sessionId = await createSessionFor(project, title)
       registerThread(project, thread.id, title, sessionId)
-      const notice = await runnerSvc.prompt(thread.id, text, message.author.id)
+      const notice = await runnerSvc.prompt(thread.id, promptText, message.author.id)
       if (notice === undefined) startTyping(thread.id)
     } catch (err) {
       log.error("message handler failed", { error: String(err) })
