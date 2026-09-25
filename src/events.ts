@@ -48,6 +48,16 @@ export function nextBackoff(prevMs: number, connected = false): number {
 const FRAME_BOUNDARY = /\r?\n\r?\n/
 const MAX_SSE_BUFFER = 1024 * 1024
 
+export function trimSseBuffer(buf: string, max = MAX_SSE_BUFFER): string {
+  if (buf.length <= max) return buf
+  let cut = -1
+  for (const boundary of ["\r\n\r\n", "\n\n"]) {
+    const i = buf.lastIndexOf(boundary)
+    if (i >= 0 && i + boundary.length > cut) cut = i + boundary.length
+  }
+  return cut > 0 ? buf.slice(cut) : buf
+}
+
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     let timer: ReturnType<typeof setTimeout>
@@ -72,21 +82,23 @@ export class EventRouter {
     let backoff = INITIAL_BACKOFF
     while (!signal.aborted) {
       let connected = false
+      let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
       try {
         const res = await fetch(`${baseUrl}/global/event`, { headers: { Authorization: auth, Accept: "text/event-stream" }, signal })
         if (!res.ok || !res.body) throw new Error(`SSE HTTP ${res.status}`)
         connected = true
         if (connectedBefore) {
-          for (const s of this.deps.knownSessions()) {
+          let sessions: { threadId: string; sessionId: string }[] = []
+          try { sessions = this.deps.knownSessions() } catch (err) { console.warn("knownSessions failed", err) }
+          for (const s of sessions) {
             try { await this.deps.onResync(s.threadId, s.sessionId) } catch (err) { console.warn("event stream resync failed", err) }
           }
         }
         connectedBefore = true
-        const reader = res.body.getReader(); const decoder = new TextDecoder(); let buf = ""
-        while (true) {
-          const { value, done } = await reader.read()
-          if (done) { buf += decoder.decode(); break }
-          buf += decoder.decode(value, { stream: true })
+        reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buf = ""
+        const consume = (): void => {
           let m: RegExpExecArray | null
           while ((m = FRAME_BOUNDARY.exec(buf))) {
             const block = buf.slice(0, m.index); buf = buf.slice(m.index + m[0].length)
@@ -97,9 +109,19 @@ export class EventRouter {
             const threadId = this.deps.route(e.sessionId)
             if (threadId) this.deps.onEvent(threadId, e)
           }
-          if (buf.length > MAX_SSE_BUFFER) { console.warn(`event stream frame exceeded ${MAX_SSE_BUFFER} bytes; dropping`); buf = "" }
+        }
+        while (true) {
+          const { value, done } = await reader.read()
+          if (done) { buf += decoder.decode(); consume(); break }
+          buf += decoder.decode(value, { stream: true })
+          consume()
+          if (buf.length > MAX_SSE_BUFFER) {
+            console.warn(`event stream frame exceeded ${MAX_SSE_BUFFER} bytes; trimming to the last frame boundary`)
+            buf = trimSseBuffer(buf, MAX_SSE_BUFFER)
+          }
         }
       } catch (err) {
+        if (reader) { try { await reader.cancel() } catch {} reader = null }
         if (signal.aborted) return
         console.warn("event stream connection failed", err)
       }

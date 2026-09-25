@@ -1,7 +1,7 @@
 // test/events.test.ts
 import { createServer } from "node:http"
 import { expect, test, vi } from "vitest"
-import { EventRouter, INITIAL_BACKOFF, MAX_BACKOFF, nextBackoff, normalizeEvent } from "../src/events.ts"
+import { EventRouter, INITIAL_BACKOFF, MAX_BACKOFF, nextBackoff, normalizeEvent, trimSseBuffer } from "../src/events.ts"
 
 test("normalizes a text part", () => {
   expect(normalizeEvent({ type: "message.part.updated", properties: { part: { id: "p1", messageID: "m1", sessionID: "s1", type: "text", text: "hi" } } }))
@@ -139,6 +139,77 @@ test("isolates a throwing onResync and keeps the stream alive", async () => {
     server.close()
     server.closeAllConnections()
     warn.mockRestore()
+  }
+})
+
+test("trimSseBuffer drops complete frames but keeps a trailing partial frame", () => {
+  expect(trimSseBuffer("data: a\n\ndata: b\n\n", 1)).toBe("")
+  expect(trimSseBuffer("data: old\n\ndata: partial", 1)).toBe("data: partial")
+  expect(trimSseBuffer("data: old\r\n\r\ndata: partial", 1)).toBe("data: partial")
+  expect(trimSseBuffer("small", 100)).toBe("small")
+})
+
+test("isolates a throwing knownSessions and keeps the stream alive", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+  const events: Array<{ threadId: string; e: any }> = []
+  let connections = 0
+  let knownCalls = 0
+  const server = createServer((_req, res) => {
+    connections++
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
+    res.flushHeaders()
+    if (connections === 1) res.end()
+    else res.write(`data: ${JSON.stringify({ payload: { type: "session.idle", properties: { sessionID: "s1" } } })}\n\n`)
+  })
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    const router = new EventRouter({
+      route: (sessionId) => (sessionId === "s1" ? "t1" : undefined),
+      onEvent: (threadId, e) => events.push({ threadId, e }),
+      onResync: async () => {},
+      knownSessions: () => { knownCalls++; throw new Error("known boom") },
+    })
+    const ac = new AbortController()
+    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    await waitFor(() => knownCalls >= 1 && events.length >= 1)
+    ac.abort()
+    await done
+    expect(events).toEqual([{ threadId: "t1", e: { kind: "idle", sessionId: "s1" } }])
+    expect(connections).toBe(2)
+  } finally {
+    server.close()
+    server.closeAllConnections()
+    warn.mockRestore()
+  }
+})
+
+test("dispatches a frame that arrives right before the stream closes", async () => {
+  const events: Array<{ threadId: string; e: any }> = []
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
+    res.flushHeaders()
+    res.write(`data: ${JSON.stringify({ payload: { type: "session.idle", properties: { sessionID: "s1" } } })}\n\n`)
+    res.end()
+  })
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    const router = new EventRouter({
+      route: (sessionId) => (sessionId === "s1" ? "t1" : undefined),
+      onEvent: (threadId, e) => events.push({ threadId, e }),
+      onResync: async () => {},
+      knownSessions: () => [],
+    })
+    const ac = new AbortController()
+    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    await waitFor(() => events.length >= 1)
+    ac.abort()
+    await done
+    expect(events).toEqual([{ threadId: "t1", e: { kind: "idle", sessionId: "s1" } }])
+  } finally {
+    server.close()
+    server.closeAllConnections()
   }
 })
 
