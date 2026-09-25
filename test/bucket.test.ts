@@ -46,3 +46,20 @@ test("ChannelBuckets shares one bucket per channel", () => {
   expect(buckets.for("a")).toBe(buckets.for("a"))
   expect(buckets.for("a")).not.toBe(buckets.for("b"))
 })
+
+test("ChannelBuckets evicts channels idle beyond the threshold", () => {
+  let t = 0
+  const buckets = new ChannelBuckets(
+    () => new TokenBucket({ capacity: 1, refillPerSecond: 1, now: () => t, sleep: async () => {} }),
+    { idleMs: 1000, now: () => t },
+  )
+  const a = buckets.for("a")
+  t = 500
+  buckets.for("b")
+  expect(buckets.size()).toBe(2)
+  t = 1200
+  buckets.for("b")
+  expect(buckets.size()).toBe(1)
+  expect(buckets.for("a")).not.toBe(a)
+  expect(buckets.size()).toBe(2)
+})

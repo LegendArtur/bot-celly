@@ -35,12 +35,28 @@ export class TokenBucket {
   }
 }
 
+export interface ChannelBucketsOptions {
+  idleMs?: number
+  now?(): number
+}
+
 export class ChannelBuckets {
-  private readonly buckets = new Map<string, TokenBucket>()
-  constructor(private readonly factory: () => TokenBucket) {}
-  for(channelId: string): TokenBucket {
-    let bucket = this.buckets.get(channelId)
-    if (!bucket) { bucket = this.factory(); this.buckets.set(channelId, bucket) }
-    return bucket
+  private readonly buckets = new Map<string, { bucket: TokenBucket; lastUsed: number }>()
+  constructor(private readonly factory: () => TokenBucket, private readonly options: ChannelBucketsOptions = {}) {}
+  private now(): number { return this.options.now ? this.options.now() : Date.now() }
+  private evict(now: number): void {
+    const idleMs = this.options.idleMs ?? 30 * 60_000
+    for (const [id, entry] of this.buckets) {
+      if (now - entry.lastUsed > idleMs) this.buckets.delete(id)
+    }
   }
+  for(channelId: string): TokenBucket {
+    const now = this.now()
+    this.evict(now)
+    let entry = this.buckets.get(channelId)
+    if (!entry) { entry = { bucket: this.factory(), lastUsed: now }; this.buckets.set(channelId, entry) }
+    entry.lastUsed = now
+    return entry.bucket
+  }
+  size(): number { return this.buckets.size }
 }

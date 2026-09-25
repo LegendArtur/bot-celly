@@ -11,6 +11,14 @@ This spike **must run on the Windows host**. The dev sandbox has no `sbx` CLI
 The fixtures in `test/fixtures/` are the brief's **expected shapes**; the host
 run is expected to correct the real field names and event stream.
 
+## Prerequisites
+
+- `sbx` on `PATH` (`sbx version` succeeds) and logged in (`sbx login`).
+- The `opencode` image/template available locally for `sbx create opencode`.
+- Network policy initialized (`sbx policy init balanced`), otherwise `sbx
+  create` blocks on an interactive prompt.
+- Port `4399` free on the host loopback.
+
 ## Command (run on the Windows host)
 
 From the repo root, in PowerShell:
@@ -18,6 +26,13 @@ From the repo root, in PowerShell:
 ```powershell
 node scripts/spike-full-chain.mjs
 ```
+
+The script force-removes the `cely-spike` sandbox at the end (and on Ctrl-C),
+so a failed run does not leave it behind.
+
+**Hint:** if the health probe logs `ECONNREFUSED`, the `opencode serve` child
+had not started listening within the 8 s window. Increase the timeout at the
+bottom of the script (or re-run) and try again.
 
 ## Questions the run must answer
 

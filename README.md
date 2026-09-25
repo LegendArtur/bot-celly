@@ -79,7 +79,7 @@ bot fails fast on a missing or malformed value.
 | `SANDBOX_CPUS` / `SANDBOX_MEMORY` | `2` / `4g` | Resource limits. |
 | `PORT_RANGE_START` / `PORT_RANGE_END` | `4300` / `4399` | Host port pool. |
 | `DEFAULT_MODEL` / `DEFAULT_AGENT` | unset | Seeded into `settings`. |
-| `BOOT_TIMEOUT_MS` / `HEALTH_TIMEOUT_MS` | `120000` / `30000` | Boot/health waits. |
+| `BOOT_TIMEOUT_MS` / `HEALTH_TIMEOUT_MS` | `120000` / `30000` | Create-saga health wait / `ensureReady` health wait. |
 | `EDIT_INTERVAL_MS` | `1200` | Render throttle floor. |
 | `ATTACHMENT_MAX_BYTES` | `102400` | Attachment cap. |
 | `MAX_QUEUE` / `MAX_CONCURRENT_RUNS` | `20` / `4` | Backpressure. |
@@ -87,6 +87,15 @@ bot fails fast on a missing or malformed value.
 | `LOG_LEVEL` | `info` | Logging. |
 
 `PROJECTS_ROOT` is not runtime-editable (security).
+
+> **Caveat — do not put `PROJECTS_ROOT` under the user profile.** The sensitive
+> path denylist includes the user's home directory (`HOME`/`USERPROFILE`) and
+> `DATA_DIR`; a project directory that overlaps a forbidden root is rejected by
+> `isSensitivePath`. Because the check rejects both ancestors and descendants of
+> a forbidden root, a `PROJECTS_ROOT` such as `C:\Users\you\projects` would be
+> rejected in full and no project could be mounted. Use a path outside the
+> profile (e.g. `D:\projects`), or move `DATA_DIR` out of `PROJECTS_ROOT`. This
+> is spec-mandated behavior, not a bug.
 
 ## Install, build, run
 

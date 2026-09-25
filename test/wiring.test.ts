@@ -1,6 +1,7 @@
+import { fileURLToPath } from "node:url"
 import { expect, test } from "vitest"
 import { ChannelType } from "discord.js"
-import { buildPromptText, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "../src/index.ts"
+import { buildPromptText, findCategoryId, isMainModule, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "../src/index.ts"
 
 test("findCategoryId prefers the configured category", () => {
   expect(findCategoryId({ channels: { cache: new Map() } }, "configured")).toBe("configured")
@@ -48,6 +49,13 @@ test("sanitizeChannelName strips control characters and limits the length", () =
   expect(sanitizeChannelName("   ")).toBe("project")
   expect(sanitizeChannelName("\u0000\u0007")).toBe("project")
   expect(sanitizeChannelName("x".repeat(200)).length).toBeLessThanOrEqual(90)
+})
+
+test("isMainModule compares resolved file paths", () => {
+  const self = fileURLToPath(import.meta.url)
+  expect(isMainModule(import.meta.url, self)).toBe(true)
+  expect(isMainModule(import.meta.url, `${self}.nope`)).toBe(false)
+  expect(isMainModule(import.meta.url, undefined)).toBe(false)
 })
 
 test("uniqueChannelName appends a numeric suffix on collision", () => {

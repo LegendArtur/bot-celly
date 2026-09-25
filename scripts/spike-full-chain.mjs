@@ -6,11 +6,19 @@ const sh = (args, opts = {}) => {
   return r
 }
 const name = "cely-spike"
+let child
+const teardown = () => {
+  try { child?.kill() } catch {}
+  sh(["rm", "--force", name])
+}
+process.on("SIGINT", () => { teardown(); process.exit(1) })
+process.on("SIGTERM", () => { teardown(); process.exit(1) })
+
 sh(["rm", "--force", name])
 sh(["create", "opencode", ".", "--name", name, "--publish", "4399:4096"])
 sh(["ls", "--json"])
 sh(["ports", name, "--json"])
-const child = spawn("sbx", ["exec", name, "bash", "-lc",
+child = spawn("sbx", ["exec", name, "bash", "-lc",
   "exec opencode serve --port 4096 --hostname 0.0.0.0"], { stdio: ["ignore", "pipe", "pipe"] })
 child.stdout.on("data", (d) => process.stdout.write(d))
 child.stderr.on("data", (d) => process.stderr.write(d))
@@ -19,5 +27,5 @@ setTimeout(async () => {
     const res = await fetch("http://127.0.0.1:4399/global/health")
     console.log("HEALTH", res.status, await res.text())
   } catch (e) { console.log("HEALTH ERR", e.message) }
-  child.kill()
+  teardown()
 }, 8000)

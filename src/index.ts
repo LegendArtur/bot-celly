@@ -1,5 +1,6 @@
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { randomUUID } from "node:crypto"
+import { realpathSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 import { ChannelType, Events } from "discord.js"
@@ -473,7 +474,15 @@ async function main(): Promise<void> {
   log.info("Cely ready", { guild: guild.name, permissions: guild.members.me?.permissions.toArray() })
 }
 
-const isMain = typeof process.argv[1] === "string" && import.meta.url === pathToFileURL(process.argv[1]).href
-if (isMain) {
+export function isMainModule(moduleUrl: string, argv1: string | undefined): boolean {
+  if (!argv1) return false
+  try {
+    return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(argv1)
+  } catch {
+    return moduleUrl === pathToFileURL(argv1).href
+  }
+}
+
+if (isMainModule(import.meta.url, process.argv[1])) {
   main().catch((e) => { console.error(e); process.exit(1) })
 }
