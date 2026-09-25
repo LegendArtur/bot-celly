@@ -90,7 +90,14 @@ export class Runner {
     try {
       const sessionId = await this.deps.sessionFor(threadId)
       const client = this.deps.clientFor(threadId)
-      await client.session.promptAsync({ path: { id: sessionId }, body: { parts: [{ type: "text", text }] } } as any)
+      const body: Record<string, unknown> = { parts: [{ type: "text", text }] }
+      const thread = db.threads.get(threadId)
+      if (thread?.model) {
+        const slash = thread.model.indexOf("/")
+        if (slash > 0) body.model = { providerID: thread.model.slice(0, slash), modelID: thread.model.slice(slash + 1) }
+      }
+      if (thread?.agent) body.agent = thread.agent
+      await client.session.promptAsync({ path: { id: sessionId }, body } as any)
       return undefined
     } catch (e) {
       this.active.delete(threadId)
@@ -146,7 +153,7 @@ export class Runner {
     }
     await renderer.finalize()
     this.clearAbortTimer(thread.threadId)
-    this.idle(thread.threadId)
+    this.deps.db.threads.setRenderState(thread.threadId, "idle")
   }
   async handleProjectDown(channelId: string): Promise<void> {
     const threads = this.deps.db.threads.byChannel(channelId)

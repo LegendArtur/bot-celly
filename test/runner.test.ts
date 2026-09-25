@@ -218,6 +218,18 @@ test("recover rebuilds and finalizes the renderer from the last assistant messag
   expect(states).toEqual(["idle"])
 })
 
+test("prompt applies the thread's model and agent overrides", async () => {
+  const bodies: any[] = []
+  const { db } = makeDb()
+  db.threads.get = () => ({ renderState: "running", model: "anthropic/claude", agent: "build" })
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async (a: any) => { bodies.push(a.body) } } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.prompt("t1", "hi", "u")
+  expect(bodies[0]).toEqual({ parts: [{ type: "text", text: "hi" }], model: { providerID: "anthropic", modelID: "claude" }, agent: "build" })
+})
+
 test("Runner caches one renderer per thread: two text events yield one send and one edit", async () => {
   const sends: string[] = []
   const edits: string[] = []
