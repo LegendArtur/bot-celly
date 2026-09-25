@@ -1,4 +1,7 @@
 // test/sbx.test.ts
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { expect, test } from "vitest"
 import { SbxRunner, buildSandboxName, isPathInside, parseSbxLs, parseSbxPorts, sanitizeAttachmentName, slugify } from "../src/sbx.ts"
 import ls from "./fixtures/sbx-ls.json"
@@ -42,4 +45,28 @@ test("attachment names are basenamed and special names rejected", () => {
   expect(sanitizeAttachmentName("..\\..\\evil.txt")).toBe("evil.txt")
   expect(() => sanitizeAttachmentName("CON")).toThrow()
   expect(() => sanitizeAttachmentName("a/b.txt")).toThrow()
+})
+test("dot/space-only attachment names are rejected", () => {
+  expect(() => sanitizeAttachmentName(" . ")).toThrow()
+  expect(() => sanitizeAttachmentName("   ")).toThrow()
+  expect(() => sanitizeAttachmentName("...")).toThrow()
+})
+test("reserved device names are rejected after trimming", () => {
+  expect(() => sanitizeAttachmentName("COM5")).toThrow()
+  expect(() => sanitizeAttachmentName("LPT9")).toThrow()
+  expect(() => sanitizeAttachmentName("con .txt")).toThrow()
+  expect(() => sanitizeAttachmentName("com1.tar.gz")).toThrow()
+  expect(() => sanitizeAttachmentName("conin$")).toThrow()
+})
+test("path containment resolves symlinked ancestors", () => {
+  const root = mkdtempSync(join(tmpdir(), "cely-root-"))
+  const outside = mkdtempSync(join(tmpdir(), "cely-out-"))
+  try {
+    symlinkSync(outside, join(root, "link"))
+    expect(isPathInside(root, join(root, "link", "sub", "file.txt"))).toBe(false)
+    expect(isPathInside(root, join(root, "nested", "file.txt"))).toBe(true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    rmSync(outside, { recursive: true, force: true })
+  }
 })
