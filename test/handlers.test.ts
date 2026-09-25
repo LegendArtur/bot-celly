@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest"
 import { openDb } from "../src/db.ts"
 import { createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "../src/handlers.ts"
-import { describeDiscordStartupError } from "../src/helpers.ts"
+import { describeDiscordStartupError, formatStartupBanner } from "../src/helpers.ts"
 import type { Project, Thread } from "../src/types.ts"
 
 const silent = { debug() {}, info() {}, warn() {}, error() {}, child() { return this } } as any
@@ -296,4 +296,14 @@ test("describeDiscordStartupError explains an invalid token", () => {
 })
 test("describeDiscordStartupError passes through unknown errors", () => {
   expect(describeDiscordStartupError(new Error("boom"))).toBe("boom")
+})
+
+test("formatStartupBanner summarizes the run and flags missing permissions", () => {
+  const ok = formatStartupBanner({ guild: "g", projects: 2, dataDir: "./data", model: "anthropic/x", missingPermissions: [] })
+  expect(ok).toContain("Celly is running")
+  expect(ok).toContain("Projects: 2")
+  expect(ok).toContain("all required present")
+  const bad = formatStartupBanner({ guild: "g", projects: 0, dataDir: "./data", missingPermissions: ["Manage Channels"] })
+  expect(bad).toContain("MISSING: Manage Channels")
+  expect(bad).toContain("/project add")
 })

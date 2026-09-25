@@ -94,3 +94,27 @@ export function describeDiscordStartupError(err: unknown): string {
   }
   return raw
 }
+
+export interface StartupBanner {
+  guild: string
+  projects: number
+  dataDir: string
+  model?: string
+  missingPermissions: string[]
+}
+export function formatStartupBanner(info: StartupBanner): string {
+  const lines = [
+    `Guild:    ${info.guild}`,
+    `Projects: ${info.projects}`,
+    `Data:     ${info.dataDir}`,
+    `Model:    ${info.model ?? "(OpenCode default)"}`,
+    `Perms:    ${info.missingPermissions.length === 0 ? "all required present" : `MISSING: ${info.missingPermissions.join(", ")}`}`,
+  ]
+  const width = Math.max("Celly is running".length, ...lines.map((l) => l.length))
+  const rule = `+${"-".repeat(width + 2)}+`
+  const box = [rule, `| ${"Celly is running".padEnd(width)} |`, rule, ...lines.map((l) => `| ${l.padEnd(width)} |`), rule]
+  const next = info.projects === 0
+    ? "Next: in Discord run  /project add <name> <path>  then send a message in its channel."
+    : "Next: send a message in a project channel to start a session."
+  return [...box, next].join("\n")
+}

@@ -1,6 +1,6 @@
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { realpathSync } from "node:fs"
-import { ChannelType, Events } from "discord.js"
+import { ChannelType, Events, PermissionFlagsBits } from "discord.js"
 import type { Guild, Interaction, Message } from "discord.js"
 import type { Project, Thread } from "./types.ts"
 import { ensureDataDir, loadConfig, loadDotEnv, seedSettings } from "./config.js"
@@ -21,7 +21,7 @@ import { ingestAttachments } from "./attachments.js"
 import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
 import { SessionRoutes } from "./routing.js"
 import { createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "./handlers.js"
-import { buildPromptText, channelIdForBucket, createSubscriptionGate, describeDiscordStartupError, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
+import { buildPromptText, channelIdForBucket, createSubscriptionGate, describeDiscordStartupError, findCategoryId, formatStartupBanner, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
 export { buildPromptText, createSubscriptionGate, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
@@ -430,7 +430,20 @@ async function main(): Promise<void> {
   await guild.commands.set(commandData())
   if (client.isReady()) { subscribeReadyProjects(); void reconcileThreads().catch((err) => log.error("boot reconcile failed", { error: String(err) })) }
 
-  log.info("Celly ready", { guild: guild.name, permissions: guild.members.me?.permissions.toArray() })
+  log.info("Celly ready", { guild: guild.name })
+  const required: Array<[string, bigint]> = [
+    ["View Channels", PermissionFlagsBits.ViewChannel],
+    ["Send Messages", PermissionFlagsBits.SendMessages],
+    ["Send Messages in Threads", PermissionFlagsBits.SendMessagesInThreads],
+    ["Create Public Threads", PermissionFlagsBits.CreatePublicThreads],
+    ["Manage Channels", PermissionFlagsBits.ManageChannels],
+    ["Manage Threads", PermissionFlagsBits.ManageThreads],
+    ["Read Message History", PermissionFlagsBits.ReadMessageHistory],
+    ["Embed Links", PermissionFlagsBits.EmbedLinks],
+  ]
+  const me = guild.members.me
+  const missingPermissions = required.filter(([, bit]) => !(me?.permissions.has(bit) ?? false)).map(([name]) => name)
+  console.log(formatStartupBanner({ guild: guild.name, projects: db.projects.list().length, dataDir: cfg.dataDir, model: cfg.defaultModel, missingPermissions }))
 }
 
 export function isMainModule(moduleUrl: string, argv1: string | undefined): boolean {
