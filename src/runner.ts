@@ -27,14 +27,28 @@ export class Runner {
   private queue = new Map<string, { text: string; actor: string }[]>()
   private active = new Set<string>()
   private abortTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private renderers = new Map<string, Promise<Renderer>>()
   constructor(private readonly deps: {
     db: Db; clientFor(threadId: string): OpencodeClient
-    rendererFor(threadId: string): Promise<Renderer>
+    createRenderer(threadId: string): Promise<Renderer>
     sessionFor(threadId: string): Promise<string>
     log(msg: string, fields?: Record<string, unknown>): void
     maxQueue: number; maxConcurrentRuns: number
+    onThreadIdle?(threadId: string): void
   }) {}
   get activeCount() { return this.active.size }
+  private rendererFor(threadId: string): Promise<Renderer> {
+    let renderer = this.renderers.get(threadId)
+    if (!renderer) { renderer = this.deps.createRenderer(threadId); this.renderers.set(threadId, renderer) }
+    return renderer
+  }
+  private clearRenderer(threadId: string): void { this.renderers.delete(threadId) }
+  private idle(threadId: string): void {
+    this.deps.db.threads.setRenderState(threadId, "idle")
+    this.active.delete(threadId)
+    this.clearRenderer(threadId)
+    this.deps.onThreadIdle?.(threadId)
+  }
   private clearAbortTimer(threadId: string): void {
     const timer = this.abortTimers.get(threadId)
     if (timer !== undefined) { clearTimeout(timer); this.abortTimers.delete(threadId) }
@@ -58,10 +72,9 @@ export class Runner {
   private async forceIdle(threadId: string): Promise<void> {
     this.abortTimers.delete(threadId)
     if (this.deps.db.threads.get(threadId)?.renderState !== "aborting") return
-    try { const r = await this.deps.rendererFor(threadId); await r.finalize() } catch {}
+    try { const r = await this.rendererFor(threadId); await r.finalize() } catch {}
     this.queue.set(threadId, [])
-    this.deps.db.threads.setRenderState(threadId, "idle")
-    this.active.delete(threadId)
+    this.idle(threadId)
   }
   async prompt(threadId: string, text: string, actor: string): Promise<string | undefined> {
     const db = this.deps.db
@@ -86,20 +99,20 @@ export class Runner {
   }
   async onEvent(threadId: string, e: NormalizedEvent): Promise<void> {
     const db = this.deps.db
-    if (e.kind === "text" || e.kind === "tool") { const r = await this.deps.rendererFor(threadId); r.push(e); await r.tick() }
+    if (e.kind === "text" || e.kind === "tool") { const r = await this.rendererFor(threadId); r.push(e); await r.tick() }
     else if (e.kind === "permission") {
       const client = this.deps.clientFor(threadId)
       const response = evaluatePermission({ tool: e.tool, patterns: e.patterns })
       await client.postSessionIdPermissionsPermissionId({ path: { id: (await this.deps.sessionFor(threadId)), permissionID: e.permissionId }, body: { response } } as any)
     } else if (e.kind === "error") {
-      const r = await this.deps.rendererFor(threadId); r.push({ kind: "text", sessionId: e.sessionId, messageId: "", partId: `err-${e.sessionId}`, text: `[error] ${e.message}` })
-      await r.finalize(); db.threads.setRenderState(threadId, "idle"); this.active.delete(threadId)
+      const r = await this.rendererFor(threadId); r.push({ kind: "text", sessionId: e.sessionId, messageId: "", partId: `err-${e.sessionId}`, text: `[error] ${e.message}` })
+      await r.finalize(); this.idle(threadId)
       await this.drain(threadId)
     } else if (e.kind === "idle") {
-      const r = await this.deps.rendererFor(threadId); await r.finalize()
+      const r = await this.rendererFor(threadId); await r.finalize()
       this.clearAbortTimer(threadId)
       const aborting = db.threads.get(threadId)?.renderState === "aborting"
-      db.threads.setRenderState(threadId, "idle"); this.active.delete(threadId)
+      this.idle(threadId)
       if (aborting) this.queue.set(threadId, [])
       else await this.drain(threadId)
     }
@@ -123,7 +136,7 @@ export class Runner {
     this.deps.log("recovered thread", { threadId: thread.threadId, messages: list.length })
     let last: any
     for (const m of list) if (m?.info?.role === "assistant") last = m
-    const renderer = await this.deps.rendererFor(thread.threadId)
+    const renderer = await this.rendererFor(thread.threadId)
     if (last) {
       const messageId = last.info?.id ?? ""
       for (const part of last.parts ?? []) {
@@ -133,6 +146,20 @@ export class Runner {
     }
     await renderer.finalize()
     this.clearAbortTimer(thread.threadId)
-    this.deps.db.threads.setRenderState(thread.threadId, "idle")
+    this.idle(thread.threadId)
+  }
+  async handleProjectDown(channelId: string): Promise<void> {
+    const threads = this.deps.db.threads.byChannel(channelId)
+    for (const thread of threads) {
+      if (!this.active.has(thread.threadId)) continue
+      this.clearAbortTimer(thread.threadId)
+      try {
+        const renderer = await this.rendererFor(thread.threadId)
+        renderer.push({ kind: "text", sessionId: thread.sessionId, messageId: "", partId: `down-${thread.threadId}`, text: "[project server stopped]" })
+        await renderer.finalize()
+      } catch {}
+      this.idle(thread.threadId)
+    }
+    for (const thread of threads) this.queue.delete(thread.threadId)
   }
 }

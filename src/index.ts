@@ -119,7 +119,7 @@ async function main(): Promise<void> {
 
   const runnerSvc = new Runner({
     db, clientFor,
-    rendererFor: async (threadId) => {
+    createRenderer: async (threadId) => {
       const thread = db.threads.get(threadId)
       if (!thread) throw new Error(`unknown thread ${threadId}`)
       const channel = await client.channels.fetch(threadId)
