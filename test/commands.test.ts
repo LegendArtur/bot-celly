@@ -46,7 +46,11 @@ function select(over: any = {}) {
   }
   return i
 }
-const editOf = (i: any) => i.calls.find((c: any) => c.kind === "edit")?.c
+const editOf = (i: any) => {
+  const c = i.calls.find((c: any) => c.kind === "edit")?.c
+  if (c == null || typeof c === "string") return c
+  return c.components ? c : c.content
+}
 
 test("declares the v1 command set", () => {
   const names = commandData().map((c) => c.name).sort()
@@ -86,7 +90,7 @@ test("unauthorized interactions are rejected before defer", async () => {
   const i = interaction({ sub: "status", strings: { name: "demo" } })
   await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => false })
   expect(i.calls).toHaveLength(1)
-  expect(i.calls[0]).toEqual({ kind: "reply", c: { content: "You are not authorized.", flags: 64 } })
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "You are not authorized.", flags: 64, allowedMentions: { parse: [] } } })
 })
 test("add reply never contains the server password", async () => {
   const i = interaction({ sub: "add", strings: { name: "demo", path: "C:\\p" } })
@@ -95,6 +99,39 @@ test("add reply never contains the server password", async () => {
   expect(editOf(i)).toContain("demo")
   expect(editOf(i)).not.toContain("SUPERSECRET")
 })
+test("add stages progress into the deferred reply and posts a connected notice", async () => {
+  const i = interaction({ sub: "add", strings: { name: "demo", path: "C:\\p" } })
+  const stages: string[] = []
+  const connected: Array<[string, string]> = []
+  const projects: any = {
+    addProject: async (_input: any, onProgress: any) => {
+      for (const s of ["creating sandbox…", "installing…", "waiting for server…"]) { stages.push(s); await onProgress?.(s) }
+      return { ...proj, channelId: "chan-demo" }
+    },
+  }
+  await handleCommand(i, { projects, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => true,
+    postConnected: async (channelId: string, name: string) => { connected.push([channelId, name]) } })
+  const edits = i.calls.filter((c) => c.kind === "edit").map((c) => c.c)
+  expect(edits).toEqual([
+    { content: "creating sandbox…", allowedMentions: { parse: [] } },
+    { content: "installing…", allowedMentions: { parse: [] } },
+    { content: "waiting for server…", allowedMentions: { parse: [] } },
+    { content: "added demo", allowedMentions: { parse: [] } },
+  ])
+  expect(stages).toEqual(["creating sandbox…", "installing…", "waiting for server…"])
+  expect(connected).toEqual([["chan-demo", "demo"]])
+})
+
+test("every interaction edit and reply suppresses mentions", async () => {
+  const i = interaction({ sub: "status", strings: { name: "demo" } })
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true })
+  for (const call of i.calls) {
+    if (call.kind === "defer") continue
+    expect(call.c.allowedMentions).toEqual({ parse: [] })
+  }
+})
+
 test("start/stop/remove on an unknown project reply not found", async () => {
   for (const sub of ["start", "stop", "remove"]) {
     const i = interaction({ sub, strings: { name: "ghost", confirm: "ghost" } })
@@ -200,18 +237,34 @@ test("model and agent show selects for the current thread", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
   db.threads.upsert(threadRow("t1"))
   const modelInteraction = interaction({ commandName: "model", channelId: "t1" })
-  await handleCommand(modelInteraction, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+  await handleCommand(modelInteraction, { projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
     listModels: async () => [{ id: "anthropic/claude", name: "Claude" }] })
   const modelMenu = editOf(modelInteraction).components[0].components[0]
   expect(modelMenu.custom_id).toBe("cely:model:t1")
   expect(modelMenu.options).toEqual([{ label: "Claude", value: "anthropic/claude" }])
 
   const agentInteraction = interaction({ commandName: "agent", channelId: "t1" })
-  await handleCommand(agentInteraction, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+  await handleCommand(agentInteraction, { projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
     listAgents: async () => [{ id: "build", name: "build" }] })
   const agentMenu = editOf(agentInteraction).components[0].components[0]
   expect(agentMenu.custom_id).toBe("cely:agent:t1")
   expect(agentMenu.options).toEqual([{ label: "build", value: "build" }])
+})
+
+test("model and agent ensureReady the sandbox before listing", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert(threadRow("t1"))
+  for (const commandName of ["model", "agent"] as const) {
+    const i = interaction({ commandName, channelId: "t1" })
+    const order: string[] = []
+    const list = async () => { order.push("list"); return [] }
+    await handleCommand(i, {
+      projects: { ensureReady: async (id: string) => { order.push("ready:" + id) } } as any,
+      runner: {} as any, db, authorized: () => true,
+      listModels: list, listAgents: list,
+    })
+    expect(order).toEqual(["ready:c", "list"])
+  }
 })
 
 test("model outside a thread is rejected", async () => {
@@ -264,7 +317,8 @@ test("selecting an agent updates the thread", async () => {
 test("unauthorized selects are rejected before deferUpdate", async () => {
   const i = select({ customId: "cely:model:t1", values: ["x"] })
   await handleSelect(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => false })
-  expect(i.calls).toEqual([{ kind: "reply", c: { content: "You are not authorized.", flags: 64 } }])
+  expect(i.calls).toHaveLength(1)
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "You are not authorized.", flags: 64, allowedMentions: { parse: [] } } })
 })
 
 test("requiresOwner scopes project mutations", () => {
@@ -279,7 +333,7 @@ test("authorized non-owners are denied owner-only project subcommands before def
     const i = interaction({ sub, strings: { name: "demo", path: "C:\\p", confirm: "demo" } })
     await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => false })
     expect(i.calls).toHaveLength(1)
-    expect(i.calls[0]).toEqual({ kind: "reply", c: { content: "This command is owner-only.", flags: 64 } })
+    expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only.", flags: 64, allowedMentions: { parse: [] } } })
   }
 })
 

@@ -38,6 +38,7 @@ export interface CommandDeps {
   isOwner?(interaction: any): boolean
   stopSubscription?(channelId: string): void
   startSubscription?(channelId: string): void
+  postConnected?(channelId: string, projectName: string): Promise<void> | void
   createThread?(input: CreateThreadInput): Promise<{ threadId: string; sessionId: string }>
   listSessions?(channelId: string): Promise<{ id: string; title: string }[]>
   listModels?(channelId: string): Promise<{ id: string; name: string }[]>
@@ -55,6 +56,15 @@ export function parseCustomId(customId: string): { action: string; id?: string }
   const [, action = "", id] = customId.split(":")
   return { action, id }
 }
+
+/**
+ * Spec §9: every interaction reply/edit suppresses mentions. Some prompts and
+ * select values quote user-controlled text, so `parse: []` is set explicitly.
+ */
+export function noMentions(content: string, extra: Record<string, unknown> = {}): any {
+  return { content, allowedMentions: { parse: [] }, ...extra }
+}
+
 function selectRow(customId: string, placeholder: string, options: { label: string; value: string }[]): any {
   return { type: 1, components: [{ type: 3, custom_id: customId, placeholder, min_values: 1, max_values: 1, options: options.slice(0, 25) }] }
 }
@@ -65,131 +75,131 @@ export function requiresOwner(commandName: string, sub: string | null | undefine
 }
 
 export async function handleCommand(interaction: any, deps: CommandDeps): Promise<void> {
-  if (!deps.authorized(interaction)) { await interaction.reply({ content: "You are not authorized.", flags: 64 }); return }
+  if (!deps.authorized(interaction)) { await interaction.reply(noMentions("You are not authorized.", { flags: 64 })); return }
   const sub = interaction.commandName === "project" ? interaction.options.getSubcommand(false) : null
   if (requiresOwner(interaction.commandName, sub) && !deps.isOwner?.(interaction)) {
-    await interaction.reply({ content: "This command is owner-only.", flags: 64 }); return
+    await interaction.reply(noMentions("This command is owner-only.", { flags: 64 })); return
   }
   try {
     await interaction.deferReply({ flags: 64 })
     const name = interaction.options.getString("name", false)
     if (interaction.commandName === "project") {
-      if (sub === "add") {
-        const added = await deps.projects.addProject({ guildId: interaction.guildId, name, directory: interaction.options.getString("path", true) })
-        return void await interaction.editReply(`added ${added.name}`)
+      if (sub === "add" || sub === "create") {
+        const onProgress = (stage: string) => interaction.editReply(noMentions(stage))
+        const directory = sub === "create" ? await deps.projects.createProjectDirectory(name) : interaction.options.getString("path", true)
+        const added = await deps.projects.addProject({ guildId: interaction.guildId, name, directory }, onProgress)
+        await deps.postConnected?.(added.channelId, added.name)
+        return void await interaction.editReply(noMentions(sub === "create" ? `created ${added.name}` : `added ${added.name}`))
       }
-      if (sub === "create") {
-        const directory = await deps.projects.createProjectDirectory(name)
-        const added = await deps.projects.addProject({ guildId: interaction.guildId, name, directory })
-        return void await interaction.editReply(`created ${added.name}`)
-      }
-      if (sub === "list") return void await interaction.editReply(deps.db.projects.list().map((p) => `${p.name} (${p.status})`).join("\n") || "no projects")
+      if (sub === "list") return void await interaction.editReply(noMentions(deps.db.projects.list().map((p) => `${p.name} (${p.status})`).join("\n") || "no projects"))
       if (sub === "status") {
         const p = deps.db.projects.getByName(name)
-        if (!p) return void await interaction.editReply("not found")
+        if (!p) return void await interaction.editReply(noMentions("not found"))
         const sessions = deps.db.threads.byChannel(p.channelId).length
         let healthy: boolean | undefined
         try { healthy = await deps.projects.health?.(p.channelId) } catch { healthy = false }
         const health = healthy === undefined ? "" : healthy ? " healthy" : " unhealthy"
-        return void await interaction.editReply(`${p.name}: ${p.status}${health} on 127.0.0.1:${p.hostPort} (${sessions} session${sessions === 1 ? "" : "s"})`)
+        return void await interaction.editReply(noMentions(`${p.name}: ${p.status}${health} on 127.0.0.1:${p.hostPort} (${sessions} session${sessions === 1 ? "" : "s"})`))
       }
       if (sub === "start") {
         const p = deps.db.projects.getByName(name)
-        if (!p) return void await interaction.editReply("not found")
+        if (!p) return void await interaction.editReply(noMentions("not found"))
         deps.startSubscription?.(p.channelId)
         await deps.projects.start(p.channelId)
-        return void await interaction.editReply("started")
+        return void await interaction.editReply(noMentions("started"))
       }
       if (sub === "stop") {
         const p = deps.db.projects.getByName(name)
-        if (!p) return void await interaction.editReply("not found")
+        if (!p) return void await interaction.editReply(noMentions("not found"))
         await deps.runner.resetChannel?.(p.channelId, { notify: true })
         deps.stopSubscription?.(p.channelId)
         await deps.projects.stop(p.channelId)
-        return void await interaction.editReply("stopped")
+        return void await interaction.editReply(noMentions("stopped"))
       }
       if (sub === "remove") {
         const p = deps.db.projects.getByName(name)
-        if (!p) return void await interaction.editReply("not found")
+        if (!p) return void await interaction.editReply(noMentions("not found"))
         const expected = interaction.options.getString("confirm", true)
-        if (expected !== name) return void await interaction.editReply("confirmation name does not match")
+        if (expected !== name) return void await interaction.editReply(noMentions("confirmation name does not match"))
         await deps.runner.resetChannel?.(p.channelId, { notify: true })
         deps.stopSubscription?.(p.channelId)
         await deps.projects.remove(p.channelId)
-        return void await interaction.editReply("removed")
+        return void await interaction.editReply(noMentions("removed"))
       }
     }
     if (interaction.commandName === "new") {
       const project = deps.db.projects.getByChannel(interaction.channelId)
-      if (!project) return void await interaction.editReply("this channel is not a project")
-      if (!deps.createThread) return void await interaction.editReply("thread creation unavailable")
+      if (!project) return void await interaction.editReply(noMentions("this channel is not a project"))
+      if (!deps.createThread) return void await interaction.editReply(noMentions("thread creation unavailable"))
       const prompt = interaction.options.getString("prompt", false) ?? undefined
       const thread = await deps.createThread({ channelId: project.channelId, title: prompt ?? `session ${new Date().toISOString()}`, prompt, authorId: interaction.user?.id })
-      return void await interaction.editReply(`created <#${thread.threadId}>`)
+      return void await interaction.editReply(noMentions(`created <#${thread.threadId}>`))
     }
     if (interaction.commandName === "resume") {
       const project = deps.db.projects.getByChannel(interaction.channelId)
-      if (!project) return void await interaction.editReply("this channel is not a project")
+      if (!project) return void await interaction.editReply(noMentions("this channel is not a project"))
       const sessions = (await deps.listSessions?.(project.channelId)) ?? []
-      if (!sessions.length) return void await interaction.editReply("no sessions to resume")
+      if (!sessions.length) return void await interaction.editReply(noMentions("no sessions to resume"))
       const options = sessions.slice(0, 25).map((s) => ({ label: (s.title || s.id).slice(0, 100), value: s.id }))
-      return void await interaction.editReply({ content: "Choose a session to resume:", components: [selectRow(selectCustomId(RESUME_SELECT, project.channelId), "Select a session", options)] })
+      return void await interaction.editReply({ content: "Choose a session to resume:", components: [selectRow(selectCustomId(RESUME_SELECT, project.channelId), "Select a session", options)], allowedMentions: { parse: [] } })
     }
     if (interaction.commandName === "model" || interaction.commandName === "agent") {
       const thread = deps.db.threads.get(interaction.channelId)
-      if (!thread) return void await interaction.editReply(`use /${interaction.commandName} inside a thread`)
+      if (!thread) return void await interaction.editReply(noMentions(`use /${interaction.commandName} inside a thread`))
+      // Spec §9: wake the sandbox before asking it for models/agents.
+      await deps.projects.ensureReady?.(thread.channelId)
       if (interaction.commandName === "model") {
         const models = (await deps.listModels?.(thread.channelId)) ?? []
-        if (!models.length) return void await interaction.editReply("no models available")
+        if (!models.length) return void await interaction.editReply(noMentions("no models available"))
         const options = models.slice(0, 25).map((m) => ({ label: (m.name || m.id).slice(0, 100), value: m.id }))
-        return void await interaction.editReply({ content: "Choose a model for this thread:", components: [selectRow(selectCustomId(MODEL_SELECT, thread.threadId), "Select a model", options)] })
+        return void await interaction.editReply({ content: "Choose a model for this thread:", components: [selectRow(selectCustomId(MODEL_SELECT, thread.threadId), "Select a model", options)], allowedMentions: { parse: [] } })
       }
       const agents = (await deps.listAgents?.(thread.channelId)) ?? []
-      if (!agents.length) return void await interaction.editReply("no agents available")
+      if (!agents.length) return void await interaction.editReply(noMentions("no agents available"))
       const options = agents.slice(0, 25).map((a) => ({ label: (a.name || a.id).slice(0, 100), value: a.id }))
-      return void await interaction.editReply({ content: "Choose an agent for this thread:", components: [selectRow(selectCustomId(AGENT_SELECT, thread.threadId), "Select an agent", options)] })
+      return void await interaction.editReply({ content: "Choose an agent for this thread:", components: [selectRow(selectCustomId(AGENT_SELECT, thread.threadId), "Select an agent", options)], allowedMentions: { parse: [] } })
     }
     if (interaction.commandName === "abort") {
       const isThread = interaction.channel?.isThread?.() === true
       const threadIds = isThread
         ? (deps.runner.isActive(interaction.channelId) ? [interaction.channelId] : [])
         : deps.runner.activeThreadsFor(interaction.channelId)
-      if (!threadIds.length) return void await interaction.editReply("nothing to abort")
+      if (!threadIds.length) return void await interaction.editReply(noMentions("nothing to abort"))
       for (const threadId of threadIds) await deps.runner.abort(threadId)
-      return void await interaction.editReply("aborted")
+      return void await interaction.editReply(noMentions("aborted"))
     }
-    await interaction.editReply("not implemented in this build")
+    await interaction.editReply(noMentions("not implemented in this build"))
   } catch (e) {
-    await interaction.editReply(`error: ${(e as Error).message}`)
+    await interaction.editReply(noMentions(`error: ${(e as Error).message}`))
   }
 }
 
 export async function handleSelect(interaction: any, deps: CommandDeps): Promise<void> {
-  if (!deps.authorized(interaction)) { await interaction.reply({ content: "You are not authorized.", flags: 64 }); return }
+  if (!deps.authorized(interaction)) { await interaction.reply(noMentions("You are not authorized.", { flags: 64 })); return }
   const { action, id } = parseCustomId(interaction.customId ?? "")
   try {
     await interaction.deferUpdate()
     const value: string | undefined = interaction.values?.[0]
     if (action === RESUME_SELECT) {
-      if (!id || !value) return void await interaction.editReply({ content: "no session selected", components: [] })
+      if (!id || !value) return void await interaction.editReply({ content: "no session selected", components: [], allowedMentions: { parse: [] } })
       const project = deps.db.projects.getByChannel(id)
-      if (!project) return void await interaction.editReply({ content: "project not found", components: [] })
+      if (!project) return void await interaction.editReply({ content: "project not found", components: [], allowedMentions: { parse: [] } })
       const existing = deps.db.threads.getBySession(value)[0]
       const thread = await deps.createThread?.({ channelId: id, title: existing?.title ?? `resume ${new Date().toISOString()}`, sessionId: value, authorId: interaction.user?.id })
-      return void await interaction.editReply({ content: thread ? `resumed in <#${thread.threadId}>` : "resume unavailable", components: [] })
+      return void await interaction.editReply({ content: thread ? `resumed in <#${thread.threadId}>` : "resume unavailable", components: [], allowedMentions: { parse: [] } })
     }
     if (action === MODEL_SELECT) {
       deps.setThreadModel?.(id ?? interaction.channelId, value ?? null)
-      return void await interaction.editReply({ content: `model set to ${value ?? "default"}`, components: [] })
+      return void await interaction.editReply({ content: `model set to ${value ?? "default"}`, components: [], allowedMentions: { parse: [] } })
     }
     if (action === AGENT_SELECT) {
       deps.setThreadAgent?.(id ?? interaction.channelId, value ?? null)
-      return void await interaction.editReply({ content: `agent set to ${value ?? "default"}`, components: [] })
+      return void await interaction.editReply({ content: `agent set to ${value ?? "default"}`, components: [], allowedMentions: { parse: [] } })
     }
-    return void await interaction.editReply({ content: "unknown selection", components: [] })
+    return void await interaction.editReply({ content: "unknown selection", components: [], allowedMentions: { parse: [] } })
   } catch (e) {
     const content = `error: ${(e as Error).message}`
-    if (interaction.deferred || interaction.replied) return void await interaction.editReply({ content })
-    await interaction.reply({ content, flags: 64 })
+    if (interaction.deferred || interaction.replied) return void await interaction.editReply(noMentions(content))
+    await interaction.reply(noMentions(content, { flags: 64 }))
   }
 }
