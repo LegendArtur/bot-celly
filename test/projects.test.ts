@@ -86,6 +86,21 @@ test("createProjectDirectory sanitizes the name and creates it under PROJECTS_RO
   }
 })
 
+test("createProjectDirectory rejects a sensitive path without creating it", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cely-root-"))
+  try {
+    const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
+    const svc = new ProjectService({ sbx, runner: runner as any, db,
+      config: { ...makeCfg(4600, 4600), projectsRoot: root }, log: logger(),
+      isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {},
+      forbiddenPaths: [join(root, "secret")] } as any)
+    await expect(svc.createProjectDirectory("secret")).rejects.toThrow(/sensitive/)
+    expect(existsSync(join(root, "secret"))).toBe(false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test("addProject writes and verifies the cely bootstrap before starting the serve child", async () => {
   const db = openDb(":memory:"); db.migrate()
   const { sbx, runner, children } = fakes()
@@ -212,10 +227,12 @@ test("ensureReady is single-flighted, restarts a stale child, and throws if stil
     await expect(Promise.all([svc.ensureReady("chan1"), svc.ensureReady("chan1")])).rejects.toThrow(/not healthy/)
     expect(calls.filter((c) => c[0] === "start")).toHaveLength(1)
     expect(children).toHaveLength(1)
+    expect(children[0].killed).toBe(1)
+    expect(svc.childFor("chan1")).toBeUndefined()
     await expect(svc.ensureReady("chan1")).rejects.toThrow(/not healthy/)
     expect(children).toHaveLength(2)
-    expect(children[0].killed).toBe(1)
-    expect(svc.childFor("chan1")).toBe(children[1])
+    expect(children[1].killed).toBe(1)
+    expect(svc.childFor("chan1")).toBeUndefined()
   } finally { await server.close() }
 })
 
@@ -231,6 +248,20 @@ test("ensureReady boots a supervised child even when health already passes", asy
     expect(children).toHaveLength(1)
     expect(svc.childFor("chan1")).toBe(children[0])
     expect(db.projects.getByChannel("chan1")?.status).toBe("ready")
+  } finally { await server.close() }
+})
+
+test("a crash of a replacement child still marks the project degraded", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, children } = fakes()
+  const server = await healthServer(true)
+  try {
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {}, killTimeoutMs: 1000 } as any)
+    await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
+    await svc.stop("chan-demo")
+    await svc.ensureReady("chan-demo")
+    children[1].emitExit()
+    expect(db.projects.getByChannel("chan-demo")?.status).toBe("degraded")
   } finally { await server.close() }
 })
 

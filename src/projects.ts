@@ -19,20 +19,29 @@ export interface ProjectDeps {
   isPortFree?(port: number): Promise<boolean>
   forbiddenPaths?: string[]
   onProjectDown?(channelId: string, projectName: string): void
+  killTimeoutMs?: number
 }
 
 export class ProjectService {
   private children = new Map<string, ChildProcess>()
   private inflight = new Map<string, Promise<void>>()
-  private intentional = new Set<string>()
+  private intentional = new Set<ChildProcess>()
+  private killTimers = new Map<ChildProcess, ReturnType<typeof setTimeout>>()
   private addQueue: Promise<unknown> = Promise.resolve()
   constructor(private readonly deps: ProjectDeps) {}
 
   childFor(channelId: string): ChildProcess | undefined { return this.children.get(channelId) }
 
+  private validateDirectory(directory: string): void {
+    const { config } = this.deps
+    if (!isPathInside(config.projectsRoot, directory)) throw new Error(`directory must be inside PROJECTS_ROOT (${config.projectsRoot})`)
+    const forbidden = this.deps.forbiddenPaths ?? defaultForbiddenPaths(config.dataDir)
+    if (isSensitivePath(directory, forbidden)) throw new Error(`directory is too sensitive to mount: ${directory}`)
+  }
+
   async createProjectDirectory(name: string): Promise<string> {
     const directory = join(this.deps.config.projectsRoot, sanitizeProjectDirName(name))
-    if (!isPathInside(this.deps.config.projectsRoot, directory)) throw new Error("invalid project directory")
+    this.validateDirectory(directory)
     await mkdir(directory, { recursive: true })
     return directory
   }
@@ -52,7 +61,13 @@ export class ProjectService {
     const child = this.children.get(channelId)
     if (!child) return
     this.children.delete(channelId)
-    this.intentional.add(channelId)
+    this.intentional.add(child)
+    const timer = setTimeout(() => {
+      this.intentional.delete(child)
+      this.killTimers.delete(child)
+    }, this.deps.killTimeoutMs ?? 5000)
+    if (typeof (timer as any).unref === "function") (timer as any).unref()
+    this.killTimers.set(child, timer)
     child.kill()
   }
 
@@ -84,9 +99,7 @@ export class ProjectService {
 
   private async doAddProject(input: { guildId: string; name: string; directory: string; existingChannelId?: string }): Promise<Project> {
     const { config, db, sbx } = this.deps
-    if (!isPathInside(config.projectsRoot, input.directory)) throw new Error(`directory must be inside PROJECTS_ROOT (${config.projectsRoot})`)
-    const forbidden = this.deps.forbiddenPaths ?? defaultForbiddenPaths(config.dataDir)
-    if (isSensitivePath(input.directory, forbidden)) throw new Error(`directory is too sensitive to mount: ${input.directory}`)
+    this.validateDirectory(input.directory)
     const taken = new Set((await sbx.list()).map((s) => s.name))
     for (const p of db.projects.list()) taken.add(p.sandboxName)
     const sandboxName = buildSandboxName(input.name, taken)
@@ -107,7 +120,7 @@ export class ProjectService {
       const sandboxPath = await this.resolveSandboxPath(channelId, sandboxName, input.directory)
       this.bootServer(channelId)
       const client = createClient(`http://127.0.0.1:${actualPort}`, serverPassword)
-      await waitForHealth(client, config.healthTimeoutMs)
+      await waitForHealth(client, config.bootTimeoutMs)
       db.projects.setReady(channelId, sandboxPath)
       return db.projects.getByChannel(channelId)!
     } catch (e) {
@@ -162,7 +175,9 @@ export class ProjectService {
     child.on("exit", () => {
       const tracked = this.children.get(channelId) === child
       if (tracked) this.children.delete(channelId)
-      if (this.intentional.delete(channelId)) return
+      const killTimer = this.killTimers.get(child)
+      if (killTimer !== undefined) { clearTimeout(killTimer); this.killTimers.delete(child) }
+      if (this.intentional.delete(child)) return
       if (!tracked) return
       this.deps.db.projects.setStatus(channelId, "degraded")
       this.deps.onProjectDown?.(channelId, project.name)
@@ -188,11 +203,26 @@ export class ProjectService {
       this.killChild(channelId)
       this.bootServer(channelId)
       try { await waitForHealth(client, this.deps.config.healthTimeoutMs) }
-      catch (e) { throw new Error(`project ${channelId} not healthy: ${(e as Error).message}`) }
+      catch (e) {
+        this.killChild(channelId)
+        throw new Error(`project ${channelId} not healthy: ${(e as Error).message}`)
+      }
       this.deps.db.projects.setStatus(channelId, "ready")
     })()
     this.inflight.set(channelId, task.finally(() => this.inflight.delete(channelId)))
     return this.inflight.get(channelId)
+  }
+
+  async health(channelId: string, timeoutMs = 3000): Promise<boolean> {
+    const p = this.deps.db.projects.getByChannel(channelId)
+    if (!p) return false
+    try {
+      const client = createClient(`http://127.0.0.1:${p.hostPort}`, p.serverPassword)
+      await waitForHealth(client, timeoutMs, 250)
+      return true
+    } catch {
+      return false
+    }
   }
 
   async stop(channelId: string): Promise<void> {
