@@ -35,25 +35,47 @@ export interface CommandDeps {
 
 export async function handleCommand(interaction: any, deps: CommandDeps): Promise<void> {
   if (!deps.authorized(interaction)) { await interaction.reply({ content: "You are not authorized.", flags: 64 }); return }
-  await interaction.deferReply({ flags: 64 })
-  const name = interaction.options.getString("name", false)
   try {
+    await interaction.deferReply({ flags: 64 })
+    const name = interaction.options.getString("name", false)
     if (interaction.commandName === "project") {
       const sub = interaction.options.getSubcommand(false)
-      if (sub === "add") return void await interaction.editReply(JSON.stringify(await deps.projects.addProject({ guildId: interaction.guildId, name, directory: interaction.options.getString("path", true) })))
+      if (sub === "add") {
+        const added = await deps.projects.addProject({ guildId: interaction.guildId, name, directory: interaction.options.getString("path", true) })
+        return void await interaction.editReply(`added ${added.name}`)
+      }
       if (sub === "list") return void await interaction.editReply(deps.db.projects.list().map((p) => `${p.name} (${p.status})`).join("\n") || "no projects")
       if (sub === "status") { const p = deps.db.projects.getByName(name); return void await interaction.editReply(p ? `${p.name}: ${p.status} on 127.0.0.1:${p.hostPort}` : "not found") }
-      if (sub === "start") { await deps.projects.ensureReady(deps.db.projects.getByName(name)!.channelId); return void await interaction.editReply("started") }
-      if (sub === "stop") { await deps.projects.stop(deps.db.projects.getByName(name)!.channelId); return void await interaction.editReply("stopped") }
+      if (sub === "start") {
+        const p = deps.db.projects.getByName(name)
+        if (!p) return void await interaction.editReply("not found")
+        await deps.projects.ensureReady(p.channelId)
+        return void await interaction.editReply("started")
+      }
+      if (sub === "stop") {
+        const p = deps.db.projects.getByName(name)
+        if (!p) return void await interaction.editReply("not found")
+        await deps.projects.stop(p.channelId)
+        return void await interaction.editReply("stopped")
+      }
       if (sub === "remove") {
+        const p = deps.db.projects.getByName(name)
+        if (!p) return void await interaction.editReply("not found")
         const expected = interaction.options.getString("confirm", true)
         if (expected !== name) return void await interaction.editReply("confirmation name does not match")
-        await deps.projects.remove(deps.db.projects.getByName(name)!.channelId)
+        await deps.projects.remove(p.channelId)
         return void await interaction.editReply("removed")
       }
       if (sub === "create") return void await interaction.editReply("use /project add for v1")
     }
-    if (interaction.commandName === "abort") { await deps.runner.abort(interaction.channelId); return void await interaction.editReply("aborted") }
+    if (interaction.commandName === "abort") {
+      const isThread = interaction.channel?.isThread?.() === true
+      const candidates = isThread ? [interaction.channelId] : deps.db.threads.byChannel(interaction.channelId).map((t) => t.threadId)
+      const threadIds = candidates.filter((id) => { const s = deps.db.threads.get(id)?.renderState; return s === "running" || s === "aborting" })
+      if (!threadIds.length) return void await interaction.editReply("nothing to abort")
+      for (const threadId of threadIds) await deps.runner.abort(threadId)
+      return void await interaction.editReply("aborted")
+    }
     await interaction.editReply("not implemented in this build")
   } catch (e) {
     await interaction.editReply(`error: ${(e as Error).message}`)
