@@ -15,6 +15,16 @@ test("caps output at 3 chunks plus a notice", async () => {
   expect(chunks[3]).toMatch(/truncated/)
   expect(chunks[3]).toContain("exit 0")
 })
+test("closes an open code fence before the truncation notice", async () => {
+  const text = "`".repeat(500) + "\n" + "a\n".repeat(3000)
+  const sbx: any = { exec: async () => ({ code: 0, stdout: text, stderr: "" }) }
+  const chunks = await runShell({ sbx, project: { sandboxName: "c", directory: "C:\\p" } as any }, "cmd")
+  expect(chunks.length).toBe(4)
+  const head = chunks.slice(0, 3).join("\n")
+  const markers = head.split("\n").filter((l) => /^ {0,3}`{3,}/.test(l))
+  expect(markers.length % 2).toBe(0)
+})
+
 test("surfaces a non-zero exit code alongside output", async () => {
   const sbx: any = { exec: async () => ({ code: 3, stdout: "boom", stderr: "" }) }
   const chunks = await runShell({ sbx, project: { sandboxName: "c", directory: "C:\\p" } as any }, "false")

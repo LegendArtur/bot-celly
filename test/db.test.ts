@@ -1,4 +1,8 @@
 // test/db.test.ts
+import { DatabaseSync } from "node:sqlite"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { expect, test } from "vitest"
 import { openDb } from "../src/db.ts"
 
@@ -45,6 +49,40 @@ test("updates per-thread model and agent overrides", () => {
   expect(db.threads.get("t1")?.model).toBeNull()
 })
 test("migrate is idempotent", () => { const db = fresh(); db.migrate(); expect(db.projects.list()).toEqual([]) })
+test("v2 migration repairs a pre-cascade threads table", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cely-db-"))
+  const file = join(dir, "bot.db")
+  try {
+    const legacy = new DatabaseSync(file)
+    legacy.exec(`
+      PRAGMA foreign_keys = ON;
+      CREATE TABLE projects (channel_id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, name TEXT NOT NULL UNIQUE,
+        directory TEXT NOT NULL, sandbox_path TEXT, sandbox_name TEXT NOT NULL UNIQUE,
+        host_port INTEGER NOT NULL UNIQUE, server_password TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL);
+      CREATE TABLE threads (thread_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL REFERENCES projects(channel_id),
+        session_id TEXT NOT NULL, title TEXT, model TEXT, agent TEXT, worktree_path TEXT,
+        live_message_id TEXT, render_state TEXT NOT NULL DEFAULT 'idle', created_at INTEGER NOT NULL, last_active_at INTEGER NOT NULL);
+      CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      PRAGMA user_version = 1;
+      INSERT INTO projects (channel_id,guild_id,name,directory,sandbox_path,sandbox_name,host_port,server_password,status,created_at)
+        VALUES ('c1','g','demo','C:\\p',NULL,'cely-demo',4300,'pw','ready',1);
+      INSERT INTO threads (thread_id,channel_id,session_id,title,model,agent,worktree_path,live_message_id,render_state,created_at,last_active_at)
+        VALUES ('t1','c1','s1',NULL,NULL,NULL,NULL,NULL,'idle',1,1);
+    `)
+    const before = legacy.prepare("PRAGMA foreign_key_list(threads)").all() as any[]
+    expect(before.some((r) => r.on_delete === "NO ACTION")).toBe(true)
+    legacy.close()
+
+    const db = openDb(file)
+    db.migrate()
+    expect(db.threads.get("t1")?.sessionId).toBe("s1")
+    db.projects.remove("c1")
+    expect(db.threads.get("t1")).toBeUndefined()
+    db.close()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
 test("removing a project cascades to its threads", () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
   db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,

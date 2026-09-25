@@ -29,7 +29,7 @@ export interface Db {
   settings: { get(key: string): string | undefined; set(key: string, value: string): void }
 }
 
-const SCHEMA = `
+const SCHEMA_V1 = `
 CREATE TABLE IF NOT EXISTS projects (
   channel_id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, name TEXT NOT NULL UNIQUE,
   directory TEXT NOT NULL, sandbox_path TEXT, sandbox_name TEXT NOT NULL UNIQUE,
@@ -43,6 +43,26 @@ CREATE TABLE IF NOT EXISTS threads (
 CREATE INDEX IF NOT EXISTS idx_threads_session ON threads(session_id);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `
+const SCHEMA_V2 = `
+CREATE TABLE threads_new (
+  thread_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL REFERENCES projects(channel_id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL, title TEXT, model TEXT, agent TEXT, worktree_path TEXT,
+  live_message_id TEXT, render_state TEXT NOT NULL DEFAULT 'idle',
+  created_at INTEGER NOT NULL, last_active_at INTEGER NOT NULL);
+INSERT INTO threads_new (thread_id,channel_id,session_id,title,model,agent,worktree_path,live_message_id,render_state,created_at,last_active_at)
+  SELECT thread_id,channel_id,session_id,title,model,agent,worktree_path,live_message_id,render_state,created_at,last_active_at FROM threads;
+DROP TABLE threads;
+ALTER TABLE threads_new RENAME TO threads;
+CREATE INDEX IF NOT EXISTS idx_threads_session ON threads(session_id);
+`
+const MIGRATIONS: { version: number; up(raw: DatabaseSync): void }[] = [
+  { version: 1, up: (raw) => raw.exec(SCHEMA_V1) },
+  { version: 2, up: (raw) => raw.exec(SCHEMA_V2) },
+]
+function userVersion(raw: DatabaseSync): number {
+  const row = raw.prepare("PRAGMA user_version").get() as { user_version?: number } | undefined
+  return Number(row?.user_version ?? 0)
+}
 const rowToProject = (r: any): Project => ({
   channelId: r.channel_id, guildId: r.guild_id, name: r.name, directory: r.directory,
   sandboxPath: r.sandbox_path ?? null, sandboxName: r.sandbox_name, hostPort: r.host_port,
@@ -59,7 +79,20 @@ export function openDb(path: string): Db {
   const raw = new DatabaseSync(path)
   raw.exec("PRAGMA foreign_keys = ON")
   const db: Db = {
-    migrate() { raw.exec(SCHEMA); raw.exec("PRAGMA user_version = 1") },
+    migrate() {
+      for (const migration of MIGRATIONS) {
+        if (userVersion(raw) >= migration.version) continue
+        raw.exec("BEGIN")
+        try {
+          migration.up(raw)
+          raw.exec(`PRAGMA user_version = ${migration.version}`)
+          raw.exec("COMMIT")
+        } catch (e) {
+          raw.exec("ROLLBACK")
+          throw e
+        }
+      }
+    },
     close() { raw.close() },
     projects: {
       insertProvisioning(p) {
