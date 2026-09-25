@@ -1,7 +1,7 @@
 // test/events.test.ts
 import { createServer } from "node:http"
 import { expect, test } from "vitest"
-import { EventRouter, normalizeEvent } from "../src/events.ts"
+import { EventRouter, INITIAL_BACKOFF, MAX_BACKOFF, nextBackoff, normalizeEvent } from "../src/events.ts"
 
 test("normalizes a text part", () => {
   expect(normalizeEvent({ type: "message.part.updated", properties: { part: { id: "p1", messageID: "m1", sessionID: "s1", type: "text", text: "hi" } } }))
@@ -36,6 +36,23 @@ test("normalizes the SDK permission shape (type/pattern)", () => {
 test("extracts the message from an SDK error object", () => {
   expect(normalizeEvent({ type: "session.error", properties: { sessionID: "s1", error: { name: "UnknownError", data: { message: "boom" } } } }))
     .toMatchObject({ kind: "error", message: "boom" })
+})
+
+test("exponential backoff starts at 1s, doubles, and caps at 30s", () => {
+  expect(INITIAL_BACKOFF).toBe(1000)
+  expect(MAX_BACKOFF).toBe(30000)
+  expect(nextBackoff(INITIAL_BACKOFF)).toBe(2000)
+  expect(nextBackoff(2000)).toBe(4000)
+  expect(nextBackoff(4000)).toBe(8000)
+  expect(nextBackoff(8000)).toBe(16000)
+  expect(nextBackoff(16000)).toBe(30000)
+  expect(nextBackoff(30000)).toBe(30000)
+  expect(nextBackoff(MAX_BACKOFF * 4)).toBe(30000)
+})
+
+test("backoff resets to 1s after a successful connection", () => {
+  expect(nextBackoff(16000, true)).toBe(1000)
+  expect(nextBackoff(30000, true)).toBe(1000)
 })
 
 const waitFor = async (predicate: () => boolean, timeoutMs = 5000) => {

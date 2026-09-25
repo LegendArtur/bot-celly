@@ -38,6 +38,23 @@ export function normalizeEvent(raw: any): NormalizedEvent | null {
   }
 }
 
+export const INITIAL_BACKOFF = 1000
+export const MAX_BACKOFF = 30000
+export function nextBackoff(prevMs: number, connected = false): number {
+  if (connected) return INITIAL_BACKOFF
+  return Math.min(prevMs * 2, MAX_BACKOFF)
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    let timer: ReturnType<typeof setTimeout>
+    const done = () => { clearTimeout(timer); signal.removeEventListener("abort", done); resolve() }
+    timer = setTimeout(done, ms)
+    if (signal.aborted) done()
+    else signal.addEventListener("abort", done, { once: true })
+  })
+}
+
 export interface EventRouterDeps {
   route(sessionId: string): string | undefined
   onEvent(threadId: string, e: NormalizedEvent): void
@@ -49,10 +66,13 @@ export class EventRouter {
   async subscribe(baseUrl: string, password: string, signal: AbortSignal): Promise<void> {
     const auth = "Basic " + Buffer.from(`opencode:${password}`).toString("base64")
     let connectedBefore = false
+    let backoff = INITIAL_BACKOFF
     while (!signal.aborted) {
+      let connected = false
       try {
         const res = await fetch(`${baseUrl}/global/event`, { headers: { Authorization: auth, Accept: "text/event-stream" }, signal })
         if (!res.ok || !res.body) throw new Error(`SSE HTTP ${res.status}`)
+        connected = true
         if (connectedBefore) for (const s of this.deps.knownSessions()) await this.deps.onResync(s.threadId, s.sessionId)
         connectedBefore = true
         const reader = res.body.getReader(); const decoder = new TextDecoder(); let buf = ""
@@ -70,9 +90,11 @@ export class EventRouter {
             if (threadId) this.deps.onEvent(threadId, e)
           }
         }
-      } catch { if (signal.aborted) return }
+      } catch {}
       if (signal.aborted) return
-      await new Promise((r) => setTimeout(r, 1000))
+      const delay = connected ? INITIAL_BACKOFF : backoff
+      await sleep(delay, signal)
+      backoff = nextBackoff(delay, connected)
     }
   }
 }
