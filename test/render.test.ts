@@ -1,9 +1,44 @@
+import { MessageFlags } from "discord.js"
 import { expect, test } from "vitest"
-import { Renderer, chunkMessage, sanitizeThreadName } from "../src/render.ts"
+import { Renderer, chunkMessage, renderPayload, sanitizeThreadName } from "../src/render.ts"
 
 test("chunks plain text under the cap", () => {
   expect(chunkMessage("a".repeat(4500), 1900).every((c) => c.length <= 1900)).toBe(true)
   expect(chunkMessage("hello", 1900)).toEqual(["hello"])
+})
+test("chunkMessage returns no chunks for an empty body", () => {
+  expect(chunkMessage("")).toEqual([])
+})
+test("renderPayload suppresses mentions and link embeds", () => {
+  expect(renderPayload("hi")).toEqual({ content: "hi", allowedMentions: { parse: [] }, flags: MessageFlags.SuppressEmbeds })
+})
+test("renderer never sends an empty body", async () => {
+  const sends: string[] = []
+  const r = new Renderer({
+    send: async (c) => { sends.push(c); return "m1" },
+    edit: async () => {},
+    now: () => 0, intervalMs: 1000,
+  })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "" })
+  await r.finalize()
+  expect(sends).toEqual([])
+})
+test("renderer deletes messages when the body shrinks to empty", async () => {
+  const sends: string[] = []
+  const deletes: string[] = []
+  let n = 0
+  const r = new Renderer({
+    send: async (c) => { sends.push(c); return "m" + (++n) },
+    edit: async () => {},
+    delete: async (id) => { deletes.push(id) },
+    now: () => 0, intervalMs: 1000,
+  })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "hello" })
+  await r.finalize()
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "" })
+  await r.finalize()
+  expect(sends).toEqual(["hello"])
+  expect(deletes).toEqual(["m1"])
 })
 test("keeps code fences balanced across chunks", () => {
   const text = "```ts\n" + "x\n".repeat(2000) + "```"

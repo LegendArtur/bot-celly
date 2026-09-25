@@ -1,4 +1,20 @@
+import { MessageFlags } from "discord.js"
 import type { NormalizedEvent } from "./events.ts"
+
+export interface RenderPayload {
+  content: string
+  allowedMentions: { parse: [] }
+  flags: number
+}
+
+/**
+ * The single Discord output chokepoint. Every renderer send/edit and channel
+ * notice goes through this so replies never ping roles/users and never
+ * generate link previews (spec §9).
+ */
+export function renderPayload(content: string): RenderPayload {
+  return { content, allowedMentions: { parse: [] }, flags: MessageFlags.SuppressEmbeds }
+}
 
 function longestBacktickRun(text: string): number {
   let max = 0
@@ -37,6 +53,7 @@ function fenceMarkerStarts(text: string, fenceLen: number): number[] {
 }
 
 export function chunkMessage(text: string, max = 1900): string[] {
+  if (text === "") return []
   if (text.length <= max) return [text]
   const fenceLen = Math.max(3, longestBacktickRun(text) + 1)
   const fence = "`".repeat(fenceLen)
@@ -116,6 +133,17 @@ export class Renderer {
   private async runFlush(): Promise<void> {
     const revision = this.revision
     const chunks = chunkMessage(this.body(), 1900)
+    if (chunks.length === 0) {
+      // Never send(""): an empty body is not a message. If earlier chunks
+      // existed and the body shrank to nothing, drop them instead.
+      if (this.ids.length > 0) {
+        const surplus = this.ids.splice(0)
+        if (this.deps.delete) for (const id of surplus) await this.deps.delete(id)
+      }
+      this.lastEdit = this.deps.now()
+      if (this.revision === revision) this.dirty = false
+      return
+    }
     for (const [i, content] of chunks.entries()) {
       const existing = this.ids[i]
       if (existing !== undefined) await this.deps.edit(existing, content)
