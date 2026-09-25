@@ -1,182 +1,275 @@
-# Cely
+# Celly
 
-Cely is a Discord bot that turns Discord into a control surface for OpenCode
-coding agents, where every project runs inside an isolated `sbx` (Docker
-Sandboxes) microVM on the host machine. The name is short for **Celebrimbor**,
-the elven smith of Eregion who forged the Rings of Power: the Discord category
-is **Eregion** (the forge-realm) and each sandbox is `cely-<slug>` — one ring,
-one workshop. This is a deliberately lightweight re-implementation of the
-command surface of [remorses/kimaki](https://github.com/remorses/kimaki) (MIT),
-with `sbx` sandboxes replacing Kimaki's local process management.
+> A Discord forge for coding agents.
 
-- **Channel = project** = one `sbx` sandbox + one host directory.
-- **Thread = conversation** = one OpenCode session.
-- The bot runs **natively on the sbx host** (Windows 11 for v1), because only the
-  host can invoke the `sbx` CLI. It supervises one long-lived
+Celly turns Discord into a control surface for [OpenCode](https://opencode.ai)
+coding agents. Each project gets its own isolated `sbx` (Docker Sandboxes)
+microVM on your host, and you drive it from a Discord channel and thread.
+
+## What it is
+
+- **Channel = project** — one `sbx` sandbox and one host directory.
+- **Thread = session** — one OpenCode conversation.
+- The bot runs **on the `sbx` host** (Windows 11 for v1), because only the host
+  can invoke the `sbx` CLI. It supervises one long-lived
   `sbx exec ... opencode serve` child per project and talks to it over the
   sandbox's published loopback port using the `@opencode-ai/sdk`.
-- Provider credentials are injected by `sbx secret` at the host proxy; they are
+- Provider credentials are injected by `sbx secret` at the host proxy. They are
   never stored in the bot or the repository.
 
-> **The Tolkien name is for private use.** If this project is ever published,
-> the branding must be renamed.
+Celly is a deliberately lightweight re-implementation of the command surface of
+[remorses/kimaki](https://github.com/remorses/kimaki) (MIT), with `sbx`
+sandboxes replacing Kimaki's local process management.
 
-## Prerequisites
+## Features
 
-- **Windows 11** host (v1). The bot cannot run in a Linux container: only the
-  host can execute the Windows `sbx` binary and reach host sandboxd.
-- **Docker Sandboxes `sbx` >= 0.45.0**, installed and logged in.
-- **Node 24.x** exactly (pinned by `engines` and `.nvmrc`), not "LTS".
-- A Discord application with a bot token, and a single Discord guild.
-- An OpenCode provider configured through `sbx secret` (see below).
+- **Per-project sandbox isolation.** Every project owns a microVM; the host
+  filesystem outside the mounted project directory is unreachable by the agent.
+- **Streaming replies.** Assistant text and tool activity are streamed into the
+  thread and throttled into a single live message.
+- **Session resume.** `/resume` reopens a past OpenCode session in a new thread.
+- **Model and agent switching.** `/model` and `/agent` pick per-thread settings.
+- **Abort.** `/abort` stops the current run (in a thread) or every active run in
+  the project channel.
+- **Shell.** A message starting with `!` runs `bash -lc <command>` inside the
+  project's sandbox and posts the output.
+- **Text attachments.** Text-like attachments are size-capped, written to a
+  validated `.celly/inbox`, and referenced in the prompt.
+- **Shell-output truncation.** Long shell output is chunked and truncated to
+  three messages with a total-length footer.
+- **Access control.** Guild owner, `Manage Guild`/`Administrator`, an access
+  role, and a block role (role IDs).
+- **Approval-free agent with a hardened permission policy.** The agent runs
+  without prompting; a bot-enforced bash/read deny list blocks publish, push,
+  and env-file inspection, and the policy is re-asserted after every wake.
 
-## Host bootstrap checklist (once, interactive, as the logged-in user)
+## Architecture
 
-Run these on the Windows host before the first bot start:
+```
+ Discord (channel = project, thread = session)
+        │
+        ▼
+ ┌──────────────────── host (Node 24, Windows 11) ────────────────────┐
+ │  Celly bot                                                          │
+ │    • Discord gateway + slash commands                              │
+ │    • ProjectService: create / wake / stop one sbx per project      │
+ │    • Runner + Renderer: queue prompts, stream and throttle replies │
+ │    • EventRouter: SSE /global/event  →  thread / session routing   │
+ │                                                                     │
+ │  127.0.0.1:<port>   (Authorization: Basic opencode:<password>)     │
+ └───────────────────────────────┬─────────────────────────────────────┘
+                                 ▼
+                       ┌───────────────────┐
+                       │  sbx microVM      │   one per project
+                       │   opencode serve  │   (sandbox port 4096)
+                       │   mounted project │
+                       └───────────────────┘
+```
 
-1. Enable the Windows Hypervisor Platform (elevated PowerShell):
-   ```powershell
-   Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform -All
-   ```
-2. Install `sbx`:
-   ```powershell
-   winget install -h Docker.sbx
-   ```
-3. Run the host prep step:
-   ```powershell
-   sbx setup
-   ```
-4. Log in to Docker:
-   ```powershell
-   sbx login
-   ```
-5. Initialize the network policy preset. This is **required before the first
-   sandbox**, otherwise `sbx create` blocks on an interactive prompt:
-   ```powershell
-   sbx policy init balanced
-   ```
-6. Register provider credentials (repeat for each provider). `sbx` injects
-   these at the proxy and updates running sandboxes without a restart:
-   ```powershell
-   sbx secret set <provider>
-   ```
-7. Pin and record the sbx version (>= 0.45.0): `sbx version`.
+### Module map
 
-## Configure
+| Module | Responsibility |
+|---|---|
+| `src/index.ts` | Composition root: config, preflight, Discord wiring, services. |
+| `src/config.ts` | Env parsing/validation, defaults, first-boot settings seed. |
+| `src/discord.ts` | Discord client, authorization, message gating. |
+| `src/commands.ts` | Slash-command definitions, interaction/select handlers. |
+| `src/handlers.ts` | `messageCreate`, project down/missing, shutdown, reconcile. |
+| `src/projects.ts` | Project lifecycle: create saga, wake, recreate, stop, remove. |
+| `src/sbx.ts` | `sbx` CLI runner, JSON parsing, path/name validation, port allocation. |
+| `src/opencode.ts` | OpenCode client, config/env policy, bootstrap, health check. |
+| `src/runner.ts` | Per-thread prompt queue, run lifecycle, permission policy checks. |
+| `src/render.ts` | Live-message rendering, chunking, payload sanitization. |
+| `src/events.ts` | SSE event normalization, session routing, reconnect/resync. |
+| `src/routing.ts` | Session ↔ thread route table. |
+| `src/attachments.ts` | Text-attachment download, inbox containment, safe writes. |
+| `src/shell.ts` | `!cmd` execution and output truncation. |
+| `src/bucket.ts` | Per-channel token bucket for Discord rate limits. |
+| `src/db.ts` | SQLite persistence for projects and threads. |
+| `src/lock.ts` | Single-instance lock. |
+| `src/log.ts` | Structured logger with secret redaction. |
+| `src/helpers.ts` | Shared helpers (category, channel names, prompt text). |
+| `src/types.ts` | Shared domain types. |
 
-Only **two** values are required: `DISCORD_TOKEN` and `DISCORD_GUILD_ID`. Copy
-`.env.example` to `.env`, fill those two in, and start the bot — every other
-setting has a working default and is commented out in the template. `.env` is
-gitignored and is the single source of truth for configuration. It is loaded
-automatically at startup (`process.loadEnvFile`, so `npm run dev`, `npm start`,
-and `node dist/index.js` all pick it up); a missing file is non-fatal and is
-reported later as a missing required variable. All values are validated at boot;
-the bot fails fast on a missing or malformed value. If you prefer Node's own
-flag, `node --env-file=.env dist/index.js` works too, but it errors if `.env`
-does not exist.
+## Requirements
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `DISCORD_TOKEN` | required | Bot token. |
-| `DISCORD_GUILD_ID` | required | Single guild v1. |
-| `PROJECTS_ROOT` | `~\Cely\projects` | Allowed project root; created on boot. |
-| `ACCESS_ROLE_ID` / `BLOCK_ROLE_ID` | unset | Role **IDs** only; the role-name fallback described in the spec is not implemented in v1. |
-| `OWNER_ROLE_ID` | unset | Owner-only role ID for `/project` mutations (guild owner always allowed). |
-| `CATEGORY_ID` | auto-create `Eregion` | Discord category. |
-| `SANDBOX_TEMPLATE` | `opencode` | `sbx create` agent/template. |
-| `SANDBOX_CPUS` / `SANDBOX_MEMORY` | `2` / `4g` | Resource limits. |
-| `PORT_RANGE_START` / `PORT_RANGE_END` | `4300` / `4399` | Host port pool. |
-| `DEFAULT_MODEL` / `DEFAULT_AGENT` | unset | Seeded into `settings` on first boot. |
-| `BOOT_TIMEOUT_MS` / `HEALTH_TIMEOUT_MS` | `120000` / `30000` | Create-saga health wait / `ensureReady` health wait. |
-| `EDIT_INTERVAL_MS` | `1200` | Render throttle floor. |
-| `ATTACHMENT_MAX_BYTES` | `102400` | Attachment cap. |
-| `MAX_QUEUE` / `MAX_CONCURRENT_RUNS` | `20` / `4` | Backpressure. |
-| `DATA_DIR` | `./data` | SQLite, logs, lock. |
-| `LOG_LEVEL` | `info` | Logging. |
+- **Windows 11 host** (or macOS/Linux where `sbx` runs). The bot cannot run
+  inside a Linux container: only the host can execute the `sbx` binary and reach
+  the host sandbox daemon.
+- **Node 24.x** exactly (pinned by `engines` and `.nvmrc`).
+- **Docker Sandboxes `sbx` >= 0.45**.
+- A Docker login and an initialized network policy (`sbx policy init balanced`).
+- A Discord application with a bot token and the **Message Content** intent, and
+  a single Discord guild.
+- An OpenCode provider configured through `sbx secret`.
 
-`PROJECTS_ROOT` is not runtime-editable (security). It may live under your home
-directory; the denylist rejects the profile root itself and sensitive subtrees
-(`.ssh`, `.aws`, `.gnupg`, `.config`, `.docker`, `.kube`, `.azure`, `.npmrc`,
-`.netrc`, `.cely`, `AppData`), plus `DATA_DIR`, the bot repo, and system
-directories.
+## Quick start
 
-## Install, build, run
+### 1. Host bootstrap (once, interactive, as the logged-in user)
 
 ```powershell
+winget install -h Docker.sbx     # install sbx
+sbx setup                        # host prep
+sbx login                        # log in to Docker
+sbx policy init balanced         # required before the first sandbox
+sbx secret set <provider>        # repeat per provider
+```
+
+`sbx` injects provider credentials at the proxy and updates running sandboxes
+without a restart. Pin and record the version with `sbx version`.
+
+### 2. Install and configure
+
+```powershell
+git clone <repo-url> celly
+cd celly
 npm ci
 npm run build
+copy .env.example .env
+```
+
+Set **only** `DISCORD_TOKEN` and `DISCORD_GUILD_ID` in `.env`. Every other
+setting has a working default. `PROJECTS_ROOT` defaults to
+`~/Celly/projects` (`%USERPROFILE%\Celly\projects` on Windows).
+
+### 3. Run
+
+```powershell
 node dist/index.js
 ```
 
-For development use `npm run dev` (runs `tsx watch src/index.ts`). On boot the
-bot performs a preflight (`sbx version`, policy check, single-instance lock) and
-fails fast with an actionable message. Logs are written to `data/bot.log`.
+On boot the bot performs a preflight (`sbx version`, policy check, single
+instance lock) and fails fast with an actionable message. Logs are written to
+`data/bot.log`. See [`docs/deployment-windows.md`](docs/deployment-windows.md)
+for running it at logon with Task Scheduler.
 
-Run the host-only smoke check. It exercises the full chain: create → copy the
-cely config/env → bootstrap → verify → `opencode serve` → health → create
-session → prompt "say hi" → wait for an assistant reply → abort → stop →
-remove (teardown runs on failure):
+## Configuration
+
+`.env` is the single source of truth. It is loaded automatically at startup
+(`process.loadEnvFile`), is gitignored, and is validated at boot.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DISCORD_TOKEN` | **required** | Bot token. |
+| `DISCORD_GUILD_ID` | **required** | Single guild for v1. |
+| `PROJECTS_ROOT` | `~/Celly/projects` | Allowed project root; created on boot. |
+| `ACCESS_ROLE_ID` / `BLOCK_ROLE_ID` | unset | Role **IDs** only. |
+| `OWNER_ROLE_ID` | unset | Owner-only role ID for `/project` mutations (guild owner always allowed). |
+| `CATEGORY_ID` | auto-create `Forge` | Discord category. |
+| `SANDBOX_TEMPLATE` | `opencode` | `sbx create` agent/template. |
+| `SANDBOX_CPUS` / `SANDBOX_MEMORY` | `2` / `4g` | Resource limits. |
+| `PORT_RANGE_START` / `PORT_RANGE_END` | `4300` / `4399` | Host loopback port pool. |
+| `DEFAULT_MODEL` / `DEFAULT_AGENT` | unset | Seeded into `settings` on first boot. |
+| `BOOT_TIMEOUT_MS` / `HEALTH_TIMEOUT_MS` | `120000` / `30000` | Create-saga health wait / wake health wait. |
+| `EDIT_INTERVAL_MS` | `1200` | Render throttle floor. |
+| `ATTACHMENT_MAX_BYTES` | `102400` | Text-attachment cap. |
+| `MAX_QUEUE` / `MAX_CONCURRENT_RUNS` | `20` / `4` | Backpressure. |
+| `DATA_DIR` | `./data` | SQLite, logs, lock file. |
+| `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error`. |
+
+## Commands
+
+| Command | Where | Description |
+|---|---|---|
+| `/project add <name> <path>` | guild | Register an existing directory under `PROJECTS_ROOT`. |
+| `/project create <name>` | guild | Create a project directory under `PROJECTS_ROOT`. |
+| `/project list` | guild | List projects with status and health. |
+| `/project status <name>` | guild | Project status, host port, and session count. |
+| `/project start <name>` | guild | Wake the sandbox (recreates it if missing). |
+| `/project stop <name>` | guild | Stop the sandbox. |
+| `/project remove <name> <confirm>` | guild | Remove the sandbox, project, and channel. |
+| `/new [prompt]` | project channel | Start a new session (optionally with a first prompt). |
+| `/resume` | project channel | Pick a past session to resume in a new thread. |
+| `/abort` | channel or thread | Abort the current run (or all runs in the channel). |
+| `/model` | thread | Choose the model for this thread. |
+| `/agent` | thread | Choose the agent for this thread. |
+| `!<command>` | channel or thread | Run a shell command in the sandbox. |
+
+Sending a plain message in a project channel creates a thread; sending one in a
+thread continues that session.
+
+## Security model
+
+- **argv-only spawns.** Every `sbx` invocation uses `spawn(bin, args, { shell:
+  false })`; no command is ever passed through a shell.
+- **Per-project microVM.** Each project runs in its own `sbx` sandbox with only
+  its project directory mounted.
+- **Path containment.** Project paths must resolve inside `PROJECTS_ROOT`, and a
+  denylist rejects sensitive subtrees (`.ssh`, `.aws`, `.gnupg`, `.config`,
+  `.docker`, `.kube`, `.azure`, `.npmrc`, `.netrc`, `.celly`, `AppData`),
+  `DATA_DIR`, the bot repo, and system directories.
+- **Loopback + password.** The generated sandbox config enables password auth
+  (`OPENCODE_SERVER_PASSWORD`) and the server is published only on loopback.
+- **Bot-enforced permission policy.** `opencode serve` runs with `share:
+  disabled`, `*` allowed, a bash deny list (`git push`, publish/clean, and any
+  command or path touching `opencode.env` or `~/.config/celly/`), and
+  `external_directory`/`question` denied. The policy is PATCHed and asserted
+  after every wake so a project-level `opencode.json` cannot weaken it.
+- **Secrets never in argv or Discord.** Provider credentials live in `sbx
+  secret`; the per-project server password lives in SQLite and is redacted from
+  logs.
+
+The deny list is defense-in-depth, not a hard isolation boundary: an agent
+allowed to run bash can still run arbitrary *allowed* commands. The blast radius
+is contained by the microVM — `OPENCODE_SERVER_PASSWORD` only guards a
+loopback-published port reachable from inside the sandbox and the host's
+`127.0.0.1`, and provider credentials are injected by the `sbx` proxy rather
+than stored in the sandbox.
+
+## How it works
+
+1. **Create saga.** `ProjectService.addProject` serializes all creates, picks a
+   sandbox name (`celly-<slug>`) and a free host port, creates the channel,
+   inserts a `provisioning` row, runs `sbx create`, bootstraps the OpenCode
+   config/env, starts the serve child, waits for health, and asserts the policy.
+   Failures roll back the sandbox, row, and channel.
+2. **Supervised serve child.** One `sbx exec ... opencode serve` child per
+   project, adopted on wake if a healthy orphan is found, killed and restarted
+   if it exits unexpectedly.
+3. **SSE event router.** One subscription per project reads
+   `/global/event` over SSE, normalizes frames, routes them to a thread by
+   session id, and resyncs known sessions after a reconnect.
+4. **Thread/session mapping.** Threads store their OpenCode session id in
+   SQLite; a route table maps session ids back to the active thread.
+5. **Restart recovery.** On boot, `ready` projects are re-subscribed and threads
+   left `running`/`aborting` are recovered from session history.
+
+## Development
 
 ```powershell
-node scripts/smoke.mjs C:\path\to\a\project\dir
+npm run dev          # tsx watch src/index.ts
+npm test             # 307 tests (vitest)
+npm run typecheck    # tsc --noEmit
+npm run build        # tsc -p tsconfig.json
 ```
 
-## Run at logon (Task Scheduler)
+Two host-only scripts exercise the real chain and are not run by the Linux test
+suite:
 
-`sbx` and its credentials are **per-user**, so the bot must run as the
-logged-in user. **NSSM / LocalSystem does not work.** Create a Task Scheduler
-task that runs at logon:
+```powershell
+node scripts/spike-full-chain.mjs            # sbx + serve + health spike
+node scripts/smoke.mjs C:\path\to\project    # create → prompt → abort → remove
+```
 
-- **Trigger:** At log on (of the user who owns the `sbx` daemon).
-- **Action:** Start a program — `node.exe` (full path), arguments
-  `dist\index.js`, "Start in" the repo root.
-- **Settings:** uncheck "Stop the task if it runs longer than…"; enable
-  "Restart on failure" if desired.
+See [`docs/spikes/2026-09-25-full-chain.md`](docs/spikes/2026-09-25-full-chain.md).
 
-See [`docs/deployment-windows.md`](docs/deployment-windows.md) for the full
-walkthrough, including the PAT flow for headless re-login.
+## Project layout
 
-## Discord setup
+```
+src/            bot source (see the module map)
+test/           vitest suites and recorded fixtures
+scripts/        host-only spike and smoke helpers
+docs/           deployment guide, spike notes, spec, and plan
+  superpowers/
+    specs/      v1 design spec
+    plans/      v1 implementation plan
+data/           runtime SQLite, logs, lock (gitignored)
+dist/           build output (gitignored)
+```
 
-In the Discord Developer Portal, enable the **Message Content** privileged
-intent, then invite the bot with scopes `bot` + `applications.commands` and
-these permissions:
+## Status / roadmap
 
-- View Channels
-- Send Messages
-- Send Messages in Threads
-- Create Public Threads
-- Manage Channels
-- Manage Threads
-- Read Message History
-- Embed Links
-
-## Security warning
-
-**Project directories are untrusted and may contain secrets.** The mounted
-project directory (and everything in it, including `git` remotes, `.env` files,
-and tokens) is treated as untrusted input by the design. Do not place secrets in
-a project directory that you would not expose to the sandboxed agent, and keep
-provider credentials in `sbx secret` rather than in project files.
-
-The bot-enforced bash/read deny list (`git push`, publish/clean, and any command
-or file path touching `opencode.env` or `~/.config/cely/`) is defense-in-depth,
-not a hard isolation boundary: it normalizes wrappers (`env`, `sudo`, `nice`,
-`time`, `command`, `npx`, `bash -c`) so trivial bypasses fail, but an agent that
-is allowed to run bash can still run arbitrary *allowed* commands. The blast
-radius of reading the sandbox env file is deliberately contained to the
-microVM: `OPENCODE_SERVER_PASSWORD` only guards a loopback-published port, the
-listener is reachable only from inside that sandbox (and the host's
-`127.0.0.1`), and provider credentials are injected by the `sbx` proxy rather
-than stored in the sandbox. Compromising the password therefore grants no host
-access, which is why the env file is treated as sensitive but not
-catastrophic.
-
-## Deferred (v1.1)
-
-The v1 command surface is deliberately trimmed. The following are **not** in
-v1 and are backlog items (`docs/superpowers/specs/2026-09-25-cely-v1-design.md`
-§3, §18):
+v1 is the command set above. Deferred backlog items:
 
 - **Commands:** `/project restart`, `/share`, `/diff`, `/undo`, `/redo`,
   `/context-usage`.
@@ -187,33 +280,44 @@ v1 and are backlog items (`docs/superpowers/specs/2026-09-25-cely-v1-design.md`
   `!shell` are in scope).
 - **Surfaces:** OpenCode web UI, admin website, diff web viewer, tunnels /
   screenshare, forum-channel layout.
-- **Scale/deploy:** multi-guild, cloud sandboxes, `--clone` sandbox mode,
-  OAuth subscription login, Linux/macOS deployment docs.
+- **Scale/deploy:** multi-guild, cloud sandboxes, `--clone` sandbox mode, OAuth
+  subscription login, Linux/macOS deployment docs.
 
 ## Limitations
 
 - **The message queue is lost on restart.** Queued prompts are held in memory
-  only. A bot restart mid-run re-attaches the active renderer from
-  `session.messages` (spec §8), but queued-but-unsent messages are dropped.
+  only. A restart mid-run re-attaches the active renderer from session history,
+  but queued-but-unsent messages are dropped.
 - **Role names are not accepted** for `ACCESS_ROLE_ID` / `BLOCK_ROLE_ID` /
   `OWNER_ROLE_ID`; configure role IDs.
 - **The finalization token/duration footer is descoped.** Replies do not append
   a token or duration footer in v1.
-- **Per-user command rate limiting is backlog.** Discord's own REST rate limits
-  are honored through the shared per-channel token bucket (which pauses on a
-  429 `retry_after`), but there is no additional per-user command budget.
-- **Per-run correlation ids are backlog.** Spec §5 calls for project/thread/run
-  correlation ids in logs; logs carry project/thread context but not a distinct
-  `run` id, so several runs in one thread cannot be correlated from logs alone.
-- **Sandbox disk-usage warnings are backlog.** Disk use is not monitored or
-  warned on in v1.
-- **`DATA_DIR` cloud-sync detection is backlog.** The spec calls for a warning
-  when `DATA_DIR` lives in a cloud-sync folder; it is not implemented, so keep
-  `DATA_DIR` outside OneDrive/Dropbox yourself.
-- **`PROJECTS_ROOT` may live under your home directory.** The sensitive-path
-  denylist rejects the profile root itself, sensitive subtrees (`.ssh`, `.aws`,
-  `.gnupg`, `.config`, `.docker`, `.kube`, `.azure`, `.npmrc`, `.netrc`,
-  `.cely`, `AppData`), `DATA_DIR`, the bot repo, and system directories.
-- **Host-only items** (recording the spike, `sbx policy ls` semantics, Windows
-  path mapping, and live Discord behavior) are exercised manually on the host,
-  not in the Linux dev/test environment.
+- **Per-user command rate limiting is backlog.** Discord's own REST limits are
+  honored through the shared per-channel token bucket, but there is no
+  additional per-user command budget.
+- **Per-run correlation ids are backlog.** Logs carry project/thread context but
+  not a distinct run id.
+- **Sandbox disk-usage warnings are backlog.** Disk use is not monitored.
+- **`DATA_DIR` cloud-sync detection is backlog.** Keep `DATA_DIR` outside
+  OneDrive/Dropbox yourself.
+- **Host-only items** (the spike, `sbx policy ls` semantics, Windows path
+  mapping, and live Discord behavior) are exercised manually on the host, not in
+  the Linux dev/test environment.
+
+## Contributing
+
+Issues and pull requests are welcome. Before opening a PR:
+
+- Run `npm test`, `npm run typecheck`, and `npm run build`.
+- Keep the **argv-only invariant**: never pass user input through a shell.
+- Add tests for behavior changes; the suite is the contract.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
+
+## Credits / Acknowledgements
+
+- Inspired by [remorses/kimaki](https://github.com/remorses/kimaki) (MIT).
+- Built on [Docker Sandboxes](https://www.docker.com/products/docker-sandboxes/)
+  (`sbx`) and [OpenCode](https://opencode.ai).
