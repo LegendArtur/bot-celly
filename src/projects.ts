@@ -119,21 +119,23 @@ export class ProjectService {
   }
 
   private async readBackPort(channelId: string, sandboxName: string, requested: number): Promise<number> {
+    let mappings: Array<{ hostIp: string; hostPort: number; sandboxPort: number; protocol: string }>
     try {
-      const mappings = await this.deps.sbx.ports(sandboxName)
-      const mapping = mappings.find((m) => m.sandboxPort === 4096)
-      if (mapping && Number.isFinite(mapping.hostPort)) {
-        if (mapping.hostPort !== requested) {
-          this.deps.log.info("host port read back from sandbox", { channelId, requested, actual: mapping.hostPort })
-          this.deps.db.projects.setHostPort(channelId, mapping.hostPort)
-        }
-        return mapping.hostPort
-      }
-      this.deps.log.warn("no sandbox 4096 port mapping; using the requested host port", { channelId, requested })
+      mappings = await this.deps.sbx.ports(sandboxName)
     } catch (e) {
       this.deps.log.warn("host port read-back failed; using the requested host port", { channelId, requested, error: String(e) })
+      return requested
     }
-    return requested
+    const mapping = mappings.find((m) => m.sandboxPort === 4096)
+    if (!mapping || !Number.isFinite(mapping.hostPort)) {
+      this.deps.log.warn("no sandbox 4096 port mapping; using the requested host port", { channelId, requested })
+      return requested
+    }
+    if (mapping.hostPort !== requested) {
+      this.deps.log.info("host port read back from sandbox", { channelId, requested, actual: mapping.hostPort })
+      this.deps.db.projects.setHostPort(channelId, mapping.hostPort)
+    }
+    return mapping.hostPort
   }
 
   private async resolveSandboxPath(channelId: string, sandboxName: string, fallback: string): Promise<string> {

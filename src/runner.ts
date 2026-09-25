@@ -39,7 +39,11 @@ export class Runner {
   get activeCount() { return this.active.size }
   private rendererFor(threadId: string): Promise<Renderer> {
     let renderer = this.renderers.get(threadId)
-    if (!renderer) { renderer = this.deps.createRenderer(threadId); this.renderers.set(threadId, renderer) }
+    if (!renderer) {
+      renderer = this.deps.createRenderer(threadId)
+      this.renderers.set(threadId, renderer)
+      renderer.catch(() => { if (this.renderers.get(threadId) === renderer) this.renderers.delete(threadId) })
+    }
     return renderer
   }
   private clearRenderer(threadId: string): void { this.renderers.delete(threadId) }
