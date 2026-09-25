@@ -17,6 +17,7 @@ export interface ProjectDeps {
 export class ProjectService {
   private children = new Map<string, import("node:child_process").ChildProcess>()
   private inflight = new Map<string, Promise<void>>()
+  private intentional = new Set<string>()
   constructor(private readonly deps: ProjectDeps) {}
 
   childFor(channelId: string): import("node:child_process").ChildProcess | undefined { return this.children.get(channelId) }
@@ -32,6 +33,14 @@ export class ProjectService {
     })
   }
 
+  private killChild(channelId: string): void {
+    const child = this.children.get(channelId)
+    if (!child) return
+    this.children.delete(channelId)
+    this.intentional.add(channelId)
+    child.kill()
+  }
+
   async addProject(input: { guildId: string; name: string; directory: string; existingChannelId?: string }): Promise<Project> {
     const { config, db, sbx } = this.deps
     if (!isPathInside(config.projectsRoot, input.directory)) throw new Error(`directory must be inside PROJECTS_ROOT (${config.projectsRoot})`)
@@ -41,10 +50,13 @@ export class ProjectService {
     const used = new Set(db.projects.list().map((p) => p.hostPort))
     const hostPort = await allocatePort({ start: config.portRangeStart, end: config.portRangeEnd, used, isFree: (p) => this.isPortFree(p) })
     const serverPassword = randomBytes(16).toString("hex")
-    const channelId = input.existingChannelId ?? (await this.deps.createChannel(input.name))
-    db.projects.insertProvisioning({ channelId, guildId: input.guildId, name: input.name, directory: input.directory,
-      sandboxPath: null, sandboxName, hostPort, serverPassword, createdAt: Date.now() })
+    let channelId: string | undefined
+    let inserted = false
     try {
+      channelId = input.existingChannelId ?? (await this.deps.createChannel(input.name))
+      db.projects.insertProvisioning({ channelId, guildId: input.guildId, name: input.name, directory: input.directory,
+        sandboxPath: null, sandboxName, hostPort, serverPassword, createdAt: Date.now() })
+      inserted = true
       await sbx.create({ name: sandboxName, directory: input.directory, hostPort, cpus: config.sandboxCpus, memory: config.sandboxMemory, template: config.sandboxTemplate })
       await sbx.exec(sandboxName, ["true"])
       const bootstrap = this.deps.resolveSandboxPath ? await this.deps.resolveSandboxPath(sandboxName) : input.directory
@@ -54,11 +66,10 @@ export class ProjectService {
       db.projects.setReady(channelId, bootstrap)
       return db.projects.getByChannel(channelId)!
     } catch (e) {
-      this.children.get(channelId)?.kill()
-      this.children.delete(channelId)
-      await sbx.remove(sandboxName).catch(() => {})
-      db.projects.remove(channelId)
-      if (!input.existingChannelId) await this.deps.deleteChannel(channelId).catch(() => {})
+      if (channelId) this.killChild(channelId)
+      if (inserted) await sbx.remove(sandboxName).catch(() => {})
+      if (inserted && channelId) db.projects.remove(channelId)
+      if (!input.existingChannelId && channelId) await this.deps.deleteChannel(channelId).catch(() => {})
       throw e
     }
   }
@@ -68,7 +79,13 @@ export class ProjectService {
     if (!project) throw new Error(`project ${channelId} not found`)
     if (this.children.get(channelId)) return
     const child = this.deps.sbx.execStream(project.sandboxName, buildServeArgs())
-    child.on("exit", () => { this.children.delete(channelId); this.deps.db.projects.setStatus(channelId, "degraded") })
+    child.stdout?.on("data", (d) => this.deps.log.debug("project server stdout", { channelId, line: String(d) }))
+    child.stderr?.on("data", (d) => this.deps.log.warn("project server stderr", { channelId, line: String(d) }))
+    child.on("exit", () => {
+      if (this.children.get(channelId) === child) this.children.delete(channelId)
+      if (this.intentional.delete(channelId)) return
+      this.deps.db.projects.setStatus(channelId, "degraded")
+    })
     this.children.set(channelId, child)
   }
 
@@ -80,7 +97,11 @@ export class ProjectService {
       if (!p) throw new Error(`unknown project ${channelId}`)
       await this.deps.sbx.start(p.sandboxName)
       const client = createClient(`http://127.0.0.1:${p.hostPort}`, p.serverPassword)
-      try { await waitForHealth(client, 3000) } catch { await this.bootServer(channelId) }
+      try { await waitForHealth(client, this.deps.config.healthTimeoutMs); return } catch {}
+      this.killChild(channelId)
+      await this.bootServer(channelId)
+      try { await waitForHealth(client, this.deps.config.healthTimeoutMs) }
+      catch (e) { throw new Error(`project ${channelId} not healthy: ${(e as Error).message}`) }
     })()
     this.inflight.set(channelId, task.finally(() => this.inflight.delete(channelId)))
     return this.inflight.get(channelId)
@@ -88,13 +109,13 @@ export class ProjectService {
 
   async stop(channelId: string): Promise<void> {
     const p = this.deps.db.projects.getByChannel(channelId); if (!p) return
-    this.children.get(channelId)?.kill(); this.children.delete(channelId)
+    this.killChild(channelId)
     await this.deps.sbx.stop(p.sandboxName)
   }
 
   async remove(channelId: string): Promise<void> {
     const p = this.deps.db.projects.getByChannel(channelId); if (!p) return
-    this.children.get(channelId)?.kill(); this.children.delete(channelId)
+    this.killChild(channelId)
     await this.deps.sbx.remove(p.sandboxName).catch(() => {})
     this.deps.db.projects.remove(channelId)
     await this.deps.deleteChannel(channelId).catch(() => {})

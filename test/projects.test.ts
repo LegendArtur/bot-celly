@@ -20,9 +20,19 @@ async function healthServer(healthy: boolean) {
   return { port, close: () => new Promise<void>((r) => server.close(() => r())) }
 }
 
+function makeChild() {
+  const child: any = { killed: 0, stdoutData: 0, stderrData: 0, listeners: {} as Record<string, Function[]> }
+  child.on = (ev: string, fn: Function) => { (child.listeners[ev] ??= []).push(fn) }
+  child.kill = () => { child.killed++ }
+  child.emitExit = () => { for (const fn of child.listeners.exit ?? []) fn() }
+  child.stdout = { on: (ev: string) => { if (ev === "data") child.stdoutData++ } }
+  child.stderr = { on: (ev: string) => { if (ev === "data") child.stderrData++ } }
+  return child
+}
+
 function fakes() {
   const calls: string[][] = []
-  let streams = 0
+  const children: any[] = []
   const sbx: any = {
     list: async () => [], ports: async () => [{ hostIp: "127.0.0.1", hostPort: 4300, sandboxPort: 4096, protocol: "tcp4" }],
     create: async (o: any) => { calls.push(["create", o.name]) },
@@ -30,9 +40,9 @@ function fakes() {
     start: async (n: string) => { calls.push(["start", n]); return { code: 0, stdout: "", stderr: "" } },
     cp: async () => {}, stop: async (n: string) => { calls.push(["stop", n]) },
     remove: async (n: string) => { calls.push(["rm", n]) },
-    execStream: () => { streams++; return { on() {}, kill() {}, stdout: { on() {} }, stderr: { on() {} } } },
+    execStream: () => { const c = makeChild(); children.push(c); return c },
   }
-  return { calls, sbx, runner: { run: async () => ({ code: 0, stdout: "[]", stderr: "" }) }, streams: () => streams }
+  return { calls, sbx, runner: { run: async () => ({ code: 0, stdout: "[]", stderr: "" }) }, children }
 }
 
 test("addProject rejects directories outside PROJECTS_ROOT", async () => {
@@ -42,27 +52,40 @@ test("addProject rejects directories outside PROJECTS_ROOT", async () => {
   await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\Windows" })).rejects.toThrow(/PROJECTS_ROOT/)
 })
 
-test("addProject rolls back on create failure", async () => {
-  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls } = fakes()
-  sbx.create = async () => { throw new Error("create boom") }
-  const deleted: string[] = []
+test("addProject rejects a prefix-sibling directory", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
   const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
-    isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async (c: string) => { deleted.push(c) } } as any)
-  await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })).rejects.toThrow(/create boom/)
-  expect(db.projects.list()).toEqual([])
-  expect(calls).toContainEqual(["rm", "cely-demo"])
-  expect(deleted).toEqual(["chan1"])
+    isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
+  await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects-evil" })).rejects.toThrow(/PROJECTS_ROOT/)
 })
 
-test("addProject rolls back and kills the child when health never passes", async () => {
-  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls, streams } = fakes()
+test("addProject rolls back on create failure", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls, children } = fakes()
+  sbx.create = async () => { throw new Error("create boom") }
+  const created: string[] = [], deleted: string[] = []
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+    isPortFree: async () => true, createChannel: async (n: string) => { created.push(n); return "chan1" },
+    deleteChannel: async (c: string) => { deleted.push(c) } } as any)
+  await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })).rejects.toThrow(/create boom/)
+  expect(db.projects.list()).toEqual([])
+  expect(created).toEqual(["demo"])
+  expect(deleted).toEqual(["chan1"])
+  expect(calls).toContainEqual(["rm", "cely-demo"])
+  expect(children).toHaveLength(0)
+})
+
+test("addProject rolls back and kills the drained child when health never passes", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls, children } = fakes()
   const server = await healthServer(false)
   const deleted: string[] = []
   try {
     const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (c: string) => { deleted.push(c) } } as any)
     await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })).rejects.toThrow(/health/)
-    expect(streams()).toBe(1)
+    expect(children).toHaveLength(1)
+    expect(children[0].killed).toBe(1)
+    expect(children[0].stdoutData).toBe(1)
+    expect(children[0].stderrData).toBe(1)
     expect(svc.childFor("chan-demo")).toBeUndefined()
     expect(db.projects.list()).toEqual([])
     expect(calls).toContainEqual(["rm", "cely-demo"])
@@ -86,23 +109,41 @@ test("a second addProject with the same slug gets a -2 sandbox", async () => {
   } finally { await s1.close(); await s2.close() }
 })
 
-test("ensureReady is single-flighted and boots the server when health fails", async () => {
-  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls, streams } = fakes()
+test("addProject with existingChannelId preserves the channel on rollback", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls } = fakes()
+  sbx.create = async () => { throw new Error("create boom") }
+  const created: string[] = [], deleted: string[] = []
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+    isPortFree: async () => true, createChannel: async (n: string) => { created.push(n); return "new" },
+    deleteChannel: async (c: string) => { deleted.push(c) } } as any)
+  await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo", existingChannelId: "chan-existing" }))
+    .rejects.toThrow(/create boom/)
+  expect(created).toEqual([])
+  expect(deleted).toEqual([])
+  expect(db.projects.list()).toEqual([])
+  expect(calls).toContainEqual(["rm", "cely-demo"])
+})
+
+test("ensureReady is single-flighted, restarts a stale child, and throws if still unhealthy", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls, children } = fakes()
   const server = await healthServer(false)
   try {
     db.projects.insertProvisioning({ channelId: "chan1", guildId: "g", name: "demo", directory: "C:\\projects\\demo",
       sandboxPath: null, sandboxName: "cely-demo", hostPort: server.port, serverPassword: "pw", createdAt: Date.now() })
     const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
       isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
-    await Promise.all([svc.ensureReady("chan1"), svc.ensureReady("chan1")])
+    await expect(Promise.all([svc.ensureReady("chan1"), svc.ensureReady("chan1")])).rejects.toThrow(/not healthy/)
     expect(calls.filter((c) => c[0] === "start")).toHaveLength(1)
-    expect(streams()).toBe(1)
-    expect(svc.childFor("chan1")).toBeDefined()
+    expect(children).toHaveLength(1)
+    await expect(svc.ensureReady("chan1")).rejects.toThrow(/not healthy/)
+    expect(children).toHaveLength(2)
+    expect(children[0].killed).toBe(1)
+    expect(svc.childFor("chan1")).toBe(children[1])
   } finally { await server.close() }
 })
 
-test("ensureReady does not start another child when health already passes", async () => {
-  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, streams } = fakes()
+test("ensureReady does not start a child when health already passes", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, children } = fakes()
   const server = await healthServer(true)
   try {
     db.projects.insertProvisioning({ channelId: "chan1", guildId: "g", name: "demo", directory: "C:\\projects\\demo",
@@ -110,13 +151,45 @@ test("ensureReady does not start another child when health already passes", asyn
     const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
       isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
     await svc.ensureReady("chan1")
-    expect(streams()).toBe(0)
+    expect(children).toHaveLength(0)
     expect(svc.childFor("chan1")).toBeUndefined()
   } finally { await server.close() }
 })
 
+test("an unexpected child exit marks the project degraded", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, children } = fakes()
+  const server = await healthServer(true)
+  try {
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
+    await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
+    children[0].emitExit()
+    expect(svc.childFor("chan-demo")).toBeUndefined()
+    expect(db.projects.getByChannel("chan-demo")?.status).toBe("degraded")
+  } finally { await server.close() }
+})
+
+test("stop kills the child but does not mark the project degraded", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls, children } = fakes()
+  const server = await healthServer(true)
+  const deleted: string[] = []
+  try {
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (c: string) => { deleted.push(c) } } as any)
+    await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
+    await svc.stop("chan-demo")
+    expect(children[0].killed).toBe(1)
+    expect(calls).toContainEqual(["stop", "cely-demo"])
+    expect(svc.childFor("chan-demo")).toBeUndefined()
+    expect(db.projects.getByChannel("chan-demo")?.status).toBe("ready")
+    children[0].emitExit()
+    expect(db.projects.getByChannel("chan-demo")?.status).toBe("ready")
+    expect(deleted).toEqual([])
+  } finally { await server.close() }
+})
+
 test("remove kills the child, deletes the sandbox, row, and channel", async () => {
-  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls } = fakes()
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls, children } = fakes()
   const server = await healthServer(true)
   const deleted: string[] = []
   try {
@@ -125,6 +198,7 @@ test("remove kills the child, deletes the sandbox, row, and channel", async () =
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
     expect(svc.childFor("chan-demo")).toBeDefined()
     await svc.remove("chan-demo")
+    expect(children[0].killed).toBe(1)
     expect(svc.childFor("chan-demo")).toBeUndefined()
     expect(calls).toContainEqual(["rm", "cely-demo"])
     expect(db.projects.list()).toEqual([])
