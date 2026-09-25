@@ -145,6 +145,29 @@ test("addProject writes and verifies the cely bootstrap before starting the serv
   } finally { await server.close() }
 })
 
+test("addProject reports staged progress around the slow steps", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
+  const server = await healthServer(true)
+  const stages: string[] = []
+  try {
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
+    await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" }, (s) => { stages.push(s) })
+    expect(stages).toEqual(["creating sandbox…", "installing…", "waiting for server…"])
+  } finally { await server.close() }
+})
+
+test("a throwing progress callback does not fail the create saga", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
+  const server = await healthServer(true)
+  try {
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
+    const p = await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" }, () => { throw new Error("discord down") })
+    expect(p.status).toBe("ready")
+  } finally { await server.close() }
+})
+
 test("addProject fails the saga when sandbox bootstrap fails", async () => {
   const db = openDb(":memory:"); db.migrate()
   const { sbx, runner, calls } = fakes()

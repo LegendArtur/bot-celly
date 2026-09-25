@@ -116,11 +116,22 @@ export class ProjectService {
     }
   }
 
-  addProject(input: { guildId: string; name: string; directory: string; existingChannelId?: string }): Promise<Project> {
-    return this.withAddLock(() => this.doAddProject(input))
+  addProject(
+    input: { guildId: string; name: string; directory: string; existingChannelId?: string },
+    onProgress?: (stage: string) => void | Promise<void>,
+  ): Promise<Project> {
+    return this.withAddLock(() => this.doAddProject(input, onProgress))
   }
 
-  private async doAddProject(input: { guildId: string; name: string; directory: string; existingChannelId?: string }): Promise<Project> {
+  private async report(onProgress: ((stage: string) => void | Promise<void>) | undefined, stage: string): Promise<void> {
+    if (!onProgress) return
+    try { await onProgress(stage) } catch (e) { this.deps.log.warn("project progress callback failed", { stage, error: String(e) }) }
+  }
+
+  private async doAddProject(
+    input: { guildId: string; name: string; directory: string; existingChannelId?: string },
+    onProgress?: (stage: string) => void | Promise<void>,
+  ): Promise<Project> {
     const { config, db, sbx } = this.deps
     this.validateDirectory(input.directory)
     const taken = new Set((await sbx.list()).map((s) => s.name))
@@ -136,9 +147,12 @@ export class ProjectService {
       db.projects.insertProvisioning({ channelId, guildId: input.guildId, name: input.name, directory: input.directory,
         sandboxPath: null, sandboxName, hostPort, serverPassword, createdAt: Date.now() })
       inserted = true
+      await this.report(onProgress, "creating sandbox…")
       await sbx.create({ name: sandboxName, directory: input.directory, hostPort, cpus: config.sandboxCpus, memory: config.sandboxMemory, template: config.sandboxTemplate })
       await sbx.exec(sandboxName, ["true"])
+      await this.report(onProgress, "installing…")
       await this.bootstrapSandbox(sandboxName, serverPassword)
+      await this.report(onProgress, "waiting for server…")
       const actualPort = await this.readBackPort(channelId, sandboxName, hostPort)
       const sandboxPath = await this.resolveSandboxPath(channelId, sandboxName, input.directory)
       this.bootServer(channelId)
