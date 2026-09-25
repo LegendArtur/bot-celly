@@ -7,8 +7,8 @@ export function isAuthorized(
   guildOwnerId: string,
   cfg: { accessRoleId?: string; blockRoleId?: string },
 ): boolean {
-  if (member.id === guildOwnerId) return true
   if (cfg.blockRoleId && member.roles.includes(cfg.blockRoleId)) return false
+  if (member.id === guildOwnerId) return true
   if (member.permissions.has(PermissionFlagsBits.Administrator) || member.permissions.has(PermissionFlagsBits.ManageGuild)) return true
   if (cfg.accessRoleId && member.roles.includes(cfg.accessRoleId)) return true
   return false
@@ -27,6 +27,7 @@ export function rolesOf(member: { roles: { cache: Map<string, { id: string }> } 
 export function shouldHandleMessage(message: Message, projectChannelId: string | undefined): boolean {
   if (!projectChannelId) return false
   if (message.author.bot || message.webhookId || message.system) return false
-  if (message.channel.id !== projectChannelId && (message.channel as any).parentId !== projectChannelId) return false
+  const channel = message.channel
+  if (channel.id !== projectChannelId && !("parentId" in channel && channel.parentId === projectChannelId)) return false
   return true
 }
