@@ -20,6 +20,7 @@ import { Renderer, sanitizeThreadName } from "./render.js"
 import { createClient } from "./opencode.js"
 import { runShell } from "./shell.js"
 import { attachmentDestination, shouldIngestAttachment } from "./attachments.js"
+import { ChannelBuckets, TokenBucket } from "./bucket.js"
 
 export function findCategoryId(
   guild: { channels: { cache: { values(): IterableIterator<{ id: string; name: string; type: ChannelType }> } } },
@@ -84,6 +85,13 @@ async function main(): Promise<void> {
   }
 
   const client = createDiscordClient(cfg)
+  const buckets = new ChannelBuckets(() => new TokenBucket({
+    capacity: 5,
+    refillPerSecond: 1000 / Math.max(1, cfg.editIntervalMs),
+    now: () => Date.now(),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  }))
+  const bucketFor = (channelId: string) => buckets.for(channelId)
   let guild: Guild | undefined
   const requireGuild = (): Guild => {
     if (!guild) throw new Error("Discord guild not ready")
@@ -122,7 +130,7 @@ async function main(): Promise<void> {
       void runnerSvc.handleProjectDown(channelId)
       const channel = client.channels.cache.get(channelId)
       if (channel && "send" in channel) {
-        void (channel as any).send({ content: "The project server stopped unexpectedly; it will restart on the next message.", allowedMentions: { parse: [] } }).catch(() => {})
+        void bucketFor(channelId).schedule(() => (channel as any).send({ content: "The project server stopped unexpectedly; it will restart on the next message.", allowedMentions: { parse: [] } })).catch(() => {})
       }
     },
   })
@@ -202,15 +210,15 @@ async function main(): Promise<void> {
       const channel = await client.channels.fetch(threadId)
       if (!channel) throw new Error(`thread channel ${threadId} unavailable`)
       return new Renderer({
-        send: async (content) => {
+        send: async (content) => bucketFor(threadId).schedule(async () => {
           const sent = await (channel as any).send({ content, allowedMentions: { parse: [] } })
           db.threads.setLiveMessage(threadId, sent.id)
           return sent.id as string
-        },
-        edit: async (messageId, content) => {
+        }),
+        edit: async (messageId, content) => bucketFor(threadId).schedule(async () => {
           const message = await (channel as any).messages.fetch(messageId)
           await message.edit({ content, allowedMentions: { parse: [] } })
-        },
+        }),
         now: () => Date.now(),
         intervalMs: cfg.editIntervalMs,
         onMessageId: (id) => db.threads.setLiveMessage(threadId, id),
@@ -365,7 +373,7 @@ async function main(): Promise<void> {
         const fresh = db.projects.getByChannel(project.channelId)
         if (!fresh) return
         for (const chunk of await runShell({ sbx, project: fresh }, command)) {
-          await (message.channel as any).send({ content: chunk, allowedMentions: { parse: [] } })
+          await bucketFor(project.channelId).schedule(() => (message.channel as any).send({ content: chunk, allowedMentions: { parse: [] } }))
         }
         return
       }
@@ -378,7 +386,7 @@ async function main(): Promise<void> {
         subscribeProject(project)
         if (existing.sessionId) registerSession(existing.threadId, existing.sessionId)
         const notice = await runnerSvc.prompt(existing.threadId, promptText, message.author.id)
-        if (notice) await message.reply({ content: notice, allowedMentions: { parse: [] } })
+        if (notice) await bucketFor(existing.channelId).schedule(() => message.reply({ content: notice, allowedMentions: { parse: [] } }))
         else startTyping(existing.threadId)
         return
       }
