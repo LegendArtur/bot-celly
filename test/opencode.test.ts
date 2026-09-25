@@ -1,7 +1,7 @@
 // test/opencode.test.ts
 import { createServer } from "node:http"
 import { expect, test } from "vitest"
-import { buildCelyConfigJson, buildOpencodeEnv, buildServeArgs, celyPolicy, createClient, resolveClient, waitForHealth } from "../src/opencode.ts"
+import { applyAndAssertCelyPolicy, buildCelyConfigJson, buildOpencodeEnv, buildServeArgs, celyPolicy, createClient, resolveClient, waitForHealth } from "../src/opencode.ts"
 
 test("serve args source the sandbox env and never contain a password", () => {
   const args = buildServeArgs()
@@ -9,19 +9,45 @@ test("serve args source the sandbox env and never contain a password", () => {
   expect(args.join(" ")).not.toContain("OPENCODE_SERVER_PASSWORD=")
 })
 
-test("the cely policy matches spec section 8", () => {
+test("the cely policy matches spec section 8 and disables share", () => {
   expect(celyPolicy().permission).toEqual({
     "*": "allow",
     bash: { "*": "allow", "git push*": "deny", "git clean -fdx*": "deny", "npm publish*": "deny", "pnpm publish*": "deny", "yarn publish*": "deny" },
     external_directory: "deny", question: "deny",
   })
+  expect(celyPolicy().share).toBe("disabled")
   expect(JSON.parse(buildCelyConfigJson()).permission).toEqual(celyPolicy().permission)
+  expect(JSON.parse(buildCelyConfigJson()).share).toBe("disabled")
 })
 
-test("the sandbox env pins the password and the cely config path", () => {
+test("the sandbox env pins the password, config path, and inline content", () => {
   const env = buildOpencodeEnv("deadbeef")
   expect(env).toContain("OPENCODE_SERVER_PASSWORD=deadbeef")
   expect(env).toContain("OPENCODE_CONFIG=$HOME/.config/cely/opencode.json")
+  const match = env.match(/OPENCODE_CONFIG_CONTENT='(.+)'/)
+  expect(match).not.toBeNull()
+  expect(JSON.parse(match![1]!).permission).toEqual(celyPolicy().permission)
+})
+
+test("applyAndAssertCelyPolicy patches the policy then verifies it", async () => {
+  const calls: any[] = []
+  let stored: any = null
+  const client = { config: {
+    update: async (o: any) => { calls.push(["update", o.body]); stored = o.body; return { data: stored } },
+    get: async () => { calls.push(["get"]); return { data: stored } },
+  } }
+  await applyAndAssertCelyPolicy(client as any)
+  expect(calls.map((c) => c[0])).toEqual(["update", "get"])
+  expect(stored.permission).toEqual(celyPolicy().permission)
+  expect(stored.share).toBe("disabled")
+})
+
+test("applyAndAssertCelyPolicy fails closed when the server keeps a weakened policy", async () => {
+  const client = { config: {
+    update: async () => ({}),
+    get: async () => ({ data: { share: "auto", permission: { "*": "allow", external_directory: "allow", question: "allow" } } }),
+  } }
+  await expect(applyAndAssertCelyPolicy(client as any)).rejects.toThrow(/policy/)
 })
 
 test("waitForHealth resolves when /global/health is healthy", async () => {

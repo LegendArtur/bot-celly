@@ -8,7 +8,8 @@ import type { Db } from "./db.ts"
 import type { Project } from "./types.ts"
 import { allocatePort, buildSandboxName, defaultForbiddenPaths, isPathInside, isSensitivePath, sanitizeProjectDirName, Sbx, SbxRunner } from "./sbx.js"
 import type { ChildProcess } from "./sbx.js"
-import { BOOTSTRAP_SCRIPT, BOOTSTRAP_VERIFY, buildCelyConfigJson, buildOpencodeEnv, buildServeArgs, createClient, waitForHealth } from "./opencode.js"
+import { applyAndAssertCelyPolicy, BOOTSTRAP_SCRIPT, BOOTSTRAP_VERIFY, buildCelyConfigJson, buildOpencodeEnv, buildServeArgs, createClient, waitForHealth } from "./opencode.js"
+import type { OpencodeClient } from "./opencode.js"
 
 export interface ProjectDeps {
   sbx: Sbx; runner: SbxRunner; db: Db; config: Config
@@ -19,6 +20,8 @@ export interface ProjectDeps {
   isPortFree?(port: number): Promise<boolean>
   forbiddenPaths?: string[]
   onProjectDown?(channelId: string, projectName: string): void
+  onProjectReady?(project: Project): void
+  applyPolicy?(client: OpencodeClient): Promise<void>
   killTimeoutMs?: number
 }
 
@@ -46,6 +49,10 @@ export class ProjectService {
     this.validateDirectory(directory)
     await mkdir(directory, { recursive: true })
     return directory
+  }
+
+  private applyPolicy(client: OpencodeClient): Promise<void> {
+    return (this.deps.applyPolicy ?? (applyAndAssertCelyPolicy as (c: OpencodeClient) => Promise<void>))(client)
   }
 
   private async isPortFree(port: number): Promise<boolean> {
@@ -124,7 +131,9 @@ export class ProjectService {
       this.bootServer(channelId)
       const client = createClient(`http://127.0.0.1:${actualPort}`, serverPassword)
       await waitForHealth(client, config.bootTimeoutMs)
+      await this.applyPolicy(client)
       db.projects.setReady(channelId, sandboxPath)
+      this.deps.onProjectReady?.(db.projects.getByChannel(channelId)!)
       return db.projects.getByChannel(channelId)!
     } catch (e) {
       if (channelId) this.killChild(channelId)
@@ -204,6 +213,9 @@ export class ProjectService {
       let healthy = false
       try { await waitForHealth(client, this.deps.config.healthTimeoutMs); healthy = true } catch {}
       if (healthy) {
+        // Re-assert the policy: a project opencode.json may have weakened the
+        // bootstrap config, and a newly woken server starts from files again.
+        await this.applyPolicy(client)
         this.deps.db.projects.setStatus(channelId, "ready")
         // A healthy server with no tracked child is an orphan from a previous
         // bot process; adopt it rather than spawning a second one that would
@@ -213,7 +225,10 @@ export class ProjectService {
       }
       this.killChild(channelId)
       this.bootServer(channelId)
-      try { await waitForHealth(client, this.deps.config.healthTimeoutMs) }
+      try {
+        await waitForHealth(client, this.deps.config.healthTimeoutMs)
+        await this.applyPolicy(client)
+      }
       catch (e) {
         this.killChild(channelId)
         throw new Error(`project ${channelId} not healthy: ${(e as Error).message}`)

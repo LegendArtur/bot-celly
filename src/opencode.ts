@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util"
 import { createOpencodeClient } from "@opencode-ai/sdk"
 import type { Project } from "./types.ts"
 export type OpencodeClient = ReturnType<typeof createOpencodeClient> & { baseUrl: string; auth: string }
@@ -23,6 +24,7 @@ export const CELY_ENV_PATH = "$HOME/.config/cely/opencode.env"
 
 export interface CelyPolicy {
   $schema: string
+  share: "disabled"
   permission: {
     "*": "allow"
     bash: Record<string, "allow" | "deny">
@@ -34,6 +36,7 @@ export interface CelyPolicy {
 export function celyPolicy(): CelyPolicy {
   return {
     $schema: "https://opencode.ai/config.json",
+    share: "disabled",
     permission: {
       "*": "allow",
       bash: {
@@ -55,7 +58,40 @@ export function buildCelyConfigJson(): string {
 }
 
 export function buildOpencodeEnv(password: string): string {
-  return `OPENCODE_SERVER_PASSWORD=${password}\nOPENCODE_CONFIG=${CELY_CONFIG_PATH}\n`
+  // OPENCODE_CONFIG_CONTENT is preferred when the pinned opencode supports it so
+  // an untrusted project opencode.json/.opencode cannot loosen the policy. It is
+  // single-quoted for safe `set -a; . opencode.env` sourcing; the cely policy
+  // contains no single quotes. The API-layer PATCH+assert below is the backstop.
+  const content = JSON.stringify(celyPolicy())
+  return `OPENCODE_SERVER_PASSWORD=${password}\nOPENCODE_CONFIG=${CELY_CONFIG_PATH}\nOPENCODE_CONFIG_CONTENT='${content}'\n`
+}
+
+export interface PolicyClient {
+  config: {
+    update(options?: unknown): Promise<unknown>
+    get(options?: unknown): Promise<unknown>
+  }
+}
+export function unwrapConfigResponse(response: unknown): any {
+  return (response as any)?.data ?? response
+}
+
+/**
+ * Runtime enforcement of the cely policy. The bootstrap config is loaded below
+ * a project-level `opencode.json`, so a project can weaken it. After the server
+ * is healthy we PATCH the policy and then GET /config to assert the running
+ * server actually reports `celyPolicy()`. Any mismatch fails the caller closed.
+ */
+export async function applyAndAssertCelyPolicy(client: PolicyClient): Promise<void> {
+  const policy = celyPolicy()
+  await client.config.update({ body: policy } as any)
+  const current = unwrapConfigResponse(await client.config.get())
+  if (!isDeepStrictEqual(current?.permission, policy.permission)) {
+    throw new Error(`cely permission policy was not enforced by the server: got ${JSON.stringify(current?.permission)}`)
+  }
+  if (current?.share !== "disabled") {
+    throw new Error(`cely share policy was not enforced by the server: got ${JSON.stringify(current?.share)}`)
+  }
 }
 
 export const BOOTSTRAP_SCRIPT = `set -e; mkdir -p ${CELY_CONFIG_DIR}; mv /tmp/cely-opencode.json ${CELY_CONFIG_PATH}; mv /tmp/cely-opencode.env ${CELY_ENV_PATH}; chmod 600 ${CELY_ENV_PATH}`

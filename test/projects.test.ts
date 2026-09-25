@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
 import { openDb } from "../src/db.ts"
+import { celyPolicy } from "../src/opencode.ts"
 import { ProjectService } from "../src/projects.ts"
 
 function makeCfg(portStart: number, portEnd: number): any {
@@ -14,8 +15,19 @@ function makeCfg(portStart: number, portEnd: number): any {
 
 const logger = () => ({ info() {}, warn() {}, error() {}, debug() {}, child() { return this } }) as any
 
-async function healthServer(healthy: boolean) {
-  const server = createServer((_, res) => {
+async function healthServer(healthy: boolean, config: any = celyPolicy(), honorPatch = true) {
+  let current = config
+  const server = createServer((req, res) => {
+    if ((req.url ?? "").startsWith("/config")) {
+      if (req.method === "PATCH" || req.method === "POST") {
+        let body = ""
+        req.on("data", (c) => { body += c })
+        req.on("end", () => { if (honorPatch) { try { current = JSON.parse(body) } catch {} }; res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(current)) })
+        return
+      }
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(current))
+      return
+    }
     if (healthy) res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true }))
     else res.writeHead(503).end()
   })
@@ -149,6 +161,22 @@ test("addProject fails the saga when sandbox bootstrap fails", async () => {
   expect(db.projects.list()).toEqual([])
   expect(calls).toContainEqual(["rm", "cely-demo"])
   expect(deleted).toEqual(["chan-demo"])
+})
+
+test("addProject fails the saga closed when the server keeps a weakened policy", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls, children } = fakes()
+  const server = await healthServer(true, { share: "auto", permission: { "*": "allow" } }, false)
+  const deleted: string[] = []
+  try {
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (c: string) => { deleted.push(c) } } as any)
+    await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })).rejects.toThrow(/policy/)
+    expect(db.projects.list()).toEqual([])
+    expect(children).toHaveLength(1)
+    expect(children[0].killed).toBe(1)
+    expect(calls).toContainEqual(["rm", "cely-demo"])
+    expect(deleted).toEqual(["chan-demo"])
+  } finally { await server.close() }
 })
 
 test("addProject rolls back on create failure", async () => {
@@ -306,7 +334,8 @@ test("a crash of a replacement child still marks the project degraded", async ()
   }
   try {
     const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(port, port), log: logger(),
-      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {}, killTimeoutMs: 1000 } as any)
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {}, killTimeoutMs: 1000,
+      applyPolicy: async () => {} } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
     await svc.stop("chan-demo")
     await svc.ensureReady("chan-demo")
