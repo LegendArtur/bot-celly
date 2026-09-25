@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
-import { lstatSync, mkdirSync, realpathSync } from "node:fs"
-import { writeFile } from "node:fs/promises"
+import { constants, lstatSync, mkdirSync, realpathSync } from "node:fs"
+import { open } from "node:fs/promises"
 import { basename, join, posix } from "node:path"
 import { isPathInside, sanitizeAttachmentName } from "./sbx.js"
 
@@ -19,7 +19,8 @@ function rejectSymlink(path: string, label: string): void {
  * Resolve and validate the inbox before any write. `mkdir -p` plus a realpath
  * containment check closes the symlink escape: a `.cely` or `inbox` symlink
  * pointing outside the project is rejected, and the final inbox must resolve
- * inside the project directory.
+ * inside the project directory. Returns the resolved (realpath) inbox so callers
+ * build the destination from the vetted path rather than the raw join.
  */
 export function ensureSafeInbox(projectDirectory: string): string {
   const celyDir = join(projectDirectory, ".cely")
@@ -32,8 +33,27 @@ export function ensureSafeInbox(projectDirectory: string): string {
   const root = realpathSync(projectDirectory)
   const resolvedInbox = realpathSync(inbox)
   if (!isPathInside(root, resolvedInbox)) throw new Error("attachment inbox escapes the project directory")
-  return inbox
+  return resolvedInbox
 }
+
+/**
+ * Write an attachment without ever following a symlink at the final path
+ * component: `O_NOFOLLOW | O_EXCL` plus an fstat of the opened handle closes
+ * the check-then-write race.
+ */
+export async function writeAttachmentFile(destination: string, body: Buffer): Promise<void> {
+  const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0
+  const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | noFollow
+  const handle = await open(destination, flags, 0o600)
+  try {
+    const stat = await handle.stat()
+    if (!stat.isFile()) throw new Error("attachment destination is not a regular file")
+    await handle.writeFile(body)
+  } finally {
+    await handle.close()
+  }
+}
+
 
 /**
  * Stream a remote attachment with a hard byte cap and a timeout. Returns null
@@ -93,11 +113,14 @@ export function shouldIngestAttachment(attachment: AttachmentLike, maxBytes: num
   return Number.isFinite(attachment.size) && attachment.size > 0 && attachment.size <= maxBytes && isTextLikeAttachment(attachment)
 }
 
-export function attachmentDestination(projectDirectory: string, name: string, id: string): string {
-  const inbox = join(projectDirectory, ".cely", "inbox")
+export function attachmentDestinationIn(inbox: string, name: string, id: string): string {
   const destination = join(inbox, `${id}-${sanitizeAttachmentName(name)}`)
   if (!isPathInside(inbox, destination)) throw new Error("attachment escapes the inbox")
   return destination
+}
+
+export function attachmentDestination(projectDirectory: string, name: string, id: string): string {
+  return attachmentDestinationIn(join(projectDirectory, ".cely", "inbox"), name, id)
 }
 
 export interface IngestAttachmentsInput {
@@ -113,21 +136,21 @@ export interface IngestAttachmentsInput {
 
 /**
  * Ingest text-like attachments into `.cely/inbox`. The inbox is validated once
- * before the first write so a symlinked inbox cannot escape the project; each
- * download is size-capped and a failure is logged and skipped rather than
- * aborting the message.
+ * before the first write and every destination is built from its realpath, so a
+ * symlinked inbox cannot escape the project; each download is size-capped and a
+ * failure is logged and skipped rather than aborting the message.
  */
 export async function ingestAttachments(input: IngestAttachmentsInput): Promise<{ hostPath: string; sandboxPath: string }[]> {
   const download = input.download ?? ((url: string) => downloadAttachment(url, input.maxBytes))
-  const write = input.write ?? ((destination: string, body: Buffer) => writeFile(destination, body, { flag: "wx", mode: 0o600 }))
+  const write = input.write ?? ((destination: string, body: Buffer) => writeAttachmentFile(destination, body))
   const newId = input.newId ?? (() => randomUUID())
   const paths: { hostPath: string; sandboxPath: string }[] = []
-  let inboxChecked = false
+  let inbox: string | undefined
   for (const attachment of input.attachments) {
     if (!shouldIngestAttachment(attachment, input.maxBytes)) continue
     try {
-      if (!inboxChecked) { ensureSafeInbox(input.projectDirectory); inboxChecked = true }
-      const destination = attachmentDestination(input.projectDirectory, attachment.name, newId())
+      if (inbox === undefined) inbox = ensureSafeInbox(input.projectDirectory)
+      const destination = attachmentDestinationIn(inbox, attachment.name, newId())
       const body = await download(attachment.url ?? "")
       if (!body) continue
       await write(destination, body)

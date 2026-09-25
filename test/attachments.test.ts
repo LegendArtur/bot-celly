@@ -1,9 +1,9 @@
 import { createServer } from "node:http"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test, vi } from "vitest"
-import { attachmentDestination, attachmentSandboxPath, downloadAttachment, ensureSafeInbox, ingestAttachments, isTextLikeAttachment, shouldIngestAttachment } from "../src/attachments.ts"
+import { attachmentDestination, attachmentSandboxPath, downloadAttachment, ensureSafeInbox, ingestAttachments, isTextLikeAttachment, shouldIngestAttachment, writeAttachmentFile } from "../src/attachments.ts"
 
 test("detects text-like attachments by content type or extension", () => {
   expect(isTextLikeAttachment({ name: "notes", size: 10, contentType: "text/plain" })).toBe(true)
@@ -71,6 +71,45 @@ test("ensureSafeInbox rejects a symlinked .cely directory", () => {
   try {
     symlinkSync(outside, join(root, ".cely"))
     expect(() => ensureSafeInbox(root)).toThrow(/symlink/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    rmSync(outside, { recursive: true, force: true })
+  }
+})
+
+test("ingestAttachments writes through the resolved inbox real path", async () => {
+  const realRoot = mkdtempSync(join(tmpdir(), "cely-real-"))
+  const linkRoot = join(tmpdir(), `cely-link-${process.pid}-${Date.now()}`)
+  symlinkSync(realRoot, linkRoot, "dir")
+  const destinations: string[] = []
+  try {
+    const out = await ingestAttachments({
+      projectDirectory: linkRoot, sandboxPath: "/sandbox/ws", maxBytes: 100,
+      attachments: [{ name: "a.txt", size: 5, contentType: "text/plain", url: "http://x/ok" }],
+      download: async () => Buffer.from("hello"),
+      write: async (destination) => { destinations.push(destination) },
+      newId: () => "id",
+    })
+    const realInbox = realpathSync(join(realRoot, ".cely", "inbox"))
+    expect(destinations).toEqual([join(realInbox, "id-a.txt")])
+    expect(out[0]!.hostPath).toBe(join(realInbox, "id-a.txt"))
+    expect(out[0]!.sandboxPath).toBe("/sandbox/ws/.cely/inbox/id-a.txt")
+  } finally {
+    rmSync(linkRoot, { force: true })
+    rmSync(realRoot, { recursive: true, force: true })
+  }
+})
+
+test("writeAttachmentFile refuses to follow a symlinked destination", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cely-write-"))
+  const outside = mkdtempSync(join(tmpdir(), "cely-write-out-"))
+  try {
+    const target = join(outside, "secret.txt")
+    writeFileSync(target, "original")
+    const destination = join(root, "link.txt")
+    symlinkSync(target, destination)
+    await expect(writeAttachmentFile(destination, Buffer.from("pwned"))).rejects.toThrow()
+    expect(readFileSync(target, "utf8")).toBe("original")
   } finally {
     rmSync(root, { recursive: true, force: true })
     rmSync(outside, { recursive: true, force: true })
