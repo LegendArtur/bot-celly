@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS projects (
   host_port INTEGER NOT NULL UNIQUE, server_password TEXT NOT NULL,
   status TEXT NOT NULL, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS threads (
-  thread_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL REFERENCES projects(channel_id),
+  thread_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL REFERENCES projects(channel_id) ON DELETE CASCADE,
   session_id TEXT NOT NULL, title TEXT, model TEXT, agent TEXT, worktree_path TEXT,
   live_message_id TEXT, render_state TEXT NOT NULL DEFAULT 'idle',
   created_at INTEGER NOT NULL, last_active_at INTEGER NOT NULL);

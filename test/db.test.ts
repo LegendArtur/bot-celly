@@ -27,3 +27,11 @@ test("threads store render state and filter by activity", () => {
   expect(db.threads.recent(10).map((t) => t.threadId)).toEqual(["t1"])
 })
 test("migrate is idempotent", () => { const db = fresh(); db.migrate(); expect(db.projects.list()).toEqual([]) })
+test("removing a project cascades to its threads", () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
+    worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 })
+  db.projects.remove("c1")
+  expect(db.projects.getByChannel("c1")).toBeUndefined()
+  expect(db.threads.get("t1")).toBeUndefined()
+})
