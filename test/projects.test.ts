@@ -1,4 +1,5 @@
 import { createServer } from "node:http"
+import { readFileSync } from "node:fs"
 import { expect, test } from "vitest"
 import { openDb } from "../src/db.ts"
 import { ProjectService } from "../src/projects.ts"
@@ -33,9 +34,13 @@ function makeChild() {
 function fakes() {
   const calls: string[][] = []
   const children: any[] = []
+  const published = new Map<string, number>()
   const sbx: any = {
-    list: async () => [], ports: async () => [{ hostIp: "127.0.0.1", hostPort: 4300, sandboxPort: 4096, protocol: "tcp4" }],
-    create: async (o: any) => { calls.push(["create", o.name]) },
+    list: async () => [],
+    ports: async (name: string) => (published.has(name)
+      ? [{ hostIp: "127.0.0.1", hostPort: published.get(name), sandboxPort: 4096, protocol: "tcp4" }]
+      : []),
+    create: async (o: any) => { calls.push(["create", o.name]); published.set(o.name, o.hostPort) },
     exec: async () => ({ code: 0, stdout: "", stderr: "" }),
     start: async (n: string) => { calls.push(["start", n]); return { code: 0, stdout: "", stderr: "" } },
     cp: async () => {}, stop: async (n: string) => { calls.push(["stop", n]) },
@@ -57,6 +62,56 @@ test("addProject rejects a prefix-sibling directory", async () => {
   const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
     isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
   await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects-evil" })).rejects.toThrow(/PROJECTS_ROOT/)
+})
+
+test("addProject writes and verifies the cely bootstrap before starting the serve child", async () => {
+  const db = openDb(":memory:"); db.migrate()
+  const { sbx, runner, children } = fakes()
+  const order: string[] = []
+  let envContent = ""
+  let configContent = ""
+  const baseExec = sbx.exec
+  sbx.exec = async (n: string, args: string[]) => { order.push("exec:" + args.join(" ")); return baseExec(n, args) }
+  sbx.cp = async (from: string, to: string) => {
+    const content = readFileSync(from, "utf8")
+    if (to.endsWith("opencode.env")) envContent = content
+    if (to.endsWith("opencode.json")) configContent = content
+    order.push("cp:" + to)
+  }
+  sbx.execStream = () => { order.push("serve"); const c = makeChild(); children.push(c); return c }
+  const server = await healthServer(true)
+  try {
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
+    await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
+    expect(order.findIndex((o) => o === "serve")).toBeGreaterThan(order.findIndex((o) => o.includes("cely-opencode.env")))
+    expect(envContent).toContain("OPENCODE_CONFIG=$HOME/.config/cely/opencode.json")
+    const password = envContent.match(/OPENCODE_SERVER_PASSWORD=(\w+)/)?.[1] ?? ""
+    expect(password).not.toBe("")
+    expect(order.some((o) => o.includes(password))).toBe(false)
+    const parsed = JSON.parse(configContent)
+    expect(parsed.permission).toEqual({
+      "*": "allow",
+      bash: { "*": "allow", "git push*": "deny", "git clean -fdx*": "deny", "npm publish*": "deny", "pnpm publish*": "deny", "yarn publish*": "deny" },
+      external_directory: "deny", question: "deny",
+    })
+  } finally { await server.close() }
+})
+
+test("addProject fails the saga when sandbox bootstrap fails", async () => {
+  const db = openDb(":memory:"); db.migrate()
+  const { sbx, runner, calls } = fakes()
+  sbx.exec = async (_n: string, args: string[]) => {
+    if (args.some((a) => a.includes("cely-opencode"))) throw new Error("bootstrap failed")
+    return { code: 0, stdout: "", stderr: "" }
+  }
+  const deleted: string[] = []
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+    isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (c: string) => { deleted.push(c) } } as any)
+  await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })).rejects.toThrow(/bootstrap failed/)
+  expect(db.projects.list()).toEqual([])
+  expect(calls).toContainEqual(["rm", "cely-demo"])
+  expect(deleted).toEqual(["chan-demo"])
 })
 
 test("addProject rolls back on create failure", async () => {

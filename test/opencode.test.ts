@@ -1,12 +1,27 @@
 // test/opencode.test.ts
 import { createServer } from "node:http"
 import { expect, test } from "vitest"
-import { buildServeArgs, createClient, waitForHealth } from "../src/opencode.ts"
+import { buildCelyConfigJson, buildOpencodeEnv, buildServeArgs, celyPolicy, createClient, waitForHealth } from "../src/opencode.ts"
 
 test("serve args source the sandbox env and never contain a password", () => {
   const args = buildServeArgs()
   expect(args).toEqual(["bash", "-lc", "set -a; . ~/.config/cely/opencode.env; set +a; exec opencode serve --port 4096 --hostname 0.0.0.0"])
   expect(args.join(" ")).not.toContain("OPENCODE_SERVER_PASSWORD=")
+})
+
+test("the cely policy matches spec section 8", () => {
+  expect(celyPolicy().permission).toEqual({
+    "*": "allow",
+    bash: { "*": "allow", "git push*": "deny", "git clean -fdx*": "deny", "npm publish*": "deny", "pnpm publish*": "deny", "yarn publish*": "deny" },
+    external_directory: "deny", question: "deny",
+  })
+  expect(JSON.parse(buildCelyConfigJson()).permission).toEqual(celyPolicy().permission)
+})
+
+test("the sandbox env pins the password and the cely config path", () => {
+  const env = buildOpencodeEnv("deadbeef")
+  expect(env).toContain("OPENCODE_SERVER_PASSWORD=deadbeef")
+  expect(env).toContain("OPENCODE_CONFIG=$HOME/.config/cely/opencode.json")
 })
 
 test("waitForHealth resolves when /global/health is healthy", async () => {

@@ -1,9 +1,12 @@
 import { randomBytes } from "node:crypto"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { Config } from "./config.ts"
 import type { Db } from "./db.ts"
 import type { Project } from "./types.ts"
 import { allocatePort, buildSandboxName, isPathInside, Sbx, SbxRunner } from "./sbx.js"
-import { buildServeArgs, createClient, waitForHealth } from "./opencode.js"
+import { BOOTSTRAP_SCRIPT, BOOTSTRAP_VERIFY, buildCelyConfigJson, buildOpencodeEnv, buildServeArgs, createClient, waitForHealth } from "./opencode.js"
 
 export interface ProjectDeps {
   sbx: Sbx; runner: SbxRunner; db: Db; config: Config
@@ -41,6 +44,22 @@ export class ProjectService {
     child.kill()
   }
 
+  private async bootstrapSandbox(sandboxName: string, serverPassword: string): Promise<void> {
+    const dir = mkdtempSync(join(tmpdir(), "cely-boot-"))
+    const configFile = join(dir, "opencode.json")
+    const envFile = join(dir, "opencode.env")
+    try {
+      writeFileSync(configFile, buildCelyConfigJson(), { mode: 0o600 })
+      writeFileSync(envFile, buildOpencodeEnv(serverPassword), { mode: 0o600 })
+      await this.deps.sbx.cp(configFile, `${sandboxName}:/tmp/cely-opencode.json`)
+      await this.deps.sbx.cp(envFile, `${sandboxName}:/tmp/cely-opencode.env`)
+      await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_SCRIPT])
+      await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_VERIFY])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
   async addProject(input: { guildId: string; name: string; directory: string; existingChannelId?: string }): Promise<Project> {
     const { config, db, sbx } = this.deps
     if (!isPathInside(config.projectsRoot, input.directory)) throw new Error(`directory must be inside PROJECTS_ROOT (${config.projectsRoot})`)
@@ -59,6 +78,7 @@ export class ProjectService {
       inserted = true
       await sbx.create({ name: sandboxName, directory: input.directory, hostPort, cpus: config.sandboxCpus, memory: config.sandboxMemory, template: config.sandboxTemplate })
       await sbx.exec(sandboxName, ["true"])
+      await this.bootstrapSandbox(sandboxName, serverPassword)
       const bootstrap = this.deps.resolveSandboxPath ? await this.deps.resolveSandboxPath(sandboxName) : input.directory
       await this.bootServer(channelId)
       const client = createClient(`http://127.0.0.1:${hostPort}`, serverPassword)
