@@ -90,6 +90,36 @@ export function isPathInside(root: string, target: string): boolean {
   return t === r || t.startsWith(r.endsWith(sep) ? r : r + sep)
 }
 
+export interface CreateOpts { name: string; directory: string; hostPort: number; cpus: number; memory: string; template?: string }
+export class SbxError extends Error {}
+export class Sbx {
+  constructor(private readonly runner: SbxRunner, private readonly template = "opencode") {}
+  private async must(args: string[], timeoutMs?: number) {
+    const r = await this.runner.run(args, timeoutMs ? { timeoutMs } : {})
+    if (r.code !== 0) throw new SbxError(`sbx ${args[0]} failed (${r.code}): ${r.stderr.trim() || r.stdout.trim()}`)
+    return r
+  }
+  async list() { const r = await this.must(["ls", "--json"]); return parseSbxLs(JSON.parse(r.stdout)) }
+  async ports(name: string) { const r = await this.must(["ports", name, "--json"]); return parseSbxPorts(JSON.parse(r.stdout)) }
+  async create(o: CreateOpts) {
+    await this.must(["create", o.template ?? this.template, o.directory, "--name", o.name, "--publish", `${o.hostPort}:4096`, "--cpus", String(o.cpus), "--memory", o.memory])
+  }
+  async exec(name: string, args: string[], opts: { timeoutMs?: number } = {}) { return this.must(["exec", name, ...args], opts.timeoutMs) }
+  execStream(name: string, argv: string[]) { return this.runner.spawnStream(["exec", name, ...argv]) }
+  async cp(from: string, to: string) { await this.must(["cp", from, to]) }
+  async stop(name: string) { await this.must(["stop", name]) }
+  async start(name: string) { await this.must(["exec", name, "true"]) }
+  async remove(name: string) { await this.must(["rm", "--force", name]) }
+}
+
+export async function allocatePort(o: { start: number; end: number; used: Set<number>; isFree(p: number): Promise<boolean> }): Promise<number> {
+  for (let p = o.start; p <= o.end; p++) {
+    if (o.used.has(p)) continue
+    if (await o.isFree(p)) return p
+  }
+  throw new SbxError(`no free host port in ${o.start}-${o.end} (exhausted)`)
+}
+
 const RESERVED = new Set([
   "con", "prn", "aux", "nul", "conin$", "conout$",
   "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
