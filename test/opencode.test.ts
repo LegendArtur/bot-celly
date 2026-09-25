@@ -1,7 +1,7 @@
 // test/opencode.test.ts
 import { createServer } from "node:http"
 import { expect, test } from "vitest"
-import { applyAndAssertCelyPolicy, buildCelyConfigJson, buildOpencodeEnv, buildServeArgs, celyPolicy, createClient, resolveClient, waitForHealth } from "../src/opencode.ts"
+import { applyAndAssertCelyPolicy, BASH_DENY, buildCelyConfigJson, buildOpencodeEnv, buildServeArgs, celyPolicy, createClient, resolveClient, waitForHealth } from "../src/opencode.ts"
 
 test("serve args source the sandbox env and never contain a password", () => {
   const args = buildServeArgs()
@@ -12,13 +12,20 @@ test("serve args source the sandbox env and never contain a password", () => {
 test("the cely policy matches spec section 8 and disables share", () => {
   expect(celyPolicy().permission).toEqual({
     "*": "allow",
-    bash: {
-      "*": "allow", "git push*": "deny", "git clean -fdx*": "deny", "npm publish*": "deny",
-      "pnpm publish*": "deny", "yarn publish*": "deny", "printenv*": "deny", "env": "deny",
-      "cat *opencode.env*": "deny", "cat */.config/cely/*": "deny",
-    },
+    bash: { ...BASH_DENY },
     external_directory: "deny", question: "deny",
   })
+  expect(celyPolicy().permission.bash).toMatchObject({
+    "*": "allow", "git push*": "deny", "git clean -fdx*": "deny", "npm publish*": "deny",
+    "pnpm publish*": "deny", "yarn publish*": "deny", "printenv*": "deny", "env": "deny",
+    "cat *opencode.env*": "deny", "cat */.config/cely/*": "deny",
+  })
+  for (const command of ["head", "tail", "base64", "xxd", "od", "strings", "cp", "less", "grep", "sed", "awk"]) {
+    expect(celyPolicy().permission.bash[`${command} *opencode.env*`]).toBe("deny")
+    expect(celyPolicy().permission.bash[`${command} */.config/cely/*`]).toBe("deny")
+  }
+  expect(celyPolicy().permission.bash["*opencode.env*"]).toBe("deny")
+  expect(celyPolicy().permission.bash["*/.config/cely/*"]).toBe("deny")
   expect(celyPolicy().share).toBe("disabled")
   expect(JSON.parse(buildCelyConfigJson()).permission).toEqual(celyPolicy().permission)
   expect(JSON.parse(buildCelyConfigJson()).share).toBe("disabled")

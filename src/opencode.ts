@@ -33,6 +33,8 @@ export interface CelyPolicy {
   }
 }
 
+export const ENV_INSPECT_UTILITIES = ["awk", "base64", "cat", "cp", "grep", "head", "less", "od", "sed", "strings", "tail", "xxd"] as const
+
 export const BASH_DENY: Record<string, "allow" | "deny"> = {
   "*": "allow",
   "git push*": "deny",
@@ -45,6 +47,12 @@ export const BASH_DENY: Record<string, "allow" | "deny"> = {
   "cat *opencode.env*": "deny",
   "cat */.config/cely/*": "deny",
 }
+for (const utility of ENV_INSPECT_UTILITIES) {
+  BASH_DENY[`${utility} *opencode.env*`] = "deny"
+  BASH_DENY[`${utility} */.config/cely/*`] = "deny"
+}
+BASH_DENY["*opencode.env*"] = "deny"
+BASH_DENY["*/.config/cely/*"] = "deny"
 
 /** The same deny patterns that are baked into the sandbox config, normalized. */
 export function bashDenyPatterns(): string[] {

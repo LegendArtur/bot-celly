@@ -16,36 +16,110 @@ const ALLOWED_TOOLS = new Set([
 const ABORT_TIMEOUT_MS = 10_000
 
 const WRAPPERS = new Set(["command", "npx", "bunx", "pnpx", "doas", "sudo", "time", "nice"])
+const WRAPPER_VALUE_OPTS: Record<string, Set<string>> = {
+  sudo: new Set(["-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from", "-T", "--command-timeout", "-r", "--role", "-t", "--type"]),
+  doas: new Set(["-u", "-C"]),
+  nice: new Set(["-n", "--adjustment"]),
+  time: new Set(["-o", "--output", "-f", "--format"]),
+  command: new Set<string>(),
+  npx: new Set(["-p", "--package", "--node-options", "--prefix", "-c", "--call"]),
+  bunx: new Set(["-p", "--package"]),
+  pnpx: new Set(["-p", "--package"]),
+}
+const ENV_VALUE_OPTS = new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string"])
+const SHELLS = new Set(["bash", "sh", "zsh", "dash", "ksh"])
+const SHELL_C_FLAG = /^-[a-zA-Z]*c$/
 const VALUE_OPTS = new Set([
   "-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env", "--super-prefix",
   "--prefix", "--dir", "--filter", "-F", "--cwd", "--upload-pack", "--receive-pack",
 ])
 const MULTIWORD_TOOLS = new Set(["git", "npm", "pnpm", "yarn", "bun"])
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
+const SENSITIVE_PATH = /(^|[\\/])\.config[\\/]cely([\\/]|$)|opencode\.env/i
 
 function executableName(token: string): string {
+  if (/[*?]/.test(token)) return token
   const parts = token.replace(/\\/g, "/").split("/")
   return parts[parts.length - 1] || token
 }
 
-/**
- * Reduce a shell command to `<exe> <subcommand> <args...>` before deny matching
- * so trivial prefixes (`command`, `env FOO=bar`, absolute paths, `npx`, extra
- * whitespace) and global options (`git -c k=v push`) cannot bypass the list.
- */
-export function normalizeCommand(command: string): string {
-  const tokens = command.trim().replace(/\s+/g, " ").split(" ").filter(Boolean)
-  let i = 0
-  for (;;) {
-    const token = tokens[i]
-    if (token === undefined) return ""
-    if (token === "env") {
-      if (tokens[i + 1] === undefined) break
-      i++
-      while (tokens[i] && ENV_ASSIGNMENT.test(tokens[i]!)) i++
+/** Minimal POSIX-ish tokenizer: splits on whitespace while honouring quotes and backslash escapes. */
+export function tokenizeShell(command: string): string[] {
+  const tokens: string[] = []
+  let current = ""
+  let started = false
+  let quote: "'" | '"' | null = null
+  const push = (): void => { if (started) { tokens.push(current); current = ""; started = false } }
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i]!
+    if (quote === "'") {
+      if (ch === "'") quote = null
+      else current += ch
+      started = true
       continue
     }
-    if (WRAPPERS.has(token)) { i++; continue }
+    if (quote === '"') {
+      if (ch === '"') quote = null
+      else if (ch === "\\" && i + 1 < command.length) current += command[++i]
+      else current += ch
+      started = true
+      continue
+    }
+    if (ch === "'" || ch === '"') { quote = ch; started = true; continue }
+    if (ch === "\\" && i + 1 < command.length) { current += command[++i]; started = true; continue }
+    if (/\s/.test(ch)) { push(); continue }
+    current += ch
+    started = true
+  }
+  push()
+  return tokens
+}
+
+function shellCommandIndex(tokens: string[], from: number): number {
+  for (let j = from; j < tokens.length; j++) {
+    const token = tokens[j]!
+    if (token === "--") break
+    if (SHELL_C_FLAG.test(token)) return j
+    if (!token.startsWith("-")) break
+  }
+  return -1
+}
+
+/**
+ * Reduce a shell command to `<exe> <subcommand> <args...>` before deny matching
+ * so wrappers (`env -i`, `sudo -u x`, `nice -n 10`, `time -p`, `command -p`,
+ * `npx --yes`), leading `VAR=val` assignments, absolute paths, and nested
+ * `bash -c '<cmd>'` payloads cannot bypass the list.
+ */
+export function normalizeCommand(command: string): string {
+  const tokens = tokenizeShell(command)
+  let i = 0
+  for (;;) {
+    while (tokens[i] !== undefined && ENV_ASSIGNMENT.test(tokens[i]!)) i++
+    const token = tokens[i]
+    if (token === undefined) return ""
+    const name = executableName(token)
+    if (name === "env") {
+      i++
+      while (tokens[i] !== undefined) {
+        const t = tokens[i]!
+        if (ENV_ASSIGNMENT.test(t)) { i++; continue }
+        if (t.startsWith("-")) { i += ENV_VALUE_OPTS.has(t) ? 2 : 1; continue }
+        break
+      }
+      if (tokens[i] === undefined) return "env"
+      continue
+    }
+    if (WRAPPERS.has(name)) {
+      i++
+      const valueOpts = WRAPPER_VALUE_OPTS[name]
+      while (tokens[i]?.startsWith("-")) i += valueOpts?.has(tokens[i]!) ? 2 : 1
+      continue
+    }
+    if (SHELLS.has(name)) {
+      const cIndex = shellCommandIndex(tokens, i + 1)
+      if (cIndex !== -1 && tokens[cIndex + 1] !== undefined) return normalizeCommand(tokens.slice(cIndex + 1).join(" "))
+    }
     break
   }
   const exe = executableName(tokens[i]!)
@@ -61,6 +135,10 @@ export function evaluatePermission(req: { tool: string; patterns: string[] }, de
   const matches = (pattern: string, value: string) => {
     const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")
     return new RegExp(`^${escaped}$`).test(value)
+  }
+  if (req.tool !== "bash") {
+    for (const p of req.patterns) if (SENSITIVE_PATH.test(p)) return "reject"
+    return "once"
   }
   const normalizedDeny = deny.map(normalizeCommand)
   for (const p of req.patterns) {

@@ -159,6 +159,19 @@ and tokens) is treated as untrusted input by the design. Do not place secrets in
 a project directory that you would not expose to the sandboxed agent, and keep
 provider credentials in `sbx secret` rather than in project files.
 
+The bot-enforced bash/read deny list (`git push`, publish/clean, and any command
+or file path touching `opencode.env` or `~/.config/cely/`) is defense-in-depth,
+not a hard isolation boundary: it normalizes wrappers (`env`, `sudo`, `nice`,
+`time`, `command`, `npx`, `bash -c`) so trivial bypasses fail, but an agent that
+is allowed to run bash can still run arbitrary *allowed* commands. The blast
+radius of reading the sandbox env file is deliberately contained to the
+microVM: `OPENCODE_SERVER_PASSWORD` only guards a loopback-published port, the
+listener is reachable only from inside that sandbox (and the host's
+`127.0.0.1`), and provider credentials are injected by the `sbx` proxy rather
+than stored in the sandbox. Compromising the password therefore grants no host
+access, which is why the env file is treated as sensitive but not
+catastrophic.
+
 ## Deferred (v1.1)
 
 The v1 command surface is deliberately trimmed. The following are **not** in
