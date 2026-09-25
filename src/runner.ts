@@ -203,6 +203,8 @@ export class Runner {
         this.owner.delete(threadId)
         this.clearRenderer(threadId)
         try { db.threads.setRenderState(threadId, "idle") } catch {}
+        this.deps.onThreadIdle?.(threadId)
+        this.kickGlobalDrain()
       }
       throw e
     }
@@ -216,11 +218,21 @@ export class Runner {
       const response = evaluatePermission({ tool: e.tool, patterns: e.patterns })
       await client.postSessionIdPermissionsPermissionId({ path: { id: (await this.deps.sessionFor(threadId)), permissionID: e.permissionId }, body: { response } } as any)
     } else if (e.kind === "error") {
-      const r = await this.rendererFor(threadId); r.push({ kind: "text", sessionId: e.sessionId, messageId: "", partId: `err-${e.sessionId}`, text: `[error] ${e.message}` })
-      await r.finalize()
+      try {
+        const r = await this.rendererFor(threadId)
+        r.push({ kind: "text", sessionId: e.sessionId, messageId: "", partId: `err-${e.sessionId}`, text: `[error] ${e.message}` })
+        await r.finalize()
+      } catch (err) {
+        this.deps.log("error render finalize failed", { threadId, error: String(err) })
+      }
       if (this.idle(threadId, epoch)) await this.drain(threadId)
     } else if (e.kind === "idle") {
-      const r = await this.rendererFor(threadId); await r.finalize()
+      try {
+        const r = await this.rendererFor(threadId)
+        await r.finalize()
+      } catch (err) {
+        this.deps.log("idle render finalize failed", { threadId, error: String(err) })
+      }
       this.clearAbortTimer(threadId)
       const aborting = db.threads.get(threadId)?.renderState === "aborting"
       const owned = this.idle(threadId, epoch)
@@ -269,9 +281,9 @@ export class Runner {
         if (ev) renderer.push(ev)
       }
     }
-    await renderer.finalize()
-    this.clearAbortTimer(thread.threadId)
+    try { await renderer.finalize() } catch (err) { this.deps.log("recover finalize failed", { threadId: thread.threadId, error: String(err) }) }
     if (this.active.has(thread.threadId)) return
+    this.clearAbortTimer(thread.threadId)
     this.idle(thread.threadId, epoch)
   }
   async handleProjectDown(channelId: string): Promise<void> {

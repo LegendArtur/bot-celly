@@ -517,6 +517,75 @@ test("the renderer cache is cleared when a run goes idle", async () => {
   expect(sends).toEqual(["a", "b"])
 })
 
+test("a finalize failure on idle still resets the run and drains the queue", async () => {
+  const sent: string[] = []
+  const { db, states } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async (a: any) => { sent.push(a.body.parts[0].text) } } }) as any,
+    createRenderer: async () => ({ push() {}, tick: async () => {}, finalize: async () => { throw new Error("deleted") } }) as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 5, maxConcurrentRuns: 4 })
+  await runner.prompt("t1", "first", "u")
+  await runner.prompt("t1", "second", "u")
+  await expect(runner.onEvent("t1", { kind: "idle", sessionId: "s1" })).resolves.toBeUndefined()
+  expect(states).toContain("idle")
+  expect(sent).toEqual(["first", "second"])
+})
+
+test("a finalize failure on error still resets the run and drains the queue", async () => {
+  const sent: string[] = []
+  const { db, states } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async (a: any) => { sent.push(a.body.parts[0].text) } } }) as any,
+    createRenderer: async () => ({ push() {}, tick: async () => {}, finalize: async () => { throw new Error("deleted") } }) as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 5, maxConcurrentRuns: 4 })
+  await runner.prompt("t1", "first", "u")
+  await runner.prompt("t1", "second", "u")
+  await expect(runner.onEvent("t1", { kind: "error", sessionId: "s1", message: "boom" })).resolves.toBeUndefined()
+  expect(states).toContain("idle")
+  expect(sent).toEqual(["first", "second"])
+})
+
+test("recover preserves the force-idle timer for an active aborting run", async () => {
+  vi.useFakeTimers()
+  try {
+    const finalized: number[] = []
+    const { db } = makeDb("aborting")
+    const runner = new Runner({ db,
+      clientFor: () => ({ session: { promptAsync: async () => {}, abort: async () => {}, messages: async () => ({ data: [] }) } }) as any,
+      createRenderer: async () => ({ push() {}, tick: async () => {}, finalize: async () => { finalized.push(1) } }) as any,
+      sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+    await runner.prompt("t1", "a", "u")
+    await runner.abort("t1")
+    await runner.recover({ threadId: "t1", sessionId: "s1" })
+    expect(runner.activeCount).toBe(1)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(runner.activeCount).toBe(0)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test("a failed run start kicks the global drain so a queued thread is not stranded", async () => {
+  let rejectSession!: (e: Error) => void
+  const gate = new Promise<string>((_, reject) => { rejectSession = reject })
+  const sent: string[] = []
+  let calls = 0
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async (a: any) => { sent.push(a.body.parts[0].text) } } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: () => { calls++; return calls === 1 ? gate : Promise.resolve("s2") },
+    log() {}, maxQueue: 5, maxConcurrentRuns: 1 })
+  const first = runner.prompt("t1", "one", "u").catch(() => {})
+  await Promise.resolve()
+  expect(await runner.prompt("t2", "two", "u")).toBe("queued (1)")
+  rejectSession(new Error("nope"))
+  await first
+  await new Promise((r) => setTimeout(r, 0))
+  expect(sent).toEqual(["two"])
+  expect(runner.isActive("t2")).toBe(true)
+})
+
 test("handleProjectDown finalizes and idles active threads, freeing the concurrency budget", async () => {
   const threads = [{ threadId: "t1", channelId: "c1", sessionId: "s1" }]
   const { db, states } = makeDb("running", threads)
