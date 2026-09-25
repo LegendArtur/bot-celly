@@ -341,6 +341,8 @@ test("start recreates a missing sandbox via the create path", async () => {
     await svc.start("chan1")
     expect(calls).toContainEqual(["create", "cely-demo"])
     expect(db.projects.getByChannel("chan1")?.status).toBe("ready")
+    expect(db.projects.getByChannel("chan1")?.serverPassword).toMatch(/^[0-9a-f]{32}$/)
+    expect(db.projects.getByChannel("chan1")?.serverPassword).not.toBe("pw")
   } finally { await server.close() }
 })
 
