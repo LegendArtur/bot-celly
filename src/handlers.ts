@@ -3,7 +3,7 @@ import type { Logger } from "./log.ts"
 import type { Project } from "./types.ts"
 import { buildPromptText, projectForChannel } from "./helpers.js"
 import { shouldHandleMessage } from "./discord.js"
-import { sanitizeThreadName } from "./render.js"
+import { renderPayload, sanitizeThreadName } from "./render.js"
 import type { CreateThreadInput } from "./commands.ts"
 import type { Runner } from "./runner.ts"
 
@@ -53,7 +53,7 @@ export function createMessageHandler(deps: MessageHandlerDeps): (message: any) =
         await deps.projects.ensureReady(project.channelId)
         deps.subscribeProject(project)
         for (const chunk of await deps.runShell(project.channelId, command)) {
-          await deps.bucketFor(project.channelId).schedule(() => message.channel.send({ content: chunk, allowedMentions: { parse: [] } }))
+          await deps.bucketFor(project.channelId).schedule(() => message.channel.send(renderPayload(chunk)))
         }
         return
       }
@@ -66,7 +66,7 @@ export function createMessageHandler(deps: MessageHandlerDeps): (message: any) =
         deps.subscribeProject(project)
         if (existing.sessionId) deps.registerSession(existing.threadId, existing.sessionId)
         const notice = await deps.runner.prompt(existing.threadId, promptText, message.author.id)
-        if (notice) await deps.bucketFor(existing.channelId).schedule(() => message.reply({ content: notice, allowedMentions: { parse: [] } }))
+        if (notice) await deps.bucketFor(existing.channelId).schedule(() => message.reply(renderPayload(notice)))
         else deps.startTyping(existing.threadId)
         return
       }
@@ -94,7 +94,7 @@ export function createProjectDownHandler(deps: ProjectDownDeps): (channelId: str
     const channel = deps.client.channels.cache.get(channelId)
     if (channel && "send" in channel) {
       void deps.bucketFor(channelId)
-        .schedule(() => channel.send({ content: "The project server stopped unexpectedly; it will restart on the next message.", allowedMentions: { parse: [] } }))
+        .schedule(() => channel.send(renderPayload("The project server stopped unexpectedly; it will restart on the next message.")))
         .catch(() => {})
     } else {
       deps.log.warn("project down but the channel is unavailable", { channelId })
@@ -108,7 +108,7 @@ export function createProjectMissingHandler(deps: ProjectDownDeps): (channelId: 
     const channel = deps.client.channels.cache.get(channelId)
     if (channel && "send" in channel) {
       void deps.bucketFor(channelId)
-        .schedule(() => channel.send({ content: `The sandbox for **${projectName}** is missing. Run /project start to recreate it.`, allowedMentions: { parse: [] } }))
+        .schedule(() => channel.send(renderPayload(`The sandbox for **${projectName}** is missing. Run /project start to recreate it.`)))
         .catch(() => {})
     } else {
       deps.log.warn("sandbox missing but the channel is unavailable", { channelId })
