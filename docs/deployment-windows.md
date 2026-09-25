@@ -168,3 +168,33 @@ it in `.env`.
 | Bot exits: `already running` | A second instance holds the lock | Stop the other process or the duplicate scheduled task. |
 | Task starts but nothing happens | Task configured as LocalSystem / "run whether logged on" | Recreate the task as "Run only when user is logged on". |
 | Sandboxes not stopped after reboot | Expected | Sandboxes stop automatically when idle; the next prompt wakes them via `ensureReady`. |
+
+## 7. Caveats
+
+`PROJECTS_ROOT` must not live under the user profile. The sensitive-path
+denylist includes `HOME`/`USERPROFILE` and `DATA_DIR`, and the containment check
+rejects both ancestors and descendants of a forbidden root. A `PROJECTS_ROOT`
+such as `C:\Users\you\projects` is therefore rejected in full and no project can
+be mounted; use a path outside the profile (e.g. `D:\projects`) or move
+`DATA_DIR` out of `PROJECTS_ROOT`.
+
+## 8. Deferred (v1.1) and limitations
+
+The v1 command surface is intentionally trimmed. Deferred commands:
+`/project restart`, `/share`, `/diff`, `/undo`, `/redo`, `/context-usage`.
+Deferred features: worktree-per-thread, `/btw` forks, queue UI, permission
+approval buttons, `question` components, voice/image input, OpenCode web UI,
+tunnels/screenshare, multi-guild, cloud sandboxes, OAuth subscription login,
+and Linux/macOS deployment docs.
+
+Limitations to plan around on the host:
+
+- **The in-memory message queue is lost on bot restart.** Active runs are
+  re-attached from session history, but queued-but-unsent prompts are dropped.
+- **Role configuration accepts role IDs only**, not role names.
+- **The finalization token/duration footer is descoped.**
+- **Per-user command rate limiting, sandbox disk-usage warnings, and the
+  `DATA_DIR` cloud-sync warning are backlog.** Keep `DATA_DIR` outside any
+  OneDrive/Dropbox-synced folder yourself.
+- The smoke script (`node scripts/smoke.mjs`) and live Discord interactions
+  are host-only and are not exercised by the Linux test suite.

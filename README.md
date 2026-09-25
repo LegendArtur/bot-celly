@@ -77,8 +77,8 @@ dist/index.js` works too, but it errors if `.env` does not exist.
 | `DISCORD_TOKEN` | required | Bot token. |
 | `DISCORD_GUILD_ID` | required | Single guild v1. |
 | `PROJECTS_ROOT` | required | Allowed project root. |
-| `ACCESS_ROLE_ID` / `BLOCK_ROLE_ID` | unset | Role IDs (names deprecated). |
-| `OWNER_ROLE_ID` | unset | Owner-only role for `/project` mutations (guild owner always allowed). |
+| `ACCESS_ROLE_ID` / `BLOCK_ROLE_ID` | unset | Role **IDs** only; the role-name fallback described in the spec is not implemented in v1. |
+| `OWNER_ROLE_ID` | unset | Owner-only role ID for `/project` mutations (guild owner always allowed). |
 | `CATEGORY_ID` | auto-create `Eregion` | Discord category. |
 | `SANDBOX_TEMPLATE` | `opencode` | `sbx create` agent/template. |
 | `SANDBOX_CPUS` / `SANDBOX_MEMORY` | `2` / `4g` | Resource limits. |
@@ -158,3 +158,46 @@ project directory (and everything in it, including `git` remotes, `.env` files,
 and tokens) is treated as untrusted input by the design. Do not place secrets in
 a project directory that you would not expose to the sandboxed agent, and keep
 provider credentials in `sbx secret` rather than in project files.
+
+## Deferred (v1.1)
+
+The v1 command surface is deliberately trimmed. The following are **not** in
+v1 and are backlog items (`docs/superpowers/specs/2026-09-25-cely-v1-design.md`
+§3, §18):
+
+- **Commands:** `/project restart`, `/share`, `/diff`, `/undo`, `/redo`,
+  `/context-usage`.
+- **Thread/conversation:** worktree-per-thread, `/btw` forks, queue UI
+  (`. queue`), permission-approval buttons, and `question` rendered as Discord
+  components.
+- **Input:** voice messages and image attachments (text-like attachments and
+  `!shell` are in scope).
+- **Surfaces:** OpenCode web UI, admin website, diff web viewer, tunnels /
+  screenshare, forum-channel layout.
+- **Scale/deploy:** multi-guild, cloud sandboxes, `--clone` sandbox mode,
+  OAuth subscription login, Linux/macOS deployment docs.
+
+## Limitations
+
+- **The message queue is lost on restart.** Queued prompts are held in memory
+  only. A bot restart mid-run re-attaches the active renderer from
+  `session.messages` (spec §8), but queued-but-unsent messages are dropped.
+- **Role names are not accepted** for `ACCESS_ROLE_ID` / `BLOCK_ROLE_ID` /
+  `OWNER_ROLE_ID`; configure role IDs.
+- **The finalization token/duration footer is descoped.** Replies do not append
+  a token or duration footer in v1.
+- **Per-user command rate limiting is backlog.** Discord's own REST rate limits
+  are honored through the shared per-channel token bucket (which pauses on a
+  429 `retry_after`), but there is no additional per-user command budget.
+- **Sandbox disk-usage warnings are backlog.** Disk use is not monitored or
+  warned on in v1.
+- **`DATA_DIR` cloud-sync detection is backlog.** The spec calls for a warning
+  when `DATA_DIR` lives in a cloud-sync folder; it is not implemented, so keep
+  `DATA_DIR` outside OneDrive/Dropbox yourself.
+- **`PROJECTS_ROOT` must not live under the user profile** (see the caveat in
+  [Configure](#configure)): the sensitive-path denylist includes
+  `HOME`/`USERPROFILE`, and the ancestor/descendant check rejects the whole
+  subtree.
+- **Host-only items** (recording the spike, `sbx policy ls` semantics, Windows
+  path mapping, and live Discord behavior) are exercised manually on the host,
+  not in the Linux dev/test environment.
