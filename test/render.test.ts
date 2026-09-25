@@ -26,3 +26,49 @@ test("renderer batches edits within the interval", async () => {
   await r.tick(); expect(calls.length).toBe(1)
   t = 1100; await r.tick(); expect(calls.length).toBe(2)
 })
+test("chunks longer fences without corruption", () => {
+  const text = "````\n" + "a\n".repeat(1200) + "```\n" + "b\n".repeat(1200) + "````"
+  const chunks = chunkMessage(text, 1900)
+  for (const c of chunks) expect((c.match(/`{5}/g) ?? []).length % 2).toBe(0)
+  const strip = (s: string) => s.replace(/`+/g, "").replace(/\s+/g, "")
+  expect(strip(chunks.join(""))).toBe(strip(text))
+})
+test("renderer spills long output into additional messages", async () => {
+  const sends: { id: string; content: string }[] = []
+  const edits: { id: string; content: string }[] = []
+  const ids: string[] = []
+  let n = 0, t = 0
+  const r = new Renderer({
+    send: async (c) => { const id = "m" + (++n); sends.push({ id, content: c }); return id },
+    edit: async (id, c) => { edits.push({ id, content: c }) },
+    now: () => t, intervalMs: 1000, onMessageId: (id) => ids.push(id),
+  })
+  const first = "a".repeat(1800)
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: first })
+  await r.tick()
+  expect(sends.length).toBe(1)
+  expect(sends[0].content).toBe(first)
+  t = 2000
+  const grown = "a".repeat(1800) + "b".repeat(1800)
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: grown })
+  await r.tick()
+  const grownChunks = chunkMessage(grown, 1900)
+  expect(grownChunks.length).toBe(2)
+  expect(sends.length).toBe(2)
+  expect(edits.length).toBe(1)
+  expect(edits[0].id).toBe(sends[0].id)
+  expect(edits[0].content).toBe(grownChunks[0])
+  expect(sends[1].content).toBe(grownChunks[1])
+  t = 5000
+  const final = "a".repeat(1800) + "b".repeat(3000)
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: final })
+  await r.finalize()
+  const finalChunks = chunkMessage(final, 1900)
+  expect(finalChunks.length).toBe(3)
+  expect(sends.length).toBe(3)
+  expect(ids).toEqual(["m1", "m2", "m3"])
+  const latest = new Map<string, string>()
+  for (const s of sends) latest.set(s.id, s.content)
+  for (const e of edits) latest.set(e.id, e.content)
+  expect(["m1", "m2", "m3"].map((id) => latest.get(id)).join("")).toBe(finalChunks.join(""))
+})
