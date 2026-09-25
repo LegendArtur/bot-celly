@@ -114,8 +114,10 @@ For development use `npm run dev` (runs `tsx watch src/index.ts`). On boot the
 bot performs a preflight (`sbx version`, policy check, single-instance lock) and
 fails fast with an actionable message. Logs are written to `data/bot.log`.
 
-Run the host-only smoke check (creates a sandbox, runs `opencode --version`, and
-removes it):
+Run the host-only smoke check. It exercises the full chain: create → copy the
+cely config/env → bootstrap → verify → `opencode serve` → health → create
+session → prompt "say hi" → wait for an assistant reply → abort → stop →
+remove (teardown runs on failure):
 
 ```powershell
 node scripts/smoke.mjs C:\path\to\a\project\dir
@@ -202,6 +204,9 @@ v1 and are backlog items (`docs/superpowers/specs/2026-09-25-cely-v1-design.md`
 - **Per-user command rate limiting is backlog.** Discord's own REST rate limits
   are honored through the shared per-channel token bucket (which pauses on a
   429 `retry_after`), but there is no additional per-user command budget.
+- **Per-run correlation ids are backlog.** Spec §5 calls for project/thread/run
+  correlation ids in logs; logs carry project/thread context but not a distinct
+  `run` id, so several runs in one thread cannot be correlated from logs alone.
 - **Sandbox disk-usage warnings are backlog.** Disk use is not monitored or
   warned on in v1.
 - **`DATA_DIR` cloud-sync detection is backlog.** The spec calls for a warning

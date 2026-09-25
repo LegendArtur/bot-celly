@@ -153,8 +153,9 @@ it in `.env`.
 
 - `sbx diagnose` reports a healthy install, daemon, and authentication.
 - `sbx policy ls` shows the `balanced` preset as the floor.
-- `node scripts/smoke.mjs C:\path\to\a\project\dir` prints `smoke OK` (creates a
-  sandbox, runs `opencode --version`, and removes it).
+- `node scripts/smoke.mjs C:\path\to\a\project\dir` prints `smoke OK` (full
+  chain: create → bootstrap → serve → health → create session → prompt →
+  abort → stop → remove, with teardown on failure).
 - After an at-logon start, `data/bot.log` shows the preflight passing and the
   Discord client logging in.
 

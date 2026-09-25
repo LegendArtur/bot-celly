@@ -1,5 +1,6 @@
 // test/events.test.ts
 import { createServer } from "node:http"
+import { readFileSync } from "node:fs"
 import { expect, test, vi } from "vitest"
 import { EventRouter, INITIAL_BACKOFF, MAX_BACKOFF, nextBackoff, normalizeEvent, trimSseBuffer } from "../src/events.ts"
 
@@ -263,6 +264,39 @@ test("joins multi-line data with a newline", async () => {
     ac.abort()
     await done
     expect(events).toEqual([{ threadId: "t1", e: { kind: "idle", sessionId: "s1" } }])
+  } finally {
+    server.close()
+    server.closeAllConnections()
+  }
+})
+
+test("dispatches the recorded opencode event fixture over SSE", async () => {
+  const fixture = readFileSync(new URL("./fixtures/opencode-events.jsonl", import.meta.url), "utf8").trim().split("\n")
+  const events: Array<{ threadId: string; e: any }> = []
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
+    res.flushHeaders()
+    for (const line of fixture) res.write(`data: ${line}\n\n`)
+    res.end()
+  })
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    const router = new EventRouter({
+      route: (sessionId) => (sessionId === "ses_1" ? "t1" : undefined),
+      onEvent: (threadId, e) => events.push({ threadId, e }),
+      onResync: async () => {},
+      knownSessions: () => [],
+    })
+    const ac = new AbortController()
+    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    await waitFor(() => events.length >= 2)
+    ac.abort()
+    await done
+    expect(events).toEqual([
+      { threadId: "t1", e: { kind: "text", sessionId: "ses_1", messageId: "msg_1", partId: "prt_1", text: "hi" } },
+      { threadId: "t1", e: { kind: "idle", sessionId: "ses_1" } },
+    ])
   } finally {
     server.close()
     server.closeAllConnections()
