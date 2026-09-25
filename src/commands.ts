@@ -75,7 +75,15 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         return void await interaction.editReply(`created ${added.name}`)
       }
       if (sub === "list") return void await interaction.editReply(deps.db.projects.list().map((p) => `${p.name} (${p.status})`).join("\n") || "no projects")
-      if (sub === "status") { const p = deps.db.projects.getByName(name); return void await interaction.editReply(p ? `${p.name}: ${p.status} on 127.0.0.1:${p.hostPort}` : "not found") }
+      if (sub === "status") {
+        const p = deps.db.projects.getByName(name)
+        if (!p) return void await interaction.editReply("not found")
+        const sessions = deps.db.threads.byChannel(p.channelId).length
+        let healthy: boolean | undefined
+        try { healthy = await deps.projects.health?.(p.channelId) } catch { healthy = false }
+        const health = healthy === undefined ? "" : healthy ? " healthy" : " unhealthy"
+        return void await interaction.editReply(`${p.name}: ${p.status}${health} on 127.0.0.1:${p.hostPort} (${sessions} session${sessions === 1 ? "" : "s"})`)
+      }
       if (sub === "start") {
         const p = deps.db.projects.getByName(name)
         if (!p) return void await interaction.editReply("not found")
@@ -132,8 +140,9 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
     }
     if (interaction.commandName === "abort") {
       const isThread = interaction.channel?.isThread?.() === true
-      const candidates = isThread ? [interaction.channelId] : deps.db.threads.byChannel(interaction.channelId).map((t) => t.threadId)
-      const threadIds = candidates.filter((id) => { const s = deps.db.threads.get(id)?.renderState; return s === "running" || s === "aborting" })
+      const threadIds = isThread
+        ? (deps.runner.isActive(interaction.channelId) ? [interaction.channelId] : [])
+        : deps.runner.activeThreadsFor(interaction.channelId)
       if (!threadIds.length) return void await interaction.editReply("nothing to abort")
       for (const threadId of threadIds) await deps.runner.abort(threadId)
       return void await interaction.editReply("aborted")

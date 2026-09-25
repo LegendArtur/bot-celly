@@ -181,6 +181,68 @@ test("session.idle during abort clears the force-idle timer and clears the queue
   }
 })
 
+test("prompt releases the concurrency slot when starting the run throws", async () => {
+  const { db } = makeDb()
+  db.threads.setRenderState = () => { throw new Error("db down") }
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async () => {} } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 1 })
+  await expect(runner.prompt("t1", "a", "u")).rejects.toThrow("db down")
+  expect(runner.activeCount).toBe(0)
+})
+
+test("abort re-checks activity after awaiting the session", async () => {
+  let release!: (v: string) => void
+  const gate = new Promise<string>((r) => { release = r })
+  let calls = 0
+  const aborted: string[] = []
+  const { db, states } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: () => new Promise<void>(() => {}), abort: async (a: any) => { aborted.push(a.path.id) } } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: () => { calls++; return calls === 1 ? Promise.resolve("s1") : gate },
+    log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  void runner.prompt("t1", "a", "u")
+  await Promise.resolve()
+  const pendingAbort = runner.abort("t1")
+  await runner.onEvent("t1", { kind: "idle", sessionId: "s1" })
+  release("s1")
+  await pendingAbort
+  expect(aborted).toEqual([])
+  expect(states).not.toContain("aborting")
+})
+
+test("drain re-queues a message when prompt throws", async () => {
+  let sessionCalls = 0
+  const sent: string[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async (a: any) => { sent.push(a.body.parts[0].text) } } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => { sessionCalls++; if (sessionCalls === 2) throw new Error("boom"); return "s1" },
+    log() {}, maxQueue: 5, maxConcurrentRuns: 2 })
+  await runner.prompt("t1", "first", "u")
+  await runner.prompt("t1", "second", "u")
+  await runner.onEvent("t1", { kind: "idle", sessionId: "s1" })
+  expect(sent).toEqual(["first"])
+  await runner.onEvent("t1", { kind: "idle", sessionId: "s1" })
+  expect(sent).toEqual(["first", "second"])
+})
+
+test("isActive and activeThreadsFor reflect the real activity signal", async () => {
+  const threads = [{ threadId: "t1", channelId: "c1", sessionId: "s1" }, { threadId: "t2", channelId: "c1", sessionId: "s2" }]
+  const { db } = makeDb("running", threads)
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async () => {} } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.prompt("t1", "a", "u")
+  expect(runner.isActive("t1")).toBe(true)
+  expect(runner.isActive("t2")).toBe(false)
+  expect(runner.activeThreadsFor("c1")).toEqual(["t1"])
+})
+
 test("abort on an idle thread is a no-op", async () => {
   const { db, states } = makeDb("idle")
   let aborts = 0

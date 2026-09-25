@@ -66,6 +66,21 @@ test("handleCommand defers ephemerally and answers status", async () => {
   expect(i.calls[0].o).toEqual({ flags: 64 })
   expect(editOf(i)).toMatch(/ready/)
 })
+test("project status reports health and the session count", async () => {
+  const i = interaction({ sub: "status", strings: { name: "demo" } })
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  db.threads.upsert(threadRow("t1"))
+  await handleCommand(i, { projects: { health: async () => true } as any, runner: {} as any, db, authorized: () => true })
+  expect(editOf(i)).toContain("healthy")
+  expect(editOf(i)).toContain("1 session")
+})
+test("project status reports unhealthy when the health probe fails", async () => {
+  const i = interaction({ sub: "status", strings: { name: "demo" } })
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  await handleCommand(i, { projects: { health: async () => { throw new Error("down") } } as any, runner: {} as any, db, authorized: () => true })
+  expect(editOf(i)).toContain("unhealthy")
+  expect(editOf(i)).toContain("0 sessions")
+})
 test("unauthorized interactions are rejected before defer", async () => {
   const i = interaction({ sub: "status", strings: { name: "demo" } })
   await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => false })
@@ -108,20 +123,30 @@ test("stop and remove tear down the event subscription first", async () => {
 test("abort in a project channel with no active thread says nothing to abort", async () => {
   const i = interaction({ commandName: "abort", channelId: "c" })
   const aborted: string[] = []
-  await handleCommand(i, { projects: {} as any, runner: { abort: async (id: string) => { aborted.push(id) } } as any, db: fresh(), authorized: () => true })
+  await handleCommand(i, { projects: {} as any, runner: { abort: async (id: string) => { aborted.push(id) }, activeThreadsFor: () => [] } as any, db: fresh(), authorized: () => true })
   expect(aborted).toEqual([])
   expect(editOf(i)).toBe("nothing to abort")
 })
 test("abort in a project channel aborts its active threads", async () => {
   const i = interaction({ commandName: "abort", channelId: "c" })
-  const db = fresh()
-  db.projects.insertProvisioning(proj)
-  db.threads.upsert({ threadId: "t1", channelId: "c", sessionId: "s1", title: null, model: null, agent: null,
-    worktreePath: null, liveMessageId: null, renderState: "running", createdAt: 1, lastActiveAt: 1 })
   const aborted: string[] = []
-  await handleCommand(i, { projects: {} as any, runner: { abort: async (id: string) => { aborted.push(id) } } as any, db, authorized: () => true })
+  await handleCommand(i, { projects: {} as any, runner: { abort: async (id: string) => { aborted.push(id) }, activeThreadsFor: () => ["t1"] } as any, db: fresh(), authorized: () => true })
   expect(aborted).toEqual(["t1"])
   expect(editOf(i)).toBe("aborted")
+})
+test("abort inside a thread uses the runner's live signal", async () => {
+  const i = interaction({ commandName: "abort", channelId: "t1", channel: { isThread: () => true } })
+  const aborted: string[] = []
+  await handleCommand(i, { projects: {} as any, runner: { abort: async (id: string) => { aborted.push(id) }, isActive: () => true, activeThreadsFor: () => [] } as any, db: fresh(), authorized: () => true })
+  expect(aborted).toEqual(["t1"])
+  expect(editOf(i)).toBe("aborted")
+})
+test("abort inside an idle thread says nothing to abort", async () => {
+  const i = interaction({ commandName: "abort", channelId: "t1", channel: { isThread: () => true } })
+  const aborted: string[] = []
+  await handleCommand(i, { projects: {} as any, runner: { abort: async (id: string) => { aborted.push(id) }, isActive: () => false, activeThreadsFor: () => [] } as any, db: fresh(), authorized: () => true })
+  expect(aborted).toEqual([])
+  expect(editOf(i)).toBe("nothing to abort")
 })
 
 function threadRow(threadId = "t1", channelId = "c", over: any = {}) {

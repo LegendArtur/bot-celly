@@ -37,6 +37,10 @@ export class Runner {
     onThreadIdle?(threadId: string): void
   }) {}
   get activeCount() { return this.active.size }
+  isActive(threadId: string): boolean { return this.active.has(threadId) }
+  activeThreadsFor(channelId: string): string[] {
+    return this.deps.db.threads.byChannel(channelId).map((t) => t.threadId).filter((id) => this.active.has(id))
+  }
   private rendererFor(threadId: string): Promise<Renderer> {
     let renderer = this.renderers.get(threadId)
     if (!renderer) {
@@ -57,19 +61,21 @@ export class Runner {
     const timer = this.abortTimers.get(threadId)
     if (timer !== undefined) { clearTimeout(timer); this.abortTimers.delete(threadId) }
   }
+  private requeue(threadId: string, next: { text: string; actor: string }): void {
+    const q = this.queue.get(threadId) ?? []
+    q.unshift(next); this.queue.set(threadId, q)
+  }
   private async drain(threadId: string): Promise<void> {
     const next = this.queue.get(threadId)?.shift()
     if (!next) return
     try {
       const result = await this.prompt(threadId, next.text, next.actor)
-      if (result === "busy") {
-        const q = this.queue.get(threadId) ?? []
-        q.unshift(next); this.queue.set(threadId, q)
+      if (result !== undefined && !result.startsWith("queued")) {
+        this.requeue(threadId, next)
         this.deps.log("queued message deferred", { threadId, reason: result })
       }
     } catch (e) {
-      const q = this.queue.get(threadId) ?? []
-      q.unshift(next); this.queue.set(threadId, q)
+      this.requeue(threadId, next)
       this.deps.log("queued message deferred", { threadId, reason: String(e) })
     }
   }
@@ -90,8 +96,8 @@ export class Runner {
     }
     if (this.active.size >= this.deps.maxConcurrentRuns) return "busy"
     this.active.add(threadId)
-    db.threads.setRenderState(threadId, "running"); db.threads.touch(threadId)
     try {
+      db.threads.setRenderState(threadId, "running"); db.threads.touch(threadId)
       const sessionId = await this.deps.sessionFor(threadId)
       const client = this.deps.clientFor(threadId)
       const body: Record<string, unknown> = { parts: [{ type: "text", text }] }
@@ -132,6 +138,7 @@ export class Runner {
     if (!this.active.has(threadId)) return
     const client = this.deps.clientFor(threadId)
     const sessionId = await this.deps.sessionFor(threadId)
+    if (!this.active.has(threadId)) return
     this.deps.db.threads.setRenderState(threadId, "aborting")
     await client.session.abort({ path: { id: sessionId } } as any)
     this.queue.set(threadId, [])
