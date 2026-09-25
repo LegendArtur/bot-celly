@@ -1,0 +1,41 @@
+export interface Config {
+  discordToken: string; guildId: string; projectsRoot: string
+  accessRoleId?: string; blockRoleId?: string; categoryId?: string
+  sandboxTemplate: string; sandboxCpus: number; sandboxMemory: string
+  portRangeStart: number; portRangeEnd: number
+  defaultModel?: string; defaultAgent?: string
+  bootTimeoutMs: number; healthTimeoutMs: number; editIntervalMs: number
+  attachmentMaxBytes: number; maxQueue: number; maxConcurrentRuns: number
+  dataDir: string; logLevel: "debug" | "info" | "warn" | "error"
+}
+const str = (e: NodeJS.ProcessEnv, k: string) => e[k]?.trim() || undefined
+const num = (e: NodeJS.ProcessEnv, k: string, d: number) => {
+  const raw = e[k]; if (raw === undefined || raw === "") return d
+  const n = Number(raw); if (!Number.isFinite(n)) throw new Error(`${k} must be a number, got "${raw}"`)
+  return n
+}
+export function loadConfig(env: NodeJS.ProcessEnv): Config {
+  const missing = ["DISCORD_TOKEN", "DISCORD_GUILD_ID", "PROJECTS_ROOT"].filter((k) => !str(env, k))
+  if (missing.length) throw new Error(`Missing required env: ${missing.join(", ")}`)
+  const portRangeStart = num(env, "PORT_RANGE_START", 4300)
+  const portRangeEnd = num(env, "PORT_RANGE_END", 4399)
+  if (portRangeEnd <= portRangeStart) throw new Error("PORT_RANGE_END must exceed PORT_RANGE_START")
+  const level = str(env, "LOG_LEVEL") ?? "info"
+  if (!["debug", "info", "warn", "error"].includes(level)) throw new Error(`LOG_LEVEL invalid: ${level}`)
+  return {
+    discordToken: str(env, "DISCORD_TOKEN")!, guildId: str(env, "DISCORD_GUILD_ID")!,
+    projectsRoot: str(env, "PROJECTS_ROOT")!,
+    accessRoleId: str(env, "ACCESS_ROLE_ID"), blockRoleId: str(env, "BLOCK_ROLE_ID"),
+    categoryId: str(env, "CATEGORY_ID"),
+    sandboxTemplate: str(env, "SANDBOX_TEMPLATE") ?? "opencode",
+    sandboxCpus: num(env, "SANDBOX_CPUS", 2), sandboxMemory: str(env, "SANDBOX_MEMORY") ?? "4g",
+    portRangeStart, portRangeEnd,
+    defaultModel: str(env, "DEFAULT_MODEL"), defaultAgent: str(env, "DEFAULT_AGENT"),
+    bootTimeoutMs: num(env, "BOOT_TIMEOUT_MS", 120000), healthTimeoutMs: num(env, "HEALTH_TIMEOUT_MS", 30000),
+    editIntervalMs: num(env, "EDIT_INTERVAL_MS", 1200),
+    attachmentMaxBytes: num(env, "ATTACHMENT_MAX_BYTES", 102400),
+    maxQueue: num(env, "MAX_QUEUE", 20), maxConcurrentRuns: num(env, "MAX_CONCURRENT_RUNS", 4),
+    dataDir: str(env, "DATA_DIR") ?? "./data",
+    logLevel: level as Config["logLevel"],
+  }
+}
