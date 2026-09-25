@@ -1,6 +1,6 @@
 import { expect, test } from "vitest"
 import { ChannelType } from "discord.js"
-import { buildPromptText, findCategoryId, projectForChannel, sessionIdFrom } from "../src/index.ts"
+import { buildPromptText, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "../src/index.ts"
 
 test("findCategoryId prefers the configured category", () => {
   expect(findCategoryId({ channels: { cache: new Map() } }, "configured")).toBe("configured")
@@ -40,4 +40,21 @@ test("buildPromptText announces in-sandbox attachment paths and drops blanks", (
   expect(buildPromptText("hello", ["/sandbox/.cely/inbox/a.txt"])).toBe("hello\n\n[attachment] /sandbox/.cely/inbox/a.txt")
   expect(buildPromptText("   ", [])).toBe("")
   expect(buildPromptText("", ["/x"])).toBe("[attachment] /x")
+})
+
+test("sanitizeChannelName strips control characters and limits the length", () => {
+  expect(sanitizeChannelName("My  Web\nApp")).toBe("My-Web-App")
+  expect(sanitizeChannelName("weird!!!name")).toBe("weird-name")
+  expect(sanitizeChannelName("   ")).toBe("project")
+  expect(sanitizeChannelName("\u0000\u0007")).toBe("project")
+  expect(sanitizeChannelName("x".repeat(200)).length).toBeLessThanOrEqual(90)
+})
+
+test("uniqueChannelName appends a numeric suffix on collision", () => {
+  expect(uniqueChannelName("demo", new Set())).toBe("demo")
+  expect(uniqueChannelName("demo", new Set(["demo"]))).toBe("demo-2")
+  expect(uniqueChannelName("demo", new Set(["demo", "demo-2"]))).toBe("demo-3")
+  const long = "y".repeat(120)
+  const base = sanitizeChannelName(long)
+  expect(uniqueChannelName(base, new Set([base])).length).toBeLessThanOrEqual(90)
 })

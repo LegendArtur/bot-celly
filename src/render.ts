@@ -86,9 +86,11 @@ export class Renderer {
   private ids: string[] = []
   private lastEdit = Number.NEGATIVE_INFINITY
   private dirty = false
+  private revision = 0
   private inFlight: Promise<void> | null = null
   constructor(private readonly deps: {
     send(content: string): Promise<string>; edit(messageId: string, content: string): Promise<void>
+    delete?(messageId: string): Promise<void>
     now(): number; intervalMs: number; onMessageId?(id: string): void
   }) {}
   private body(): string {
@@ -101,13 +103,15 @@ export class Renderer {
       this.parts.set(e.partId, e.text)
       this.text = this.order.map((id) => this.parts.get(id) ?? "").filter(Boolean).join("\n\n")
       this.dirty = true
+      this.revision++
     } else if (e.kind === "tool") {
       this.tools.set(e.partId, `[${e.name}] ${e.status}`)
       this.dirty = true
+      this.revision++
     }
   }
   private async runFlush(): Promise<void> {
-    this.dirty = false
+    const revision = this.revision
     const chunks = chunkMessage(this.body(), 1900)
     for (const [i, content] of chunks.entries()) {
       const existing = this.ids[i]
@@ -118,7 +122,12 @@ export class Renderer {
         this.deps.onMessageId?.(id)
       }
     }
+    if (this.ids.length > chunks.length) {
+      const surplus = this.ids.splice(chunks.length)
+      if (this.deps.delete) for (const id of surplus) await this.deps.delete(id)
+    }
     this.lastEdit = this.deps.now()
+    if (this.revision === revision) this.dirty = false
   }
   async flush(): Promise<void> {
     if (this.inFlight) return this.inFlight

@@ -53,6 +53,27 @@ export function buildPromptText(text: string, attachmentPaths: string[]): string
   return [text, ...attachmentPaths.map((p) => `[attachment] ${p}`)].filter((part) => part.trim().length > 0).join("\n\n")
 }
 
+const CHANNEL_NAME_MAX = 90
+export function sanitizeChannelName(name: string): string {
+  const cleaned = name
+    .replace(/[\u0000-\u001f\u007f]+/g, " ")
+    .replace(/\s+/g, "-")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-._]+|[-._]+$/g, "")
+    .slice(0, CHANNEL_NAME_MAX)
+    .replace(/[-._]+$/, "")
+  return cleaned || "project"
+}
+export function uniqueChannelName(base: string, taken: Set<string>): string {
+  if (!taken.has(base)) return base
+  for (let i = 2; ; i++) {
+    const suffix = `-${i}`
+    const candidate = base.slice(0, CHANNEL_NAME_MAX - suffix.length) + suffix
+    if (!taken.has(candidate)) return candidate
+  }
+}
+
 async function main(): Promise<void> {
   const cfg = loadConfig(process.env)
   const log = createLogger({ level: cfg.logLevel, file: `${cfg.dataDir}/bot.log`, secrets: [cfg.discordToken] })
@@ -116,7 +137,9 @@ async function main(): Promise<void> {
       const activeGuild = requireGuild()
       const categoryId = findCategoryId(activeGuild, cfg.categoryId)
         ?? (await activeGuild.channels.create({ name: "Eregion", type: ChannelType.GuildCategory })).id
-      const channel = await activeGuild.channels.create({ name, parent: categoryId, type: ChannelType.GuildText })
+      const taken = new Set([...activeGuild.channels.cache.values()].map((c) => c.name))
+      const channelName = uniqueChannelName(sanitizeChannelName(name), taken)
+      const channel = await activeGuild.channels.create({ name: channelName, parent: categoryId, type: ChannelType.GuildText })
       return channel.id
     },
     deleteChannel: async (id) => {
@@ -222,6 +245,10 @@ async function main(): Promise<void> {
         edit: async (messageId, content) => bucketFor(threadId).schedule(async () => {
           const message = await (channel as any).messages.fetch(messageId)
           await message.edit({ content, allowedMentions: { parse: [] } })
+        }),
+        delete: async (messageId) => bucketFor(threadId).schedule(async () => {
+          const message = await (channel as any).messages.fetch(messageId).catch(() => null)
+          if (message) await message.delete().catch(() => {})
         }),
         now: () => Date.now(),
         intervalMs: cfg.editIntervalMs,

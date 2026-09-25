@@ -93,6 +93,56 @@ test("renderer does not double-send under overlapping ticks", async () => {
   expect(sends.length).toBe(3)
   expect(new Set(sends).size).toBe(sends.length)
 })
+test("renderer retries a failed send and keeps the body dirty", async () => {
+  let attempts = 0
+  const r = new Renderer({
+    send: async () => { attempts++; if (attempts === 1) throw new Error("boom"); return "m1" },
+    edit: async () => {},
+    now: () => 0, intervalMs: 1000,
+  })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "a" })
+  await expect(r.tick()).rejects.toThrow("boom")
+  await r.finalize()
+  expect(attempts).toBe(2)
+})
+
+test("renderer deletes surplus chunk messages when the body shrinks", async () => {
+  const sends: string[] = []
+  const edits: string[] = []
+  const deletes: string[] = []
+  let n = 0, t = 0
+  const r = new Renderer({
+    send: async (c) => { sends.push(c); return "m" + (++n) },
+    edit: async (id) => { edits.push(id) },
+    delete: async (id) => { deletes.push(id) },
+    now: () => t, intervalMs: 1000,
+  })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "a".repeat(1800) + "b".repeat(1800) })
+  await r.finalize()
+  expect(sends.length).toBe(2)
+  t = 5000
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "small" })
+  await r.finalize()
+  expect(sends.length).toBe(2)
+  expect(edits).toEqual(["m1"])
+  expect(deletes).toEqual(["m2"])
+})
+
+test("renderer without a delete dep still drops surplus ids without throwing", async () => {
+  const sends: string[] = []
+  let n = 0, t = 0
+  const r = new Renderer({
+    send: async (c) => { sends.push(c); return "m" + (++n) },
+    edit: async () => {},
+    now: () => t, intervalMs: 1000,
+  })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "a".repeat(1800) + "b".repeat(1800) })
+  await r.finalize()
+  t = 5000
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "small" })
+  await expect(r.finalize()).resolves.toBeUndefined()
+})
+
 test("renderer rebuilds interleaved text parts", async () => {
   const calls: string[] = []
   const r = new Renderer({
