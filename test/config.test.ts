@@ -1,5 +1,8 @@
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { expect, test } from "vitest"
-import { loadConfig } from "../src/config.ts"
+import { ensureDataDir, loadConfig, loadDotEnv } from "../src/config.ts"
 
 const base = { DISCORD_TOKEN: "t", DISCORD_GUILD_ID: "g", PROJECTS_ROOT: "C:\\projects" }
 
@@ -22,4 +25,36 @@ test("rejects a broken port range", () => {
 })
 test("rejects non-numeric overrides", () => {
   expect(() => loadConfig({ ...base, MAX_QUEUE: "lots" })).toThrow(/MAX_QUEUE/)
+})
+
+test("ensureDataDir creates nested directories", () => {
+  const root = mkdtempSync(join(tmpdir(), "cely-data-"))
+  const nested = join(root, "a", "b", "c")
+  try {
+    expect(existsSync(nested)).toBe(false)
+    ensureDataDir(nested)
+    expect(existsSync(nested)).toBe(true)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test("loadDotEnv reports success and failure without throwing", () => {
+  let called = ""
+  expect(loadDotEnv(".env.test", (p) => { called = p })).toBe(true)
+  expect(called).toBe(".env.test")
+  expect(loadDotEnv(".env.test", () => { throw new Error("missing") })).toBe(false)
+})
+
+test("loadDotEnv loads a real .env into process.env", () => {
+  const root = mkdtempSync(join(tmpdir(), "cely-env-"))
+  const envPath = join(root, ".env")
+  const key = "CELY_TEST_DOTENV_VALUE"
+  try {
+    writeFileSync(envPath, `${key}=loaded\n`)
+    delete process.env[key]
+    expect(loadDotEnv(envPath)).toBe(true)
+    expect(process.env[key]).toBe("loaded")
+  } finally {
+    delete process.env[key]
+    rmSync(root, { recursive: true, force: true })
+  }
 })

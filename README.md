@@ -65,8 +65,12 @@ Run these on the Windows host before the first bot start:
 ## Configure
 
 Copy `.env.example` to `.env` and fill it in. `.env` is gitignored and is the
-single source of truth for configuration. All values are validated at boot; the
-bot fails fast on a missing or malformed value.
+single source of truth for configuration. It is loaded automatically at startup
+(`process.loadEnvFile`, so `npm run dev`, `npm start`, and `node dist/index.js`
+all pick it up); a missing file is non-fatal and is reported later as a missing
+required variable. All values are validated at boot; the bot fails fast on a
+missing or malformed value. If you prefer Node's own flag, `node --env-file=.env
+dist/index.js` works too, but it errors if `.env` does not exist.
 
 | Variable | Default | Purpose |
 |---|---|---|

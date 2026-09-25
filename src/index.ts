@@ -6,7 +6,7 @@ import { dirname } from "node:path"
 import { ChannelType, Events } from "discord.js"
 import type { Guild, Interaction, Message } from "discord.js"
 import type { Project, Thread } from "./types.ts"
-import { loadConfig } from "./config.js"
+import { ensureDataDir, loadConfig, loadDotEnv } from "./config.js"
 import { createLogger } from "./log.js"
 import { openDb } from "./db.js"
 import { Sbx, SbxRunner } from "./sbx.js"
@@ -29,11 +29,15 @@ import { buildPromptText, findCategoryId, projectForChannel, sanitizeChannelName
 export { buildPromptText, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
 async function main(): Promise<void> {
+  loadDotEnv()
   const cfg = loadConfig(process.env)
-  const log = createLogger({ level: cfg.logLevel, file: `${cfg.dataDir}/bot.log`, secrets: [cfg.discordToken] })
+  ensureDataDir(cfg.dataDir)
+  const secrets = [cfg.discordToken]
+  const log = createLogger({ level: cfg.logLevel, file: `${cfg.dataDir}/bot.log`, secrets })
   const lock = await acquireLock(4555)
   const db = openDb(`${cfg.dataDir}/bot.db`)
   db.migrate()
+  for (const project of db.projects.list()) secrets.push(project.serverPassword)
   if (cfg.defaultModel) db.settings.set("default_model", cfg.defaultModel)
   if (cfg.defaultAgent) db.settings.set("default_agent", cfg.defaultAgent)
 

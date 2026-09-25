@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs"
+
 export interface Config {
   discordToken: string; guildId: string; projectsRoot: string
   accessRoleId?: string; blockRoleId?: string; ownerRoleId?: string; categoryId?: string
@@ -8,6 +10,19 @@ export interface Config {
   attachmentMaxBytes: number; maxQueue: number; maxConcurrentRuns: number
   dataDir: string; logLevel: "debug" | "info" | "warn" | "error"
 }
+/** Create DATA_DIR (and parents) before the logger or SQLite file is opened. */
+export function ensureDataDir(dir: string): void {
+  mkdirSync(dir, { recursive: true })
+}
+
+/**
+ * Load `.env` into `process.env` before `loadConfig`. Missing files and load
+ * failures are non-fatal: required values still fail fast in `loadConfig`.
+ */
+export function loadDotEnv(path = ".env", loader: (p: string) => void = (p) => { process.loadEnvFile?.(p) }): boolean {
+  try { loader(path); return true } catch { return false }
+}
+
 const str = (e: NodeJS.ProcessEnv, k: string) => e[k]?.trim() || undefined
 const num = (e: NodeJS.ProcessEnv, k: string, d: number) => {
   const raw = e[k]; if (raw === undefined || raw === "") return d
