@@ -15,18 +15,24 @@ test("waitForHealth resolves when /global/health is healthy", async () => {
     if (++n < 2) { res.writeHead(500).end() ; return }
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true, version: "x" }))
   })
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-  const port = (server.address() as any).port
-  const client = { baseUrl: `http://127.0.0.1:${port}` } as any
-  await expect(waitForHealth(client, 2000, 10)).resolves.toBeUndefined()
-  server.close()
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    const client = { baseUrl: `http://127.0.0.1:${port}` } as any
+    await expect(waitForHealth(client, 2000, 10)).resolves.toBeUndefined()
+  } finally {
+    server.close()
+  }
 })
 test("waitForHealth rejects on timeout", async () => {
   const server = createServer((_, res) => { res.writeHead(500).end() })
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-  const port = (server.address() as any).port
-  await expect(waitForHealth({ baseUrl: `http://127.0.0.1:${port}` } as any, 150, 20)).rejects.toThrow(/health/)
-  server.close()
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    await expect(waitForHealth({ baseUrl: `http://127.0.0.1:${port}` } as any, 150, 20)).rejects.toThrow(/health/)
+  } finally {
+    server.close()
+  }
 })
 
 test("createClient attaches basic auth derived from the password", async () => {
@@ -35,10 +41,49 @@ test("createClient attaches basic auth derived from the password", async () => {
     auth = req.headers.authorization
     res.writeHead(200, { "content-type": "application/json" }).end("[]")
   })
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-  const port = (server.address() as any).port
-  const client = createClient(`http://127.0.0.1:${port}`, "s3cret")
-  await client.project.list()
-  expect(auth).toBe("Basic " + Buffer.from("opencode:s3cret").toString("base64"))
-  server.close()
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    const client = createClient(`http://127.0.0.1:${port}`, "s3cret")
+    await client.project.list()
+    expect(auth).toBe("Basic " + Buffer.from("opencode:s3cret").toString("base64"))
+  } finally {
+    server.close()
+  }
+})
+
+test("createClient exposes baseUrl and auth for health checks", () => {
+  const client = createClient("http://127.0.0.1:9", "pw")
+  expect(client.baseUrl).toBe("http://127.0.0.1:9")
+  expect(client.auth).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
+})
+
+test("waitForHealth sends credentials and succeeds on an auth-guarded server", async () => {
+  const expected = "Basic " + Buffer.from("opencode:pw").toString("base64")
+  const server = createServer((req, res) => {
+    if (req.headers.authorization !== expected) { res.writeHead(401).end(); return }
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true, version: "x" }))
+  })
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    const client = createClient(`http://127.0.0.1:${port}`, "pw")
+    await expect(waitForHealth(client, 1000, 10)).resolves.toBeUndefined()
+  } finally {
+    server.close()
+  }
+})
+
+test("waitForHealth aborts a hung connection within its budget", async () => {
+  const server = createServer(() => {})
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    const started = Date.now()
+    await expect(waitForHealth({ baseUrl: `http://127.0.0.1:${port}` } as any, 300, 50)).rejects.toThrow(/health/)
+    expect(Date.now() - started).toBeLessThan(2000)
+  } finally {
+    server.close()
+    server.closeAllConnections()
+  }
 })
