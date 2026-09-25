@@ -1,6 +1,6 @@
 // test/events.test.ts
 import { createServer } from "node:http"
-import { expect, test } from "vitest"
+import { expect, test, vi } from "vitest"
 import { EventRouter, INITIAL_BACKOFF, MAX_BACKOFF, nextBackoff, normalizeEvent } from "../src/events.ts"
 
 test("normalizes a text part", () => {
@@ -100,6 +100,98 @@ test("routes SSE frames by session and resyncs known sessions on reconnect", asy
     ])
     expect(resyncs).toEqual([{ threadId: "t1", sessionId: "s1" }])
     expect(connections).toBeGreaterThanOrEqual(2)
+  } finally {
+    server.close()
+    server.closeAllConnections()
+  }
+})
+
+test("isolates a throwing onResync and keeps the stream alive", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+  const events: Array<{ threadId: string; e: any }> = []
+  let connections = 0
+  let resyncAttempts = 0
+  const server = createServer((_req, res) => {
+    connections++
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
+    res.flushHeaders()
+    if (connections === 1) res.end()
+    else res.write(`data: ${JSON.stringify({ payload: { type: "session.idle", properties: { sessionID: "s1" } } })}\n\n`)
+  })
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    const router = new EventRouter({
+      route: (sessionId) => (sessionId === "s1" ? "t1" : undefined),
+      onEvent: (threadId, e) => events.push({ threadId, e }),
+      onResync: async () => { resyncAttempts++; throw new Error("resync boom") },
+      knownSessions: () => [{ threadId: "t1", sessionId: "s1" }],
+    })
+    const ac = new AbortController()
+    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    await waitFor(() => resyncAttempts >= 1 && events.length >= 1)
+    ac.abort()
+    await done
+    expect(events).toEqual([{ threadId: "t1", e: { kind: "idle", sessionId: "s1" } }])
+    expect(resyncAttempts).toBe(1)
+    expect(connections).toBe(2)
+  } finally {
+    server.close()
+    server.closeAllConnections()
+    warn.mockRestore()
+  }
+})
+
+test("parses CRLF-terminated frames", async () => {
+  const events: Array<{ threadId: string; e: any }> = []
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
+    res.flushHeaders()
+    res.write(`data: ${JSON.stringify({ payload: { type: "session.idle", properties: { sessionID: "s1" } } })}\r\n\r\n`)
+  })
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    const router = new EventRouter({
+      route: (sessionId) => (sessionId === "s1" ? "t1" : undefined),
+      onEvent: (threadId, e) => events.push({ threadId, e }),
+      onResync: async () => {},
+      knownSessions: () => [],
+    })
+    const ac = new AbortController()
+    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    await waitFor(() => events.length >= 1)
+    ac.abort()
+    await done
+    expect(events).toEqual([{ threadId: "t1", e: { kind: "idle", sessionId: "s1" } }])
+  } finally {
+    server.close()
+    server.closeAllConnections()
+  }
+})
+
+test("joins multi-line data with a newline", async () => {
+  const events: Array<{ threadId: string; e: any }> = []
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
+    res.flushHeaders()
+    res.write('data: {"payload":{"type":"session.idle",\ndata: "properties":{"sessionID":"s1"}}}\n\n')
+  })
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    const router = new EventRouter({
+      route: (sessionId) => (sessionId === "s1" ? "t1" : undefined),
+      onEvent: (threadId, e) => events.push({ threadId, e }),
+      onResync: async () => {},
+      knownSessions: () => [],
+    })
+    const ac = new AbortController()
+    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    await waitFor(() => events.length >= 1)
+    ac.abort()
+    await done
+    expect(events).toEqual([{ threadId: "t1", e: { kind: "idle", sessionId: "s1" } }])
   } finally {
     server.close()
     server.closeAllConnections()

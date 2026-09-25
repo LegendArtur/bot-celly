@@ -45,6 +45,9 @@ export function nextBackoff(prevMs: number, connected = false): number {
   return Math.min(prevMs * 2, MAX_BACKOFF)
 }
 
+const FRAME_BOUNDARY = /\r?\n\r?\n/
+const MAX_SSE_BUFFER = 1024 * 1024
+
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     let timer: ReturnType<typeof setTimeout>
@@ -73,24 +76,33 @@ export class EventRouter {
         const res = await fetch(`${baseUrl}/global/event`, { headers: { Authorization: auth, Accept: "text/event-stream" }, signal })
         if (!res.ok || !res.body) throw new Error(`SSE HTTP ${res.status}`)
         connected = true
-        if (connectedBefore) for (const s of this.deps.knownSessions()) await this.deps.onResync(s.threadId, s.sessionId)
+        if (connectedBefore) {
+          for (const s of this.deps.knownSessions()) {
+            try { await this.deps.onResync(s.threadId, s.sessionId) } catch (err) { console.warn("event stream resync failed", err) }
+          }
+        }
         connectedBefore = true
         const reader = res.body.getReader(); const decoder = new TextDecoder(); let buf = ""
         while (true) {
-          const { value, done } = await reader.read(); if (done) break
+          const { value, done } = await reader.read()
+          if (done) { buf += decoder.decode(); break }
           buf += decoder.decode(value, { stream: true })
-          let idx
-          while ((idx = buf.indexOf("\n\n")) !== -1) {
-            const block = buf.slice(0, idx); buf = buf.slice(idx + 2)
-            const data = block.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("")
+          let m: RegExpExecArray | null
+          while ((m = FRAME_BOUNDARY.exec(buf))) {
+            const block = buf.slice(0, m.index); buf = buf.slice(m.index + m[0].length)
+            const data = block.split(/\r?\n/).filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("\n")
             if (!data) continue
             let parsed: any; try { parsed = JSON.parse(data) } catch { continue }
             const e = normalizeEvent(parsed); if (!e) continue
             const threadId = this.deps.route(e.sessionId)
             if (threadId) this.deps.onEvent(threadId, e)
           }
+          if (buf.length > MAX_SSE_BUFFER) { console.warn(`event stream frame exceeded ${MAX_SSE_BUFFER} bytes; dropping`); buf = "" }
         }
-      } catch {}
+      } catch (err) {
+        if (signal.aborted) return
+        console.warn("event stream connection failed", err)
+      }
       if (signal.aborted) return
       const delay = connected ? INITIAL_BACKOFF : backoff
       await sleep(delay, signal)
