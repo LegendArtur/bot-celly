@@ -74,6 +74,7 @@ bot fails fast on a missing or malformed value.
 | `DISCORD_GUILD_ID` | required | Single guild v1. |
 | `PROJECTS_ROOT` | required | Allowed project root. |
 | `ACCESS_ROLE_ID` / `BLOCK_ROLE_ID` | unset | Role IDs (names deprecated). |
+| `OWNER_ROLE_ID` | unset | Owner-only role for `/project` mutations (guild owner always allowed). |
 | `CATEGORY_ID` | auto-create `Eregion` | Discord category. |
 | `SANDBOX_TEMPLATE` | `opencode` | `sbx create` agent/template. |
 | `SANDBOX_CPUS` / `SANDBOX_MEMORY` | `2` / `4g` | Resource limits. |

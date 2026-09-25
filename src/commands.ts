@@ -35,6 +35,7 @@ export interface CommandDeps {
   runner: Runner
   db: Db
   authorized(interaction: any): boolean
+  isOwner?(interaction: any): boolean
   stopSubscription?(channelId: string): void
   startSubscription?(channelId: string): void
   createThread?(input: CreateThreadInput): Promise<{ threadId: string; sessionId: string }>
@@ -58,13 +59,21 @@ function selectRow(customId: string, placeholder: string, options: { label: stri
   return { type: 1, components: [{ type: 3, custom_id: customId, placeholder, min_values: 1, max_values: 1, options: options.slice(0, 25) }] }
 }
 
+const OWNER_ONLY_PROJECT_SUBS = new Set(["add", "create", "start", "stop", "remove"])
+export function requiresOwner(commandName: string, sub: string | null | undefined): boolean {
+  return commandName === "project" && !!sub && OWNER_ONLY_PROJECT_SUBS.has(sub)
+}
+
 export async function handleCommand(interaction: any, deps: CommandDeps): Promise<void> {
   if (!deps.authorized(interaction)) { await interaction.reply({ content: "You are not authorized.", flags: 64 }); return }
+  const sub = interaction.commandName === "project" ? interaction.options.getSubcommand(false) : null
+  if (requiresOwner(interaction.commandName, sub) && !deps.isOwner?.(interaction)) {
+    await interaction.reply({ content: "This command is owner-only.", flags: 64 }); return
+  }
   try {
     await interaction.deferReply({ flags: 64 })
     const name = interaction.options.getString("name", false)
     if (interaction.commandName === "project") {
-      const sub = interaction.options.getSubcommand(false)
       if (sub === "add") {
         const added = await deps.projects.addProject({ guildId: interaction.guildId, name, directory: interaction.options.getString("path", true) })
         return void await interaction.editReply(`added ${added.name}`)
@@ -94,6 +103,7 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (sub === "stop") {
         const p = deps.db.projects.getByName(name)
         if (!p) return void await interaction.editReply("not found")
+        await deps.runner.resetChannel?.(p.channelId, { notify: true })
         deps.stopSubscription?.(p.channelId)
         await deps.projects.stop(p.channelId)
         return void await interaction.editReply("stopped")
@@ -103,6 +113,7 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         if (!p) return void await interaction.editReply("not found")
         const expected = interaction.options.getString("confirm", true)
         if (expected !== name) return void await interaction.editReply("confirmation name does not match")
+        await deps.runner.resetChannel?.(p.channelId, { notify: true })
         deps.stopSubscription?.(p.channelId)
         await deps.projects.remove(p.channelId)
         return void await interaction.editReply("removed")

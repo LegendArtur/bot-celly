@@ -1,6 +1,6 @@
 export interface Config {
   discordToken: string; guildId: string; projectsRoot: string
-  accessRoleId?: string; blockRoleId?: string; categoryId?: string
+  accessRoleId?: string; blockRoleId?: string; ownerRoleId?: string; categoryId?: string
   sandboxTemplate: string; sandboxCpus: number; sandboxMemory: string
   portRangeStart: number; portRangeEnd: number
   defaultModel?: string; defaultAgent?: string
@@ -26,6 +26,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     discordToken: str(env, "DISCORD_TOKEN")!, guildId: str(env, "DISCORD_GUILD_ID")!,
     projectsRoot: str(env, "PROJECTS_ROOT")!,
     accessRoleId: str(env, "ACCESS_ROLE_ID"), blockRoleId: str(env, "BLOCK_ROLE_ID"),
+    ownerRoleId: str(env, "OWNER_ROLE_ID"),
     categoryId: str(env, "CATEGORY_ID"),
     sandboxTemplate: str(env, "SANDBOX_TEMPLATE") ?? "opencode",
     sandboxCpus: num(env, "SANDBOX_CPUS", 2), sandboxMemory: str(env, "SANDBOX_MEMORY") ?? "4g",

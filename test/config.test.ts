@@ -10,6 +10,10 @@ test("parses defaults", () => {
   expect(c.maxConcurrentRuns).toBe(4)
   expect(c.editIntervalMs).toBe(1200)
 })
+test("parses the owner role", () => {
+  expect(loadConfig({ ...base, OWNER_ROLE_ID: "own" }).ownerRoleId).toBe("own")
+  expect(loadConfig(base).ownerRoleId).toBeUndefined()
+})
 test("requires mandatory vars", () => {
   expect(() => loadConfig({})).toThrow(/DISCORD_TOKEN/)
 })

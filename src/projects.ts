@@ -24,6 +24,7 @@ export interface ProjectDeps {
 
 export class ProjectService {
   private children = new Map<string, ChildProcess>()
+  private adopted = new Set<string>()
   private inflight = new Map<string, Promise<void>>()
   private intentional = new Set<ChildProcess>()
   private killTimers = new Map<ChildProcess, ReturnType<typeof setTimeout>>()
@@ -31,6 +32,7 @@ export class ProjectService {
   constructor(private readonly deps: ProjectDeps) {}
 
   childFor(channelId: string): ChildProcess | undefined { return this.children.get(channelId) }
+  isAdopted(channelId: string): boolean { return this.adopted.has(channelId) }
 
   private validateDirectory(directory: string): void {
     const { config } = this.deps
@@ -58,6 +60,7 @@ export class ProjectService {
   }
 
   private killChild(channelId: string): void {
+    this.adopted.delete(channelId)
     const child = this.children.get(channelId)
     if (!child) return
     this.children.delete(channelId)
@@ -166,6 +169,7 @@ export class ProjectService {
     const project = this.deps.db.projects.getByChannel(channelId)
     if (!project) throw new Error(`project ${channelId} not found`)
     if (this.children.get(channelId)) return
+    this.adopted.delete(channelId)
     const child = this.deps.sbx.execStream(project.sandboxName, buildServeArgs())
     const logFile = join(this.deps.config.dataDir, "logs", `${project.sandboxName}.log`)
     try { mkdirSync(dirname(logFile), { recursive: true }) } catch {}
@@ -189,15 +193,22 @@ export class ProjectService {
     const existing = this.inflight.get(channelId)
     if (existing) return existing
     const task = (async () => {
+      // Serialize behind the create saga: a prompt that lands while the project
+      // is still provisioning must not race the sandbox it is waiting on.
+      await this.addQueue
       const p = this.deps.db.projects.getByChannel(channelId)
       if (!p) throw new Error(`unknown project ${channelId}`)
+      if (p.status === "provisioning") throw new Error(`project ${channelId} is still provisioning`)
       await this.deps.sbx.start(p.sandboxName)
       const client = createClient(`http://127.0.0.1:${p.hostPort}`, p.serverPassword)
       let healthy = false
       try { await waitForHealth(client, this.deps.config.healthTimeoutMs); healthy = true } catch {}
       if (healthy) {
         this.deps.db.projects.setStatus(channelId, "ready")
-        if (!this.children.has(channelId)) this.bootServer(channelId)
+        // A healthy server with no tracked child is an orphan from a previous
+        // bot process; adopt it rather than spawning a second one that would
+        // fail to bind and flip the project to degraded.
+        if (!this.children.has(channelId)) this.adopted.add(channelId)
         return
       }
       this.killChild(channelId)

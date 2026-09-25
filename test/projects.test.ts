@@ -222,6 +222,7 @@ test("ensureReady is single-flighted, restarts a stale child, and throws if stil
   try {
     db.projects.insertProvisioning({ channelId: "chan1", guildId: "g", name: "demo", directory: "C:\\projects\\demo",
       sandboxPath: null, sandboxName: "cely-demo", hostPort: server.port, serverPassword: "pw", createdAt: Date.now() })
+    db.projects.setStatus("chan1", "ready")
     const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
       isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
     await expect(Promise.all([svc.ensureReady("chan1"), svc.ensureReady("chan1")])).rejects.toThrow(/not healthy/)
@@ -236,33 +237,83 @@ test("ensureReady is single-flighted, restarts a stale child, and throws if stil
   } finally { await server.close() }
 })
 
-test("ensureReady boots a supervised child even when health already passes", async () => {
+test("ensureReady adopts a healthy orphan instead of spawning a second server", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner, children } = fakes()
   const server = await healthServer(true)
   try {
     db.projects.insertProvisioning({ channelId: "chan1", guildId: "g", name: "demo", directory: "C:\\projects\\demo",
       sandboxPath: null, sandboxName: "cely-demo", hostPort: server.port, serverPassword: "pw", createdAt: Date.now() })
+    db.projects.setStatus("chan1", "ready")
     const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
       isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
     await svc.ensureReady("chan1")
-    expect(children).toHaveLength(1)
-    expect(svc.childFor("chan1")).toBe(children[0])
+    expect(children).toHaveLength(0)
+    expect(svc.childFor("chan1")).toBeUndefined()
+    expect(svc.isAdopted("chan1")).toBe(true)
     expect(db.projects.getByChannel("chan1")?.status).toBe("ready")
+  } finally { await server.close() }
+})
+
+test("ensureReady rejects while the project is still provisioning", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls } = fakes()
+  db.projects.insertProvisioning({ channelId: "chan1", guildId: "g", name: "demo", directory: "C:\\projects\\demo",
+    sandboxPath: null, sandboxName: "cely-demo", hostPort: 4600, serverPassword: "pw", createdAt: Date.now() })
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+    isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
+  await expect(svc.ensureReady("chan1")).rejects.toThrow(/provisioning/)
+  expect(calls.filter((c) => c[0] === "start")).toHaveLength(0)
+})
+
+test("ensureReady waits for an in-flight create saga instead of racing it", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls } = fakes()
+  const server = await healthServer(true)
+  let release!: () => void
+  const gate = new Promise<void>((r) => { release = r })
+  const baseCreate = sbx.create
+  sbx.create = async (o: any) => { await gate; return baseCreate(o) }
+  try {
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
+    const add = svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
+    await new Promise((r) => setTimeout(r, 0))
+    const ready = svc.ensureReady("chan-demo")
+    await new Promise((r) => setTimeout(r, 0))
+    expect(calls.filter((c) => c[0] === "start")).toHaveLength(0)
+    release()
+    await add
+    await ready
+    expect(calls.filter((c) => c[0] === "create")).toHaveLength(1)
+    expect(calls.filter((c) => c[0] === "start")).toHaveLength(1)
   } finally { await server.close() }
 })
 
 test("a crash of a replacement child still marks the project degraded", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner, children } = fakes()
-  const server = await healthServer(true)
+  let healthy = true
+  const server = createServer((_, res) => {
+    if (healthy) res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true }))
+    else res.writeHead(503).end()
+  })
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+  const port = (server.address() as any).port
+  const baseExecStream = sbx.execStream
+  sbx.execStream = () => {
+    const c = baseExecStream()
+    healthy = true
+    const kill = c.kill
+    c.kill = () => { kill(); healthy = false }
+    return c
+  }
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(port, port), log: logger(),
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {}, killTimeoutMs: 1000 } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
     await svc.stop("chan-demo")
     await svc.ensureReady("chan-demo")
+    expect(children).toHaveLength(2)
     children[1].emitExit()
     expect(db.projects.getByChannel("chan-demo")?.status).toBe("degraded")
-  } finally { await server.close() }
+  } finally { await new Promise<void>((r) => server.close(() => r())) }
 })
 
 test("an unexpected child exit marks the project degraded", async () => {

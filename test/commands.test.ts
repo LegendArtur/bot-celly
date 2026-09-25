@@ -1,6 +1,7 @@
 // test/commands.test.ts
 import { expect, test } from "vitest"
-import { commandData, handleCommand, handleSelect } from "../src/commands.ts"
+import { commandData, handleCommand, handleSelect, requiresOwner } from "../src/commands.ts"
+import { isOwner } from "../src/discord.ts"
 import { openDb } from "../src/db.ts"
 
 function fresh() { const db = openDb(":memory:"); db.migrate(); return db }
@@ -90,7 +91,7 @@ test("unauthorized interactions are rejected before defer", async () => {
 test("add reply never contains the server password", async () => {
   const i = interaction({ sub: "add", strings: { name: "demo", path: "C:\\p" } })
   const added = { ...proj, serverPassword: "SUPERSECRET" }
-  await handleCommand(i, { projects: { addProject: async () => added } as any, runner: {} as any, db: fresh(), authorized: () => true })
+  await handleCommand(i, { projects: { addProject: async () => added } as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => true })
   expect(editOf(i)).toContain("demo")
   expect(editOf(i)).not.toContain("SUPERSECRET")
 })
@@ -102,22 +103,23 @@ test("start/stop/remove on an unknown project reply not found", async () => {
       stop: async () => { throw new Error("stop should not be called") },
       remove: async () => { throw new Error("remove should not be called") },
     }
-    await handleCommand(i, { projects, runner: {} as any, db: fresh(), authorized: () => true })
+    await handleCommand(i, { projects, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => true })
     expect(editOf(i)).toBe("not found")
   }
 })
-test("stop and remove tear down the event subscription first", async () => {
+test("stop and remove park-clear runner state then tear down the subscription", async () => {
   for (const sub of ["stop", "remove"] as const) {
     const i = interaction({ sub, strings: { name: "demo", confirm: "demo" } })
     const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
     const order: string[] = []
     const deps: any = {
       projects: { stop: async () => { order.push("stop") }, remove: async () => { order.push("remove") } },
-      runner: {} as any, db, authorized: () => true,
+      runner: { resetChannel: async (channelId: string, opts: any) => { order.push(`reset:${channelId}:${opts?.notify}`) } },
+      db, authorized: () => true, isOwner: () => true,
       stopSubscription: (channelId: string) => { order.push(`unsub:${channelId}`) },
     }
     await handleCommand(i, deps)
-    expect(order).toEqual(["unsub:c", sub])
+    expect(order).toEqual(["reset:c:true", "unsub:c", sub])
   }
 })
 test("abort in a project channel with no active thread says nothing to abort", async () => {
@@ -161,7 +163,7 @@ test("project create makes a sanitized directory then adds the project", async (
     createProjectDirectory: async (name: string) => { order.push("mkdir:" + name); return "C:\\projects\\my-app" },
     addProject: async (input: any) => { order.push("add:" + input.directory); return { ...proj, name: "My App" } },
   }
-  await handleCommand(i, { projects, runner: {} as any, db: fresh(), authorized: () => true })
+  await handleCommand(i, { projects, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => true })
   expect(order).toEqual(["mkdir:My App", "add:C:\\projects\\my-app"])
   expect(editOf(i)).toBe("created My App")
 })
@@ -223,7 +225,7 @@ test("project start resubscribes before waking the sandbox", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
   const order: string[] = []
   await handleCommand(i, { projects: { ensureReady: async () => { order.push("ready") } } as any,
-    runner: {} as any, db, authorized: () => true, startSubscription: (channelId: string) => { order.push(`sub:${channelId}`) } })
+    runner: {} as any, db, authorized: () => true, isOwner: () => true, startSubscription: (channelId: string) => { order.push(`sub:${channelId}`) } })
   expect(order).toEqual(["sub:c", "ready"])
 })
 
@@ -263,4 +265,34 @@ test("unauthorized selects are rejected before deferUpdate", async () => {
   const i = select({ customId: "cely:model:t1", values: ["x"] })
   await handleSelect(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => false })
   expect(i.calls).toEqual([{ kind: "reply", c: { content: "You are not authorized.", flags: 64 } }])
+})
+
+test("requiresOwner scopes project mutations", () => {
+  for (const sub of ["add", "create", "start", "stop", "remove"]) expect(requiresOwner("project", sub)).toBe(true)
+  for (const sub of ["list", "status"]) expect(requiresOwner("project", sub)).toBe(false)
+  expect(requiresOwner("new", null)).toBe(false)
+  expect(requiresOwner("model", "resume")).toBe(false)
+})
+
+test("authorized non-owners are denied owner-only project subcommands before defer", async () => {
+  for (const sub of ["add", "create", "start", "stop", "remove"]) {
+    const i = interaction({ sub, strings: { name: "demo", path: "C:\\p", confirm: "demo" } })
+    await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => false })
+    expect(i.calls).toHaveLength(1)
+    expect(i.calls[0]).toEqual({ kind: "reply", c: { content: "This command is owner-only.", flags: 64 } })
+  }
+})
+
+test("authorized non-owners can still use non-owner subcommands", async () => {
+  const i = interaction({ sub: "status", strings: { name: "demo" } })
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => false })
+  expect(editOf(i)).toMatch(/ready/)
+})
+
+test("isOwner accepts the guild owner or a configured owner role", () => {
+  expect(isOwner({ id: "o", roles: [] }, "o", {})).toBe(true)
+  expect(isOwner({ id: "u", roles: ["own"] }, "o", { ownerRoleId: "own" })).toBe(true)
+  expect(isOwner({ id: "u", roles: [] }, "o", { ownerRoleId: "own" })).toBe(false)
+  expect(isOwner({ id: "u", roles: [] }, "o", {})).toBe(false)
 })

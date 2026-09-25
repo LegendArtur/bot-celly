@@ -14,6 +14,16 @@ export function isAuthorized(
   return false
 }
 
+export function isOwner(
+  member: { id: string; roles: string[] },
+  guildOwnerId: string,
+  cfg: { ownerRoleId?: string },
+): boolean {
+  if (member.id === guildOwnerId) return true
+  if (cfg.ownerRoleId && member.roles.includes(cfg.ownerRoleId)) return true
+  return false
+}
+
 export function createDiscordClient(cfg: Config): Client {
   return new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
@@ -24,9 +34,12 @@ export function rolesOf(member: { roles: { cache: Map<string, { id: string }> } 
   return [...member.roles.cache.values()].map((r) => r.id)
 }
 
-export function shouldHandleMessage(message: Message, projectChannelId: string | undefined): boolean {
+export function shouldHandleMessage(message: Message, projectChannelId: string | undefined, knownThread = false): boolean {
   if (!projectChannelId) return false
   if (message.author.bot || message.webhookId || message.system) return false
+  // Archived/partial thread channels can report parentId === null, so when the
+  // DB already knows this thread we trust the resolved project instead.
+  if (knownThread) return true
   const channel = message.channel
   if (channel.id !== projectChannelId && !("parentId" in channel && channel.parentId === projectChannelId)) return false
   return true

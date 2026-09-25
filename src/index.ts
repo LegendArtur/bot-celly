@@ -11,7 +11,7 @@ import { createLogger } from "./log.js"
 import { openDb } from "./db.js"
 import { Sbx, SbxRunner } from "./sbx.js"
 import { ProjectService } from "./projects.js"
-import { createDiscordClient, isAuthorized, rolesOf, shouldHandleMessage } from "./discord.js"
+import { createDiscordClient, isAuthorized, isOwner, rolesOf } from "./discord.js"
 import { commandData, handleCommand, handleSelect } from "./commands.js"
 import type { CommandDeps, CreateThreadInput } from "./commands.js"
 import { acquireLock } from "./lock.js"
@@ -22,58 +22,11 @@ import { createClient } from "./opencode.js"
 import { runShell } from "./shell.js"
 import { attachmentDestination, attachmentSandboxPath, shouldIngestAttachment } from "./attachments.js"
 import { ChannelBuckets, TokenBucket } from "./bucket.js"
+import { SessionRoutes } from "./routing.js"
+import { createMessageHandler, createProjectDownHandler, createReadyHandler, createReconcileThreads, createShutdown } from "./handlers.js"
+import { buildPromptText, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
-export function findCategoryId(
-  guild: { channels: { cache: { values(): IterableIterator<{ id: string; name: string; type: ChannelType }> } } },
-  configuredId?: string,
-): string | undefined {
-  if (configuredId) return configuredId
-  for (const channel of guild.channels.cache.values()) {
-    if (channel.type === ChannelType.GuildCategory && channel.name === "Eregion") return channel.id
-  }
-  return undefined
-}
-
-export function sessionIdFrom(result: unknown): string | undefined {
-  if (!result || typeof result !== "object") return undefined
-  const record = result as { id?: unknown; data?: { id?: unknown } }
-  if (typeof record.data?.id === "string") return record.data.id
-  if (typeof record.id === "string") return record.id
-  return undefined
-}
-
-export function projectForChannel<T extends { channelId: string }>(
-  projects: T[],
-  channelId: string,
-  parentId?: string | null,
-): T | undefined {
-  return projects.find((p) => p.channelId === channelId || (parentId != null && p.channelId === parentId))
-}
-
-export function buildPromptText(text: string, attachmentPaths: string[]): string {
-  return [text, ...attachmentPaths.map((p) => `[attachment] ${p}`)].filter((part) => part.trim().length > 0).join("\n\n")
-}
-
-const CHANNEL_NAME_MAX = 90
-export function sanitizeChannelName(name: string): string {
-  const cleaned = name
-    .replace(/[\u0000-\u001f\u007f]+/g, " ")
-    .replace(/\s+/g, "-")
-    .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^[-._]+|[-._]+$/g, "")
-    .slice(0, CHANNEL_NAME_MAX)
-    .replace(/[-._]+$/, "")
-  return cleaned || "project"
-}
-export function uniqueChannelName(base: string, taken: Set<string>): string {
-  if (!taken.has(base)) return base
-  for (let i = 2; ; i++) {
-    const suffix = `-${i}`
-    const candidate = base.slice(0, CHANNEL_NAME_MAX - suffix.length) + suffix
-    if (!taken.has(candidate)) return candidate
-  }
-}
+export { buildPromptText, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
 async function main(): Promise<void> {
   const cfg = loadConfig(process.env)
@@ -124,13 +77,14 @@ async function main(): Promise<void> {
     return guild
   }
 
-  const sessionToThread = new Map<string, string>()
-  const registerSession = (threadId: string, sessionId: string): void => {
-    sessionToThread.set(sessionId, threadId)
-  }
+  const sessionRoutes = new SessionRoutes()
+  const registerSession = (threadId: string, sessionId: string): void => { sessionRoutes.register(sessionId, threadId) }
   for (const thread of db.threads.recent(1000)) {
-    if (thread.sessionId && !sessionToThread.has(thread.sessionId)) registerSession(thread.threadId, thread.sessionId)
+    if (thread.sessionId) registerSession(thread.threadId, thread.sessionId)
   }
+
+  const controllers = new Map<string, AbortController>()
+  let runnerSvc: Runner
 
   const projects = new ProjectService({
     sbx, runner: sbxRunner, db, config: cfg, log,
@@ -154,13 +108,10 @@ async function main(): Promise<void> {
       if (r.code !== 0 || !path) throw new Error(`could not resolve in-sandbox workspace for ${name}`)
       return path
     },
-    onProjectDown: (channelId) => {
-      void runnerSvc.handleProjectDown(channelId)
-      const channel = client.channels.cache.get(channelId)
-      if (channel && "send" in channel) {
-        void bucketFor(channelId).schedule(() => (channel as any).send({ content: "The project server stopped unexpectedly; it will restart on the next message.", allowedMentions: { parse: [] } })).catch(() => {})
-      }
-    },
+    onProjectDown: createProjectDownHandler({
+      runner: { handleProjectDown: (channelId) => runnerSvc.handleProjectDown(channelId) },
+      client, bucketFor, log,
+    }),
   })
 
   const clientFor = (threadId: string) => {
@@ -230,14 +181,15 @@ async function main(): Promise<void> {
     typingTimers.set(threadId, timer)
   }
 
-  const runnerSvc = new Runner({
+  runnerSvc = new Runner({
     db, clientFor,
-    createRenderer: async (threadId) => {
+    createRenderer: async (threadId, liveMessageId) => {
       const thread = db.threads.get(threadId)
       if (!thread) throw new Error(`unknown thread ${threadId}`)
       const channel = await client.channels.fetch(threadId)
       if (!channel) throw new Error(`thread channel ${threadId} unavailable`)
       return new Renderer({
+        initialMessageId: liveMessageId,
         send: async (content) => bucketFor(threadId).schedule(async () => {
           const sent = await (channel as any).send({ content, allowedMentions: { parse: [] } })
           db.threads.setLiveMessage(threadId, sent.id)
@@ -276,19 +228,20 @@ async function main(): Promise<void> {
     onThreadIdle: (threadId) => stopTyping(threadId),
   })
 
-  const controllers = new Map<string, AbortController>()
   const subscribeProject = (project: Project): void => {
     if (controllers.has(project.channelId)) return
+    for (const thread of db.threads.byChannel(project.channelId)) if (thread.sessionId) registerSession(thread.threadId, thread.sessionId)
     const controller = new AbortController()
     controllers.set(project.channelId, controller)
     const router = new EventRouter({
-      route: (sessionId) => sessionToThread.get(sessionId),
+      route: (sessionId) => sessionRoutes.route(sessionId, (threadId) => runnerSvc.isActive(threadId), (threadId) => db.threads.get(threadId)?.lastActiveAt ?? 0),
       onEvent: (threadId, event) => {
         void runnerSvc.onEvent(threadId, event).catch((err) => log.error("runner event failed", { threadId, error: String(err) }))
       },
       onResync: async (threadId, sessionId) => { await runnerSvc.recover({ threadId, sessionId }) },
       knownSessions: () => db.threads.byChannel(project.channelId)
-        .filter((thread) => !!thread.sessionId)
+        .filter((thread) => !!thread.sessionId
+          && (runnerSvc.isActive(thread.threadId) || thread.renderState === "running" || thread.renderState === "aborting"))
         .map((thread) => ({ threadId: thread.threadId, sessionId: thread.sessionId })),
     })
     void router.subscribe(`http://127.0.0.1:${project.hostPort}`, project.serverPassword, controller.signal)
@@ -300,9 +253,11 @@ async function main(): Promise<void> {
   const stopSubscription = (channelId: string): void => {
     const controller = controllers.get(channelId)
     if (controller) { controller.abort(); controllers.delete(channelId) }
-    const threadIds = new Set(db.threads.byChannel(channelId).map((thread) => thread.threadId))
-    for (const [sessionId, threadId] of sessionToThread) if (threadIds.has(threadId)) sessionToThread.delete(sessionId)
+    const threadIds = db.threads.byChannel(channelId).map((thread) => thread.threadId)
+    sessionRoutes.forgetThreads(threadIds)
   }
+
+  const reconcileThreads = createReconcileThreads({ db, runner: runnerSvc, log })
 
   const isMemberAuthorized = (guildOwnerId: string, member: { id: string; roles: string[]; permissions: { has(bit: bigint): boolean } }): boolean =>
     isAuthorized(member, guildOwnerId, cfg)
@@ -312,6 +267,12 @@ async function main(): Promise<void> {
     const member = interaction.member
     const roles = Array.isArray(member.roles) ? member.roles as string[] : rolesOf(member)
     return isMemberAuthorized(interaction.guild!.ownerId, { id: interaction.user.id, roles, permissions: interaction.memberPermissions })
+  }
+  const authorizeOwner = (interaction: any): boolean => {
+    if (!interaction.inGuild?.() || !interaction.member) return false
+    const member = interaction.member
+    const roles = Array.isArray(member.roles) ? member.roles as string[] : rolesOf(member)
+    return isOwner({ id: interaction.user.id, roles }, interaction.guild!.ownerId, cfg)
   }
 
   const startSubscription = (channelId: string): void => {
@@ -382,60 +343,26 @@ async function main(): Promise<void> {
   const commandDeps: CommandDeps = {
     projects, runner: runnerSvc, db,
     authorized: authorize,
+    isOwner: authorizeOwner,
     stopSubscription, startSubscription,
     createThread: createThreadForProject,
     listSessions, listModels, listAgents,
     setThreadModel, setThreadAgent,
   }
 
-  const onMessage = async (message: Message): Promise<void> => {
-    try {
-      if (!message.inGuild() || !message.member) return
-      const parentId = message.channel.isThread() ? message.channel.parentId : null
-      const project = projectForChannel(db.projects.list(), message.channelId, parentId)
-      if (!project || !shouldHandleMessage(message, project.channelId)) return
-      const member = message.member
-      if (!isMemberAuthorized(message.guild.ownerId, { id: member.id, roles: rolesOf(member), permissions: member.permissions })) return
-      const text = message.content
-      if (text.startsWith("!")) {
-        const command = text.slice(1).trim()
-        if (!command) return
-        await projects.ensureReady(project.channelId)
-        subscribeProject(project)
-        const fresh = db.projects.getByChannel(project.channelId)
-        if (!fresh) return
-        for (const chunk of await runShell({ sbx, project: fresh }, command)) {
-          await bucketFor(project.channelId).schedule(() => (message.channel as any).send({ content: chunk, allowedMentions: { parse: [] } }))
-        }
-        return
-      }
-      const imported = await ingestAttachments(project, message)
-      const promptText = buildPromptText(text, imported.map((a) => a.sandboxPath))
-      if (!promptText.trim()) return
-      const existing = db.threads.get(message.channelId)
-      if (existing) {
-        await projects.ensureReady(project.channelId)
-        subscribeProject(project)
-        if (existing.sessionId) registerSession(existing.threadId, existing.sessionId)
-        const notice = await runnerSvc.prompt(existing.threadId, promptText, message.author.id)
-        if (notice) await bucketFor(existing.channelId).schedule(() => message.reply({ content: notice, allowedMentions: { parse: [] } }))
-        else startTyping(existing.threadId)
-        return
-      }
-      if (message.channel.isThread()) return
-      await projects.ensureReady(project.channelId)
-      subscribeProject(project)
-      const title = sanitizeThreadName(text.trim() || message.attachments.first()?.name || "")
-      const thread = await message.startThread({ name: title })
-      await thread.members.add(message.author.id)
-      const sessionId = await createSessionFor(project, title)
-      registerThread(project, thread.id, title, sessionId)
-      const notice = await runnerSvc.prompt(thread.id, promptText, message.author.id)
-      if (notice === undefined) startTyping(thread.id)
-    } catch (err) {
-      log.error("message handler failed", { error: String(err) })
-    }
-  }
+  const onMessage = createMessageHandler({
+    db, log, projects, runner: runnerSvc, bucketFor, subscribeProject,
+    isAuthorized: (message: Message) => isMemberAuthorized(message.guild!.ownerId, { id: message.author.id, roles: rolesOf(message.member!), permissions: message.member!.permissions }),
+    ingestAttachments,
+    runShell: async (channelId, command) => {
+      const fresh = db.projects.getByChannel(channelId)
+      if (!fresh) return []
+      return runShell({ sbx, project: fresh }, command)
+    },
+    startTyping,
+    createThread: createThreadForProject,
+    registerSession,
+  })
 
   const onInteraction = async (interaction: Interaction): Promise<void> => {
     try {
@@ -449,27 +376,24 @@ async function main(): Promise<void> {
 
   client.on(Events.MessageCreate, (message) => { void onMessage(message) })
   client.on(Events.InteractionCreate, (interaction) => { void onInteraction(interaction) })
-  client.on(Events.ClientReady, () => subscribeReadyProjects())
+  client.on(Events.ClientReady, createReadyHandler({ log, subscribeReadyProjects, reconcileThreads }))
 
-  let shuttingDown = false
-  const shutdown = async (): Promise<void> => {
-    if (shuttingDown) return
-    shuttingDown = true
-    log.info("shutting down")
-    for (const controller of controllers.values()) controller.abort()
-    for (const project of db.projects.list()) await projects.stop(project.channelId).catch(() => {})
-    client.destroy()
-    db.close()
-    lock.release()
-    process.exit(0)
-  }
+  const shutdown = createShutdown({
+    log,
+    abortControllers: () => controllers.values(),
+    stopProjects: async () => { for (const project of db.projects.list()) await projects.stop(project.channelId).catch(() => {}) },
+    destroyClient: () => client.destroy(),
+    closeDb: () => db.close(),
+    releaseLock: () => lock.release(),
+    exit: (code) => process.exit(code),
+  })
   process.on("SIGINT", () => { void shutdown() })
   process.on("SIGTERM", () => { void shutdown() })
 
   await client.login(cfg.discordToken)
   guild = await client.guilds.fetch(cfg.guildId)
   await guild.commands.set(commandData())
-  if (client.isReady()) subscribeReadyProjects()
+  if (client.isReady()) { subscribeReadyProjects(); void reconcileThreads().catch((err) => log.error("boot reconcile failed", { error: String(err) })) }
 
   log.info("Cely ready", { guild: guild.name, permissions: guild.members.me?.permissions.toArray() })
 }

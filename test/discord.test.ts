@@ -41,3 +41,9 @@ test("router accepts the project channel and its threads only", () => {
   expect(shouldHandleMessage(message({ channel: { id: "other" } }), "project")).toBe(false)
   expect(shouldHandleMessage(message(), undefined)).toBe(false)
 })
+
+test("router accepts a known archived thread even when parentId is null", () => {
+  const archived = message({ channel: { id: "thread", parentId: null, isThread: () => true } })
+  expect(shouldHandleMessage(archived, "project")).toBe(false)
+  expect(shouldHandleMessage(archived, "project", true)).toBe(true)
+})
