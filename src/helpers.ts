@@ -27,6 +27,15 @@ export function projectForChannel<T extends { channelId: string }>(
   return projects.find((p) => p.channelId === channelId || (parentId != null && p.channelId === parentId))
 }
 
+/**
+ * Spec §9: one shared token bucket per CHANNEL, not per thread, so live edits
+ * in different threads of the same project channel do not race each other's
+ * rate-limit budget.
+ */
+export function channelIdForBucket(thread: { channelId: string }): string {
+  return thread.channelId
+}
+
 export function buildPromptText(text: string, attachmentPaths: string[]): string {
   return [text, ...attachmentPaths.map((p) => `[attachment] ${p}`)].filter((part) => part.trim().length > 0).join("\n\n")
 }

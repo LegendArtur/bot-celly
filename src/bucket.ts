@@ -8,6 +8,7 @@ export interface BucketOptions {
 export class TokenBucket {
   private tokens: number
   private lastRefill: number
+  private pausedUntil = 0
   private chain: Promise<unknown> = Promise.resolve()
   constructor(private readonly opts: BucketOptions) {
     this.tokens = opts.capacity
@@ -20,9 +21,16 @@ export class TokenBucket {
     this.tokens = Math.min(this.opts.capacity, this.tokens + (elapsed / 1000) * this.opts.refillPerSecond)
     this.lastRefill = now
   }
+  /** Hold every queued send until `ms` from now, e.g. after a Discord 429. */
+  pause(ms: number): void {
+    const until = this.opts.now() + Math.max(0, ms)
+    if (until > this.pausedUntil) this.pausedUntil = until
+  }
   schedule<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.chain.then(async () => {
       for (;;) {
+        const now = this.opts.now()
+        if (now < this.pausedUntil) { await this.opts.sleep(this.pausedUntil - now); continue }
         this.refill()
         if (this.tokens >= 1) { this.tokens -= 1; break }
         const needed = ((1 - this.tokens) / this.opts.refillPerSecond) * 1000
@@ -33,6 +41,22 @@ export class TokenBucket {
     this.chain = run.then(() => undefined, () => undefined)
     return run
   }
+}
+
+/**
+ * Discord surfaces rate limits as 429 errors with a `retry_after` (seconds, in
+ * the raw error) or a `retryAfter` (ms). Returns the pause in ms for a 429 and
+ * `undefined` for anything else, so callers only pause on rate limits.
+ */
+export function retryAfterMs(error: unknown, fallbackMs: number): number | undefined {
+  const e = error as { status?: unknown; retryAfter?: unknown; rawError?: { retry_after?: unknown; retryAfter?: unknown } } | undefined
+  const status = e?.status ?? (e?.rawError as { status?: unknown } | undefined)?.status
+  if (status !== 429) return undefined
+  const millis = e?.retryAfter ?? e?.rawError?.retryAfter
+  if (typeof millis === "number" && Number.isFinite(millis) && millis >= 0) return millis
+  const seconds = e?.rawError?.retry_after
+  if (typeof seconds === "number" && Number.isFinite(seconds) && seconds >= 0) return seconds * 1000
+  return fallbackMs
 }
 
 export interface ChannelBucketsOptions {
