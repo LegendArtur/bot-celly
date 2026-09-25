@@ -108,10 +108,12 @@ export class Renderer {
   constructor(private readonly deps: {
     send(content: string): Promise<string>; edit(messageId: string, content: string): Promise<void>
     delete?(messageId: string): Promise<void>
-    now(): number; intervalMs: number; onMessageId?(id: string): void
+    now(): number; intervalMs: number; onMessageId?(id: string): void; onMessageIds?(ids: string[]): void
     initialMessageId?: string | null
+    initialMessageIds?: string[] | null
   }) {
-    if (deps.initialMessageId) this.ids = [deps.initialMessageId]
+    if (deps.initialMessageIds && deps.initialMessageIds.length > 0) this.ids = [...deps.initialMessageIds]
+    else if (deps.initialMessageId) this.ids = [deps.initialMessageId]
   }
   private body(): string {
     const toolLines = [...this.tools.values()].map((t) => `> ${t}`).join("\n")
@@ -141,6 +143,7 @@ export class Renderer {
         if (this.deps.delete) for (const id of surplus) await this.deps.delete(id)
       }
       this.lastEdit = this.deps.now()
+      this.deps.onMessageIds?.([...this.ids])
       if (this.revision === revision) this.dirty = false
       return
     }
@@ -158,6 +161,7 @@ export class Renderer {
       if (this.deps.delete) for (const id of surplus) await this.deps.delete(id)
     }
     this.lastEdit = this.deps.now()
+    this.deps.onMessageIds?.([...this.ids])
     if (this.revision === revision) this.dirty = false
   }
   async flush(): Promise<void> {

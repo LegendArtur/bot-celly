@@ -212,3 +212,22 @@ test("renderer rebuilds interleaved text parts", async () => {
   await r.tick()
   expect(calls).toEqual(["AA\n\nB"])
 })
+
+test("renderer seeds every persisted chunk id and reports id changes", async () => {
+  const edits: { id: string; content: string }[] = []
+  const sends: string[] = []
+  const reported: string[][] = []
+  const body = "a".repeat(1800) + "b".repeat(1800) + "c".repeat(1800)
+  const r = new Renderer({
+    initialMessageIds: ["m1", "m2", "m3", "m4"],
+    send: async (c) => { sends.push(c); return "n" },
+    edit: async (id, content) => { edits.push({ id, content }) },
+    delete: async () => {},
+    now: () => 0, intervalMs: 1, onMessageIds: (ids) => reported.push([...ids]),
+  })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: body })
+  await r.finalize()
+  expect(sends).toEqual([])
+  expect(edits.map((e) => e.id)).toEqual(["m1", "m2", "m3"])
+  expect(reported[reported.length - 1]).toEqual(["m1", "m2", "m3"])
+})

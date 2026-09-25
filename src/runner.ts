@@ -158,7 +158,7 @@ function partToEvent(sessionId: string, messageId: string, part: any): Normalize
 export interface RunnerDeps {
   db: Db
   clientFor(threadId: string): OpencodeClient
-  createRenderer(threadId: string, liveMessageId?: string | null): Promise<Renderer>
+  createRenderer(threadId: string, liveMessageId?: string | null, liveMessageIds?: string[] | null): Promise<Renderer>
   sessionFor(threadId: string): Promise<string>
   log(msg: string, fields?: Record<string, unknown>): void
   maxQueue: number
@@ -189,10 +189,10 @@ export class Runner {
   private ownsEpoch(threadId: string, epoch: number | undefined): boolean {
     return this.owner.get(threadId) === epoch
   }
-  private rendererFor(threadId: string, liveMessageId?: string | null): Promise<Renderer> {
+  private rendererFor(threadId: string, liveMessageId?: string | null, liveMessageIds?: string[] | null): Promise<Renderer> {
     let renderer = this.renderers.get(threadId)
     if (!renderer) {
-      renderer = this.deps.createRenderer(threadId, liveMessageId)
+      renderer = this.deps.createRenderer(threadId, liveMessageId, liveMessageIds)
       this.renderers.set(threadId, renderer)
       renderer.catch(() => { if (this.renderers.get(threadId) === renderer) this.renderers.delete(threadId) })
     }
@@ -351,7 +351,8 @@ export class Runner {
     for (const m of list) if (m?.info?.role === "assistant") last = m
     const epoch = this.owner.get(thread.threadId)
     const liveMessageId = db.threads.get(thread.threadId)?.liveMessageId ?? null
-    const renderer = await this.rendererFor(thread.threadId, liveMessageId)
+    const liveMessageIds = db.threads.liveMessageIds(thread.threadId)
+    const renderer = await this.rendererFor(thread.threadId, liveMessageId, liveMessageIds)
     if (last) {
       const messageId = last.info?.id ?? ""
       for (const part of last.parts ?? []) {

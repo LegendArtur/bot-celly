@@ -129,13 +129,16 @@ test("rejects read and grep tool paths into the cely config directory", () => {
   expect(evaluatePermission({ tool: "read", patterns: ["/srv/project/README.md"] })).toBe("once")
 })
 
-function makeDb(state = "running", threads: any[] = [], liveMessageId: string | null = null) {
+function makeDb(state = "running", threads: any[] = [], liveMessageId: string | null = null, liveMessageIds: string[] = []) {
   const states: string[] = []
+  const ids = liveMessageIds.length ? liveMessageIds : (liveMessageId ? [liveMessageId] : [])
   const db = {
     threads: {
       setRenderState(_t: string, s: string) { states.push(s) },
       touch() {},
       get() { return { renderState: state, liveMessageId } },
+      liveMessageIds() { return ids },
+      setLiveMessages() {},
       byChannel() { return threads },
     },
   } as any
@@ -407,6 +410,27 @@ test("abort on an idle thread is a no-op", async () => {
   await runner.abort("t1")
   expect(states).toEqual([])
   expect(aborts).toBe(0)
+})
+
+test("recover seeds the renderer with every persisted chunk id", async () => {
+  const edits: string[] = []
+  const sends: string[] = []
+  const body = "a".repeat(1800) + "b".repeat(1800)
+  const { db } = makeDb("idle", [], null, ["m0", "m1"])
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { messages: async () => ({ data: [
+      { info: { id: "m", role: "assistant" }, parts: [{ id: "p", type: "text", text: body }] },
+    ] }) } }) as any,
+    createRenderer: async (_threadId, _liveId, liveIds) => new Renderer({
+      initialMessageIds: liveIds,
+      send: async (c) => { sends.push(c); return "n" + sends.length },
+      edit: async (id) => { edits.push(id) },
+      now: () => 0, intervalMs: 1,
+    }),
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.recover({ threadId: "t1", sessionId: "s1" })
+  expect(sends).toEqual([])
+  expect(edits).toEqual(["m0", "m1"])
 })
 
 test("recover rebuilds and finalizes the renderer from the last assistant message", async () => {

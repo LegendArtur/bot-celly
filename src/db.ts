@@ -21,6 +21,8 @@ export interface Db {
     getBySession(sessionId: string): Thread[]
     setRenderState(threadId: string, s: RenderState): void
     setLiveMessage(threadId: string, messageId: string | null): void
+    setLiveMessages(threadId: string, messageIds: string[] | null): void
+    liveMessageIds(threadId: string): string[]
     setModel(threadId: string, model: string | null): void
     setAgent(threadId: string, agent: string | null): void
     touch(threadId: string): void
@@ -59,6 +61,7 @@ CREATE INDEX IF NOT EXISTS idx_threads_session ON threads(session_id);
 const MIGRATIONS: { version: number; up(raw: DatabaseSync): void }[] = [
   { version: 1, up: (raw) => raw.exec(SCHEMA_V1) },
   { version: 2, up: (raw) => raw.exec(SCHEMA_V2) },
+  { version: 3, up: (raw) => raw.exec("ALTER TABLE threads ADD COLUMN live_message_ids TEXT") },
 ]
 function userVersion(raw: DatabaseSync): number {
   const row = raw.prepare("PRAGMA user_version").get() as { user_version?: number } | undefined
@@ -120,6 +123,18 @@ export function openDb(path: string): Db {
       getBySession(sessionId) { return raw.prepare(`SELECT * FROM threads WHERE session_id=? ORDER BY last_active_at DESC`).all(sessionId).map(rowToThread) },
       setRenderState(threadId, s) { raw.prepare(`UPDATE threads SET render_state=? WHERE thread_id=?`).run(s, threadId) },
       setLiveMessage(threadId, m) { raw.prepare(`UPDATE threads SET live_message_id=? WHERE thread_id=?`).run(m, threadId) },
+      setLiveMessages(threadId, ids) { raw.prepare(`UPDATE threads SET live_message_ids=? WHERE thread_id=?`).run(ids && ids.length ? JSON.stringify(ids) : null, threadId) },
+      liveMessageIds(threadId) {
+        const row = raw.prepare(`SELECT live_message_id, live_message_ids FROM threads WHERE thread_id=?`).get(threadId) as any
+        if (!row) return []
+        if (typeof row.live_message_ids === "string" && row.live_message_ids) {
+          try {
+            const parsed = JSON.parse(row.live_message_ids)
+            if (Array.isArray(parsed)) return parsed.filter((id): id is string => typeof id === "string")
+          } catch {}
+        }
+        return typeof row.live_message_id === "string" && row.live_message_id ? [row.live_message_id] : []
+      },
       setModel(threadId, model) { raw.prepare(`UPDATE threads SET model=? WHERE thread_id=?`).run(model, threadId) },
       setAgent(threadId, agent) { raw.prepare(`UPDATE threads SET agent=? WHERE thread_id=?`).run(agent, threadId) },
       touch(threadId) { raw.prepare(`UPDATE threads SET last_active_at=? WHERE thread_id=?`).run(Date.now(), threadId) },

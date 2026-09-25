@@ -30,6 +30,20 @@ test("threads store render state and filter by activity", () => {
   expect(db.threads.get("t1")).toMatchObject({ renderState: "running", liveMessageId: "m1" })
   expect(db.threads.recent(10).map((t) => t.threadId)).toEqual(["t1"])
 })
+test("persists the ordered live message ids and falls back to the single id", () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const row = { threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
+    worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 }
+  db.threads.upsert(row)
+  expect(db.threads.liveMessageIds("t1")).toEqual([])
+  db.threads.setLiveMessage("t1", "m2")
+  expect(db.threads.liveMessageIds("t1")).toEqual(["m2"])
+  db.threads.setLiveMessages("t1", ["m1", "m2"])
+  expect(db.threads.liveMessageIds("t1")).toEqual(["m1", "m2"])
+  db.threads.setLiveMessages("t1", [])
+  expect(db.threads.liveMessageIds("t1")).toEqual(["m2"])
+})
+
 test("upsert updates the session id on conflict", () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
   const row = { threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
@@ -76,6 +90,7 @@ test("v2 migration repairs a pre-cascade threads table", () => {
     const db = openDb(file)
     db.migrate()
     expect(db.threads.get("t1")?.sessionId).toBe("s1")
+    expect(db.threads.liveMessageIds("t1")).toEqual([])
     db.projects.remove("c1")
     expect(db.threads.get("t1")).toBeUndefined()
     db.close()

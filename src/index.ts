@@ -192,7 +192,7 @@ async function main(): Promise<void> {
 
   runnerSvc = new Runner({
     db, clientFor,
-    createRenderer: async (threadId, liveMessageId) => {
+    createRenderer: async (threadId, liveMessageId, liveMessageIds) => {
       const thread = db.threads.get(threadId)
       if (!thread) throw new Error(`unknown thread ${threadId}`)
       const channel = await client.channels.fetch(threadId)
@@ -201,6 +201,7 @@ async function main(): Promise<void> {
       const bucketChannelId = channelIdForBucket(thread)
       return new Renderer({
         initialMessageId: liveMessageId,
+        initialMessageIds: liveMessageIds,
         send: async (content) => scheduleWithBucket(bucketChannelId, async () => {
           const sent = await (channel as any).send(renderPayload(content))
           db.threads.setLiveMessage(threadId, sent.id)
@@ -217,6 +218,7 @@ async function main(): Promise<void> {
         now: () => Date.now(),
         intervalMs: cfg.editIntervalMs,
         onMessageId: (id) => db.threads.setLiveMessage(threadId, id),
+        onMessageIds: (ids) => db.threads.setLiveMessages(threadId, ids),
       })
     },
     sessionFor: async (threadId) => {
