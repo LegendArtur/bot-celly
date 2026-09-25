@@ -1,9 +1,9 @@
 import { createServer } from "node:http"
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { expect, test } from "vitest"
-import { attachmentDestination, attachmentSandboxPath, downloadAttachment, ensureSafeInbox, isTextLikeAttachment, shouldIngestAttachment } from "../src/attachments.ts"
+import { expect, test, vi } from "vitest"
+import { attachmentDestination, attachmentSandboxPath, downloadAttachment, ensureSafeInbox, ingestAttachments, isTextLikeAttachment, shouldIngestAttachment } from "../src/attachments.ts"
 
 test("detects text-like attachments by content type or extension", () => {
   expect(isTextLikeAttachment({ name: "notes", size: 10, contentType: "text/plain" })).toBe(true)
@@ -107,4 +107,57 @@ test("downloadAttachment buffers a body within the cap", async () => {
     const body = await downloadAttachment(s.url, 100)
     expect(body?.toString()).toBe("hello")
   } finally { await s.close() }
+})
+
+test("ingestAttachments writes within-cap bodies, skips non-ok and oversize, and records sandbox paths", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cely-ingest-"))
+  vi.stubGlobal("fetch", async (url: string) => {
+    if (url.endsWith("/ok")) return new Response("hello", { status: 200, headers: { "content-type": "text/plain" } })
+    if (url.endsWith("/notok")) return new Response("nope", { status: 404 })
+    if (url.endsWith("/big")) return new Response("x".repeat(500), { status: 200, headers: { "content-length": "500" } })
+    return new Response("", { status: 500 })
+  })
+  try {
+    const warnings: string[] = []
+    const out = await ingestAttachments({
+      projectDirectory: root, sandboxPath: "/sandbox/ws", maxBytes: 100,
+      attachments: [
+        { name: "a.txt", size: 5, contentType: "text/plain", url: "http://x/ok" },
+        { name: "b.txt", size: 5, contentType: "text/plain", url: "http://x/notok" },
+        { name: "c.txt", size: 5, contentType: "text/plain", url: "http://x/big" },
+        { name: "photo.png", size: 5, contentType: "image/png", url: "http://x/ignored" },
+      ],
+      newId: () => "id",
+      warn: (m) => { warnings.push(m) },
+    })
+    expect(out).toHaveLength(1)
+    expect(out[0]!.sandboxPath).toBe("/sandbox/ws/.cely/inbox/id-a.txt")
+    expect(readFileSync(join(root, ".cely", "inbox", "id-a.txt"), "utf8")).toBe("hello")
+    expect(warnings).toEqual([])
+  } finally {
+    vi.unstubAllGlobals()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("ingestAttachments warns and skips when the inbox is a symlink", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cely-ingest-"))
+  const outside = mkdtempSync(join(tmpdir(), "cely-ingest-out-"))
+  mkdirSync(join(root, ".cely"))
+  symlinkSync(outside, join(root, ".cely", "inbox"))
+  vi.stubGlobal("fetch", async () => new Response("hello", { status: 200, headers: { "content-type": "text/plain" } }))
+  try {
+    const warnings: string[] = []
+    const out = await ingestAttachments({
+      projectDirectory: root, sandboxPath: "/sandbox/ws", maxBytes: 100,
+      attachments: [{ name: "a.txt", size: 5, contentType: "text/plain", url: "http://x/ok" }],
+      warn: (m) => { warnings.push(m) },
+    })
+    expect(out).toEqual([])
+    expect(warnings).toContain("attachment ingest failed")
+  } finally {
+    vi.unstubAllGlobals()
+    rmSync(root, { recursive: true, force: true })
+    rmSync(outside, { recursive: true, force: true })
+  }
 })

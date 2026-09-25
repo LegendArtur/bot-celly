@@ -1,4 +1,6 @@
+import { randomUUID } from "node:crypto"
 import { lstatSync, mkdirSync, realpathSync } from "node:fs"
+import { writeFile } from "node:fs/promises"
 import { basename, join, posix } from "node:path"
 import { isPathInside, sanitizeAttachmentName } from "./sbx.js"
 
@@ -96,6 +98,45 @@ export function attachmentDestination(projectDirectory: string, name: string, id
   const destination = join(inbox, `${id}-${sanitizeAttachmentName(name)}`)
   if (!isPathInside(inbox, destination)) throw new Error("attachment escapes the inbox")
   return destination
+}
+
+export interface IngestAttachmentsInput {
+  projectDirectory: string
+  sandboxPath?: string | null
+  attachments: AttachmentLike[]
+  maxBytes: number
+  download?(url: string): Promise<Buffer | null>
+  write?(destination: string, body: Buffer): Promise<void>
+  newId?(): string
+  warn?(message: string, fields?: Record<string, unknown>): void
+}
+
+/**
+ * Ingest text-like attachments into `.cely/inbox`. The inbox is validated once
+ * before the first write so a symlinked inbox cannot escape the project; each
+ * download is size-capped and a failure is logged and skipped rather than
+ * aborting the message.
+ */
+export async function ingestAttachments(input: IngestAttachmentsInput): Promise<{ hostPath: string; sandboxPath: string }[]> {
+  const download = input.download ?? ((url: string) => downloadAttachment(url, input.maxBytes))
+  const write = input.write ?? ((destination: string, body: Buffer) => writeFile(destination, body, { flag: "wx", mode: 0o600 }))
+  const newId = input.newId ?? (() => randomUUID())
+  const paths: { hostPath: string; sandboxPath: string }[] = []
+  let inboxChecked = false
+  for (const attachment of input.attachments) {
+    if (!shouldIngestAttachment(attachment, input.maxBytes)) continue
+    try {
+      if (!inboxChecked) { ensureSafeInbox(input.projectDirectory); inboxChecked = true }
+      const destination = attachmentDestination(input.projectDirectory, attachment.name, newId())
+      const body = await download(attachment.url ?? "")
+      if (!body) continue
+      await write(destination, body)
+      paths.push({ hostPath: destination, sandboxPath: attachmentSandboxPath(input.projectDirectory, input.sandboxPath, destination) })
+    } catch (e) {
+      input.warn?.("attachment ingest failed", { name: attachment.name, error: String(e) })
+    }
+  }
+  return paths
 }
 
 export function attachmentSandboxPath(
