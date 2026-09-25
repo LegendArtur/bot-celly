@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url"
 import { ChannelType, Events } from "discord.js"
-import type { Interaction, Message } from "discord.js"
+import type { Guild, Interaction, Message } from "discord.js"
 import type { Project, Thread } from "./types.ts"
 import { loadConfig } from "./config.js"
 import { createLogger } from "./log.js"
@@ -67,9 +67,11 @@ async function main(): Promise<void> {
   }
 
   const client = createDiscordClient(cfg)
-  await client.login(cfg.discordToken)
-  const guild = await client.guilds.fetch(cfg.guildId)
-  await guild.commands.set(commandData())
+  let guild: Guild | undefined
+  const requireGuild = (): Guild => {
+    if (!guild) throw new Error("Discord guild not ready")
+    return guild
+  }
 
   const sessionToThread = new Map<string, string>()
   const registerSession = (threadId: string, sessionId: string): void => {
@@ -82,13 +84,15 @@ async function main(): Promise<void> {
   const projects = new ProjectService({
     sbx, runner: sbxRunner, db, config: cfg, log,
     createChannel: async (name) => {
-      const categoryId = findCategoryId(guild, cfg.categoryId)
-        ?? (await guild.channels.create({ name: "Eregion", type: ChannelType.GuildCategory })).id
-      const channel = await guild.channels.create({ name, parent: categoryId, type: ChannelType.GuildText })
+      const activeGuild = requireGuild()
+      const categoryId = findCategoryId(activeGuild, cfg.categoryId)
+        ?? (await activeGuild.channels.create({ name: "Eregion", type: ChannelType.GuildCategory })).id
+      const channel = await activeGuild.channels.create({ name, parent: categoryId, type: ChannelType.GuildText })
       return channel.id
     },
     deleteChannel: async (id) => {
-      const channel = guild.channels.cache.get(id) ?? (await guild.channels.fetch(id).catch(() => null))
+      const activeGuild = requireGuild()
+      const channel = activeGuild.channels.cache.get(id) ?? (await activeGuild.channels.fetch(id).catch(() => null))
       if (channel) await channel.delete().catch(() => {})
     },
   })
@@ -188,6 +192,7 @@ async function main(): Promise<void> {
       if (!text.trim()) return
       const existing = db.threads.get(message.channelId)
       if (existing) {
+        await projects.ensureReady(project.channelId)
         const notice = await runnerSvc.prompt(existing.threadId, text, message.author.id)
         if (notice) await message.reply({ content: notice, allowedMentions: { parse: [] } })
         return
@@ -235,7 +240,6 @@ async function main(): Promise<void> {
   client.on(Events.MessageCreate, (message) => { void onMessage(message) })
   client.on(Events.InteractionCreate, (interaction) => { void onInteraction(interaction) })
   client.on(Events.ClientReady, () => subscribeReadyProjects())
-  if (client.isReady()) subscribeReadyProjects()
 
   let shuttingDown = false
   const shutdown = async (): Promise<void> => {
@@ -251,6 +255,11 @@ async function main(): Promise<void> {
   }
   process.on("SIGINT", () => { void shutdown() })
   process.on("SIGTERM", () => { void shutdown() })
+
+  await client.login(cfg.discordToken)
+  guild = await client.guilds.fetch(cfg.guildId)
+  await guild.commands.set(commandData())
+  if (client.isReady()) subscribeReadyProjects()
 
   log.info("Cely ready", { guild: guild.name, permissions: guild.members.me?.permissions.toArray() })
 }
