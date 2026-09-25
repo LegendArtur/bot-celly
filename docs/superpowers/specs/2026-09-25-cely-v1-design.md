@@ -535,8 +535,10 @@ injects credentials at the proxy and updates running sandboxes without restart.
 
 1. **Host bootstrap (once, interactive, as the logged-in user):**
    - Enable Windows Hypervisor Platform (`Enable-WindowsOptionalFeature
-     -Online -FeatureName HypervisorPlatform -All`), run `sbx setup`.
-   - Install `sbx` (`winget install -h Docker.sbx`), then `sbx login`.
+     -Online -FeatureName HypervisorPlatform -All`).
+   - Install `sbx` (`winget install -h Docker.sbx`).
+   - Run `sbx setup`.
+   - `sbx login`.
    - `sbx policy init balanced` (required before the first sandbox).
    - `sbx secret set <provider>` for each provider.
    - Pin sbx >= 0.45.0; document the version in the README.

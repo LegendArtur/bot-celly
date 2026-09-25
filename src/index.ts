@@ -66,6 +66,18 @@ async function main(): Promise<void> {
     throw new Error("sbx CLI not available or not logged in; run `sbx login`")
   }
 
+  let policy: { code: number }
+  try {
+    policy = await sbxRunner.run(["policy", "ls"])
+  } catch {
+    lock.release(); db.close()
+    throw new Error("sbx policy check failed; run `sbx policy init balanced`")
+  }
+  if (policy.code !== 0) {
+    lock.release(); db.close()
+    throw new Error("sbx network policy not initialized; run `sbx policy init balanced`")
+  }
+
   const client = createDiscordClient(cfg)
   let guild: Guild | undefined
   const requireGuild = (): Guild => {

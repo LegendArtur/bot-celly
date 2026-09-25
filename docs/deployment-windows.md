@@ -17,23 +17,28 @@ an elevated PowerShell prompt; the rest run as the normal user.
    ```powershell
    Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform -All
    ```
-2. Set up and install `sbx`:
+2. Install `sbx`:
    ```powershell
-   sbx setup
    winget install -h Docker.sbx
    ```
-3. Sign in to Docker and initialize the network policy preset. The preset is
-   required before the first sandbox, otherwise `sbx create` blocks on an
-   interactive prompt:
+3. Run the host prep step:
+   ```powershell
+   sbx setup
+   ```
+4. Log in to Docker:
    ```powershell
    sbx login
+   ```
+5. Initialize the network policy preset. The preset is required before the
+   first sandbox, otherwise `sbx create` blocks on an interactive prompt:
+   ```powershell
    sbx policy init balanced
    ```
-4. Register provider credentials used by the sandboxed agent:
+6. Register provider credentials used by the sandboxed agent:
    ```powershell
    sbx secret set <provider>
    ```
-5. Record the installed version. Cely targets `sbx` >= 0.45.0:
+7. Record the installed version. Cely targets `sbx` >= 0.45.0:
    ```powershell
    sbx version
    ```

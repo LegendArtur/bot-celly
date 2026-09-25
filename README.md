@@ -34,28 +34,33 @@ with `sbx` sandboxes replacing Kimaki's local process management.
 
 Run these on the Windows host before the first bot start:
 
-1. Enable the Windows Hypervisor Platform (elevated PowerShell), then set up
-   sbx:
+1. Enable the Windows Hypervisor Platform (elevated PowerShell):
    ```powershell
    Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform -All
-   sbx setup
    ```
-2. Install `sbx` and log in:
+2. Install `sbx`:
    ```powershell
    winget install -h Docker.sbx
+   ```
+3. Run the host prep step:
+   ```powershell
+   sbx setup
+   ```
+4. Log in to Docker:
+   ```powershell
    sbx login
    ```
-3. Initialize the network policy preset. This is **required before the first
+5. Initialize the network policy preset. This is **required before the first
    sandbox**, otherwise `sbx create` blocks on an interactive prompt:
    ```powershell
    sbx policy init balanced
    ```
-4. Register provider credentials (repeat for each provider). `sbx` injects
+6. Register provider credentials (repeat for each provider). `sbx` injects
    these at the proxy and updates running sandboxes without a restart:
    ```powershell
    sbx secret set <provider>
    ```
-5. Pin and record the sbx version (>= 0.45.0): `sbx version`.
+7. Pin and record the sbx version (>= 0.45.0): `sbx version`.
 
 ## Configure
 
