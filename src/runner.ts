@@ -16,9 +16,17 @@ export function evaluatePermission(req: { tool: string; patterns: string[] }, de
   return "once"
 }
 
+function partToEvent(sessionId: string, messageId: string, part: any): NormalizedEvent | null {
+  if (!part || typeof part !== "object") return null
+  if (part.type === "text") return { kind: "text", sessionId, messageId, partId: part.id, text: part.text ?? "" }
+  if (part.type === "tool") return { kind: "tool", sessionId, messageId, partId: part.id, name: part.tool ?? "tool", status: part.state?.status ?? "unknown" }
+  return null
+}
+
 export class Runner {
   private queue = new Map<string, { text: string; actor: string }[]>()
   private active = new Set<string>()
+  private abortTimers = new Map<string, ReturnType<typeof setTimeout>>()
   constructor(private readonly deps: {
     db: Db; clientFor(threadId: string): OpencodeClient
     rendererFor(threadId: string): Promise<Renderer>
@@ -27,6 +35,34 @@ export class Runner {
     maxQueue: number; maxConcurrentRuns: number
   }) {}
   get activeCount() { return this.active.size }
+  private clearAbortTimer(threadId: string): void {
+    const timer = this.abortTimers.get(threadId)
+    if (timer !== undefined) { clearTimeout(timer); this.abortTimers.delete(threadId) }
+  }
+  private async drain(threadId: string): Promise<void> {
+    const next = this.queue.get(threadId)?.shift()
+    if (!next) return
+    try {
+      const result = await this.prompt(threadId, next.text, next.actor)
+      if (result === "busy") {
+        const q = this.queue.get(threadId) ?? []
+        q.unshift(next); this.queue.set(threadId, q)
+        this.deps.log("queued message deferred", { threadId, reason: result })
+      }
+    } catch (e) {
+      const q = this.queue.get(threadId) ?? []
+      q.unshift(next); this.queue.set(threadId, q)
+      this.deps.log("queued message deferred", { threadId, reason: String(e) })
+    }
+  }
+  private async forceIdle(threadId: string): Promise<void> {
+    this.abortTimers.delete(threadId)
+    if (this.deps.db.threads.get(threadId)?.renderState !== "aborting") return
+    try { const r = await this.deps.rendererFor(threadId); await r.finalize() } catch {}
+    this.queue.set(threadId, [])
+    this.deps.db.threads.setRenderState(threadId, "idle")
+    this.active.delete(threadId)
+  }
   async prompt(threadId: string, text: string, actor: string): Promise<string | undefined> {
     const db = this.deps.db
     if (this.active.has(threadId)) {
@@ -36,11 +72,17 @@ export class Runner {
       return `queued (${q.length})`
     }
     if (this.active.size >= this.deps.maxConcurrentRuns) return "busy"
-    const sessionId = await this.deps.sessionFor(threadId)
-    this.active.add(threadId); db.threads.setRenderState(threadId, "running"); db.threads.touch(threadId)
-    const client = this.deps.clientFor(threadId)
-    await client.session.promptAsync({ path: { id: sessionId }, body: { parts: [{ type: "text", text }] } } as any)
-    return undefined
+    this.active.add(threadId)
+    db.threads.setRenderState(threadId, "running"); db.threads.touch(threadId)
+    try {
+      const sessionId = await this.deps.sessionFor(threadId)
+      const client = this.deps.clientFor(threadId)
+      await client.session.promptAsync({ path: { id: sessionId }, body: { parts: [{ type: "text", text }] } } as any)
+      return undefined
+    } catch (e) {
+      this.active.delete(threadId)
+      throw e
+    }
   }
   async onEvent(threadId: string, e: NormalizedEvent): Promise<void> {
     const db = this.deps.db
@@ -51,26 +93,46 @@ export class Runner {
       await client.postSessionIdPermissionsPermissionId({ path: { id: (await this.deps.sessionFor(threadId)), permissionID: e.permissionId }, body: { response } } as any)
     } else if (e.kind === "error") {
       const r = await this.deps.rendererFor(threadId); r.push({ kind: "text", sessionId: e.sessionId, messageId: "", partId: `err-${e.sessionId}`, text: `[error] ${e.message}` })
-      await r.finalize(); db.threads.setRenderState(threadId, "errored"); this.active.delete(threadId)
+      await r.finalize(); db.threads.setRenderState(threadId, "idle"); this.active.delete(threadId)
+      await this.drain(threadId)
     } else if (e.kind === "idle") {
       const r = await this.deps.rendererFor(threadId); await r.finalize()
+      this.clearAbortTimer(threadId)
+      const aborting = db.threads.get(threadId)?.renderState === "aborting"
       db.threads.setRenderState(threadId, "idle"); this.active.delete(threadId)
-      const next = this.queue.get(threadId)?.shift()
-      if (next) await this.prompt(threadId, next.text, next.actor)
+      if (aborting) this.queue.set(threadId, [])
+      else await this.drain(threadId)
     }
   }
   async abort(threadId: string): Promise<void> {
+    if (!this.active.has(threadId)) return
     const client = this.deps.clientFor(threadId)
     const sessionId = await this.deps.sessionFor(threadId)
     this.deps.db.threads.setRenderState(threadId, "aborting")
     await client.session.abort({ path: { id: sessionId } } as any)
     this.queue.set(threadId, [])
-    setTimeout(() => { if (this.deps.db.threads.get(threadId)?.renderState === "aborting") { this.deps.db.threads.setRenderState(threadId, "idle"); this.active.delete(threadId) } }, 10_000)
+    this.clearAbortTimer(threadId)
+    const timer = setTimeout(() => { void this.forceIdle(threadId) }, 10_000)
+    if (typeof (timer as any).unref === "function") (timer as any).unref()
+    this.abortTimers.set(threadId, timer)
   }
   async recover(thread: { threadId: string; sessionId: string }): Promise<void> {
     const client = this.deps.clientFor(thread.threadId)
     const messages = await client.session.messages({ path: { id: thread.sessionId } } as any)
-    this.deps.log("recovered thread", { threadId: thread.threadId, messages: messages?.data?.length ?? 0 })
+    const list = (messages?.data ?? []) as any[]
+    this.deps.log("recovered thread", { threadId: thread.threadId, messages: list.length })
+    let last: any
+    for (const m of list) if (m?.info?.role === "assistant") last = m
+    const renderer = await this.deps.rendererFor(thread.threadId)
+    if (last) {
+      const messageId = last.info?.id ?? ""
+      for (const part of last.parts ?? []) {
+        const ev = partToEvent(thread.sessionId, messageId, part)
+        if (ev) renderer.push(ev)
+      }
+    }
+    await renderer.finalize()
+    this.clearAbortTimer(thread.threadId)
     this.deps.db.threads.setRenderState(thread.threadId, "idle")
   }
 }
