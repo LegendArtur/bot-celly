@@ -1,8 +1,7 @@
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { randomUUID } from "node:crypto"
 import { realpathSync } from "node:fs"
-import { mkdir, writeFile } from "node:fs/promises"
-import { dirname } from "node:path"
+import { writeFile } from "node:fs/promises"
 import { ChannelType, Events } from "discord.js"
 import type { Guild, Interaction, Message } from "discord.js"
 import type { Project, Thread } from "./types.ts"
@@ -20,7 +19,7 @@ import { EventRouter } from "./events.js"
 import { Renderer, sanitizeThreadName } from "./render.js"
 import { createClient } from "./opencode.js"
 import { runShell } from "./shell.js"
-import { attachmentDestination, attachmentSandboxPath, shouldIngestAttachment } from "./attachments.js"
+import { attachmentDestination, attachmentSandboxPath, downloadAttachment, ensureSafeInbox, shouldIngestAttachment } from "./attachments.js"
 import { ChannelBuckets, TokenBucket } from "./bucket.js"
 import { SessionRoutes } from "./routing.js"
 import { createMessageHandler, createProjectDownHandler, createReadyHandler, createReconcileThreads, createShutdown } from "./handlers.js"
@@ -148,17 +147,16 @@ async function main(): Promise<void> {
 
   const ingestAttachments = async (project: Project, message: Message): Promise<{ hostPath: string; sandboxPath: string }[]> => {
     const paths: { hostPath: string; sandboxPath: string }[] = []
+    let inboxChecked = false
     for (const attachment of message.attachments.values()) {
       const like = { name: attachment.name, size: attachment.size, contentType: attachment.contentType }
       if (!shouldIngestAttachment(like, cfg.attachmentMaxBytes)) continue
       try {
+        if (!inboxChecked) { ensureSafeInbox(project.directory); inboxChecked = true }
         const destination = attachmentDestination(project.directory, attachment.name, randomUUID())
-        const res = await fetch(attachment.url)
-        if (!res.ok) continue
-        const body = Buffer.from(await res.arrayBuffer())
-        if (body.byteLength > cfg.attachmentMaxBytes) continue
-        await mkdir(dirname(destination), { recursive: true })
-        await writeFile(destination, body)
+        const body = await downloadAttachment(attachment.url, cfg.attachmentMaxBytes)
+        if (!body) continue
+        await writeFile(destination, body, { flag: "wx", mode: 0o600 })
         paths.push({ hostPath: destination, sandboxPath: attachmentSandboxPath(project.directory, project.sandboxPath, destination) })
       } catch (e) {
         log.warn("attachment ingest failed", { name: attachment.name, error: String(e) })
