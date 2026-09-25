@@ -16,20 +16,20 @@ class FakeRunner {
 test("create builds an argv-only command with publish", async () => {
   const r = new FakeRunner({})
   const sbx = new Sbx(r as any)
-  await sbx.create({ name: "cely-demo", directory: "C:\\p\\demo", hostPort: 4300, cpus: 2, memory: "4g" })
-  expect(r.calls[0]).toEqual(["create", "opencode", "C:\\p\\demo", "--name", "cely-demo", "--publish", "4300:4096", "--cpus", "2", "--memory", "4g"])
+  await sbx.create({ name: "celly-demo", directory: "C:\\p\\demo", hostPort: 4300, cpus: 2, memory: "4g" })
+  expect(r.calls[0]).toEqual(["create", "opencode", "C:\\p\\demo", "--name", "celly-demo", "--publish", "4300:4096", "--cpus", "2", "--memory", "4g"])
 })
 
 test("create throws on non-zero exit", async () => {
   const r = new FakeRunner({ "create opencode": [{ code: 1, stderr: "boom" }] })
-  await expect(new Sbx(r as any).create({ name: "cely-demo", directory: "C:\\p", hostPort: 4300, cpus: 2, memory: "4g" }))
+  await expect(new Sbx(r as any).create({ name: "celly-demo", directory: "C:\\p", hostPort: 4300, cpus: 2, memory: "4g" }))
     .rejects.toThrow(/boom/)
 })
 
 test("create rejects an out-of-range or non-integer host port before spawning", async () => {
   const r = new FakeRunner({})
   for (const hostPort of [0, 70000, 4300.5, Number.NaN]) {
-    await expect(new Sbx(r as any).create({ name: "cely-demo", directory: "C:\\p", hostPort, cpus: 2, memory: "4g" }))
+    await expect(new Sbx(r as any).create({ name: "celly-demo", directory: "C:\\p", hostPort, cpus: 2, memory: "4g" }))
       .rejects.toThrow(SbxError)
   }
   expect(r.calls).toEqual([])
@@ -37,9 +37,9 @@ test("create rejects an out-of-range or non-integer host port before spawning", 
 
 test("create rejects a negative or fractional cpu count", async () => {
   const r = new FakeRunner({})
-  await expect(new Sbx(r as any).create({ name: "cely-demo", directory: "C:\\p", hostPort: 4300, cpus: -1, memory: "4g" }))
+  await expect(new Sbx(r as any).create({ name: "celly-demo", directory: "C:\\p", hostPort: 4300, cpus: -1, memory: "4g" }))
     .rejects.toThrow(SbxError)
-  await expect(new Sbx(r as any).create({ name: "cely-demo", directory: "C:\\p", hostPort: 4300, cpus: 1.5, memory: "4g" }))
+  await expect(new Sbx(r as any).create({ name: "celly-demo", directory: "C:\\p", hostPort: 4300, cpus: 1.5, memory: "4g" }))
     .rejects.toThrow(SbxError)
   expect(r.calls).toEqual([])
 })

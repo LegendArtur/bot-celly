@@ -17,18 +17,18 @@ function rejectSymlink(path: string, label: string): void {
 
 /**
  * Resolve and validate the inbox before any write. `mkdir -p` plus a realpath
- * containment check closes the symlink escape: a `.cely` or `inbox` symlink
+ * containment check closes the symlink escape: a `.celly` or `inbox` symlink
  * pointing outside the project is rejected, and the final inbox must resolve
  * inside the project directory. Returns the resolved (realpath) inbox so callers
  * build the destination from the vetted path rather than the raw join.
  */
 export function ensureSafeInbox(projectDirectory: string): string {
-  const celyDir = join(projectDirectory, ".cely")
-  const inbox = join(celyDir, "inbox")
-  rejectSymlink(celyDir, ".cely")
+  const cellyDir = join(projectDirectory, ".celly")
+  const inbox = join(cellyDir, "inbox")
+  rejectSymlink(cellyDir, ".celly")
   rejectSymlink(inbox, "inbox")
   mkdirSync(inbox, { recursive: true })
-  rejectSymlink(celyDir, ".cely")
+  rejectSymlink(cellyDir, ".celly")
   rejectSymlink(inbox, "inbox")
   const root = realpathSync(projectDirectory)
   const resolvedInbox = realpathSync(inbox)
@@ -120,7 +120,7 @@ export function attachmentDestinationIn(inbox: string, name: string, id: string)
 }
 
 export function attachmentDestination(projectDirectory: string, name: string, id: string): string {
-  return attachmentDestinationIn(join(projectDirectory, ".cely", "inbox"), name, id)
+  return attachmentDestinationIn(join(projectDirectory, ".celly", "inbox"), name, id)
 }
 
 export interface IngestAttachmentsInput {
@@ -135,7 +135,7 @@ export interface IngestAttachmentsInput {
 }
 
 /**
- * Ingest text-like attachments into `.cely/inbox`. The inbox is validated once
+ * Ingest text-like attachments into `.celly/inbox`. The inbox is validated once
  * before the first write and every destination is built from its realpath, so a
  * symlinked inbox cannot escape the project; each download is size-capped and a
  * failure is logged and skipped rather than aborting the message.
@@ -168,5 +168,5 @@ export function attachmentSandboxPath(
   hostDestination: string,
 ): string {
   const root = sandboxPath && sandboxPath.trim() ? sandboxPath : projectDirectory
-  return posix.join(root.replace(/\\/g, "/"), ".cely", "inbox", basename(hostDestination))
+  return posix.join(root.replace(/\\/g, "/"), ".celly", "inbox", basename(hostDestination))
 }

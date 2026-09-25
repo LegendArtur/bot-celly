@@ -1,64 +1,64 @@
 // test/opencode.test.ts
 import { createServer } from "node:http"
 import { expect, test } from "vitest"
-import { applyAndAssertCelyPolicy, BASH_DENY, buildCelyConfigJson, buildOpencodeEnv, buildServeArgs, celyPolicy, createClient, resolveClient, waitForHealth } from "../src/opencode.ts"
+import { applyAndAssertCellyPolicy, BASH_DENY, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, resolveClient, waitForHealth } from "../src/opencode.ts"
 
 test("serve args source the sandbox env and never contain a password", () => {
   const args = buildServeArgs()
-  expect(args).toEqual(["bash", "-lc", "set -a; . ~/.config/cely/opencode.env; set +a; exec opencode serve --port 4096 --hostname 0.0.0.0"])
+  expect(args).toEqual(["bash", "-lc", "set -a; . ~/.config/celly/opencode.env; set +a; exec opencode serve --port 4096 --hostname 0.0.0.0"])
   expect(args.join(" ")).not.toContain("OPENCODE_SERVER_PASSWORD=")
 })
 
-test("the cely policy matches spec section 8 and disables share", () => {
-  expect(celyPolicy().permission).toEqual({
+test("the celly policy matches spec section 8 and disables share", () => {
+  expect(cellyPolicy().permission).toEqual({
     "*": "allow",
     bash: { ...BASH_DENY },
     external_directory: "deny", question: "deny",
   })
-  expect(celyPolicy().permission.bash).toMatchObject({
+  expect(cellyPolicy().permission.bash).toMatchObject({
     "*": "allow", "git push*": "deny", "git clean -fdx*": "deny", "npm publish*": "deny",
     "pnpm publish*": "deny", "yarn publish*": "deny", "printenv*": "deny", "env": "deny",
-    "cat *opencode.env*": "deny", "cat */.config/cely/*": "deny",
+    "cat *opencode.env*": "deny", "cat */.config/celly/*": "deny",
   })
   for (const command of ["head", "tail", "base64", "xxd", "od", "strings", "cp", "less", "grep", "sed", "awk"]) {
-    expect(celyPolicy().permission.bash[`${command} *opencode.env*`]).toBe("deny")
-    expect(celyPolicy().permission.bash[`${command} */.config/cely/*`]).toBe("deny")
+    expect(cellyPolicy().permission.bash[`${command} *opencode.env*`]).toBe("deny")
+    expect(cellyPolicy().permission.bash[`${command} */.config/celly/*`]).toBe("deny")
   }
-  expect(celyPolicy().permission.bash["*opencode.env*"]).toBe("deny")
-  expect(celyPolicy().permission.bash["*/.config/cely/*"]).toBe("deny")
-  expect(celyPolicy().share).toBe("disabled")
-  expect(JSON.parse(buildCelyConfigJson()).permission).toEqual(celyPolicy().permission)
-  expect(JSON.parse(buildCelyConfigJson()).share).toBe("disabled")
+  expect(cellyPolicy().permission.bash["*opencode.env*"]).toBe("deny")
+  expect(cellyPolicy().permission.bash["*/.config/celly/*"]).toBe("deny")
+  expect(cellyPolicy().share).toBe("disabled")
+  expect(JSON.parse(buildCellyConfigJson()).permission).toEqual(cellyPolicy().permission)
+  expect(JSON.parse(buildCellyConfigJson()).share).toBe("disabled")
 })
 
 test("the sandbox env pins the password, config path, and inline content", () => {
   const env = buildOpencodeEnv("deadbeef")
   expect(env).toContain("OPENCODE_SERVER_PASSWORD=deadbeef")
-  expect(env).toContain("OPENCODE_CONFIG=$HOME/.config/cely/opencode.json")
+  expect(env).toContain("OPENCODE_CONFIG=$HOME/.config/celly/opencode.json")
   const match = env.match(/OPENCODE_CONFIG_CONTENT='(.+)'/)
   expect(match).not.toBeNull()
-  expect(JSON.parse(match![1]!).permission).toEqual(celyPolicy().permission)
+  expect(JSON.parse(match![1]!).permission).toEqual(cellyPolicy().permission)
 })
 
-test("applyAndAssertCelyPolicy patches the policy then verifies it", async () => {
+test("applyAndAssertCellyPolicy patches the policy then verifies it", async () => {
   const calls: any[] = []
   let stored: any = null
   const client = { config: {
     update: async (o: any) => { calls.push(["update", o.body]); stored = o.body; return { data: stored } },
     get: async () => { calls.push(["get"]); return { data: stored } },
   } }
-  await applyAndAssertCelyPolicy(client as any)
+  await applyAndAssertCellyPolicy(client as any)
   expect(calls.map((c) => c[0])).toEqual(["update", "get"])
-  expect(stored.permission).toEqual(celyPolicy().permission)
+  expect(stored.permission).toEqual(cellyPolicy().permission)
   expect(stored.share).toBe("disabled")
 })
 
-test("applyAndAssertCelyPolicy fails closed when the server keeps a weakened policy", async () => {
+test("applyAndAssertCellyPolicy fails closed when the server keeps a weakened policy", async () => {
   const client = { config: {
     update: async () => ({}),
     get: async () => ({ data: { share: "auto", permission: { "*": "allow", external_directory: "allow", question: "allow" } } }),
   } }
-  await expect(applyAndAssertCelyPolicy(client as any)).rejects.toThrow(/policy/)
+  await expect(applyAndAssertCellyPolicy(client as any)).rejects.toThrow(/policy/)
 })
 
 test("waitForHealth resolves when /global/health is healthy", async () => {

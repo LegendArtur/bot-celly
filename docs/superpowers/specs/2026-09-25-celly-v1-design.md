@@ -1,4 +1,4 @@
-# Cely v1 — Design
+# Celly v1 — Design
 
 Date: 2026-09-25
 Status: Revised v2 after parallel review (pending final approval)
@@ -11,15 +11,14 @@ correctness fixes, explicit module ownership, and a trimmed v1 command set.
 
 ## 1. Summary
 
-`Cely` is a Discord bot that turns Discord into a control surface for
+`Celly` is a Discord bot that turns Discord into a control surface for
 OpenCode coding agents, where every project runs inside an isolated `sbx`
 (Docker Sandboxes) microVM on the host machine.
 
-Naming: the bot is **Cely**, short for **Celebrimbor**, the elven smith of
-Eregion who forged the Rings of Power. The Discord category is **Eregion**
-(the forge-realm), and each sandbox is `cely-<slug>` — one ring, one workshop.
-The Tolkien name is for private use; if the project is ever published, the
-branding must be renamed.
+Naming: the bot is **Celly**, a forge for coding agents. Each project's
+sandbox is its **forge** (`celly-<slug>`), and the default Discord category is
+**Forge**. The theme is generic, public-domain smithing folklore (anvils,
+forges, and smiths); it carries no trademarked or copyrighted proper noun.
 
 - **Channel = project** = one `sbx` sandbox + one host directory.
 - **Thread = conversation** = one OpenCode session.
@@ -177,7 +176,7 @@ other configuration; `projects_root` is **not** runtime-editable (security).
 
 ### Naming
 
-`cely-<slug>`: slug = lowercased project name, non `[a-z0-9-]` collapsed to
+`celly-<slug>`: slug = lowercased project name, non `[a-z0-9-]` collapsed to
 `-`, trimmed. Enforce full name **<= 63 chars**, no trailing `-`/`.`; check
 uniqueness against both the `projects` table and `sbx ls --json` (orphans
 included). Names >63 are truncated on a word boundary and a numeric suffix is
@@ -207,23 +206,23 @@ at each step:
    `/project create` creates it under `PROJECTS_ROOT/<name>` (name sanitized).
 2. Allocate port + generate 32-hex password; insert the `projects` row with
    `status = 'provisioning'` (so retries and rollback can find it).
-3. `sbx create opencode <directory> --name cely-<slug> --publish <port>:4096
+3. `sbx create opencode <directory> --name celly-<slug> --publish <port>:4096
    --cpus <n> --memory <mem>` (all args as argv).
 4. `sbx exec <name> true` to ensure the sandbox is running before any copy.
-5. `sbx cp <script> cely-<slug>:/tmp/cely-bootstrap.sh` then
-   `sbx exec <name> bash /tmp/cely-bootstrap.sh`. The bootstrap (idempotent):
-   - writes a cely-managed OpenCode config at `~/.config/cely/opencode.json`
+5. `sbx cp <script> celly-<slug>:/tmp/celly-bootstrap.sh` then
+   `sbx exec <name> bash /tmp/celly-bootstrap.sh`. The bootstrap (idempotent):
+   - writes a celly-managed OpenCode config at `~/.config/celly/opencode.json`
      (not the global template config, so nothing is clobbered) that sets the
      bot-enforced permission policy and `question: deny`;
-   - writes `~/.config/cely/opencode.env` (mode 0600) containing
-     `OPENCODE_SERVER_PASSWORD` and `OPENCODE_CONFIG=<path to the cely config>`,
+   - writes `~/.config/celly/opencode.env` (mode 0600) containing
+     `OPENCODE_SERVER_PASSWORD` and `OPENCODE_CONFIG=<path to the celly config>`,
      so the password is never placed on a host command line and the server
-     always loads the cely-managed config;
+     always loads the celly-managed config;
    - does not overwrite user files in the mounted project.
 6. Start the supervised server (below) and wait for health (timeout scaled for
    first boot).
 7. Resolve and store `sandbox_path`; set `status = 'ready'`; create the Discord
-   channel under the `Eregion` category (channel name collisions get a numeric
+   channel under the `Forge` category (channel name collisions get a numeric
    suffix); post a connected message.
 
 On failure at any step: kill the child if started, `sbx rm --force <name>`,
@@ -238,7 +237,7 @@ One long-lived child per project, held in a registry keyed by channel:
 
 ```
 sbx exec <name> bash -lc \
-  'set -a; . ~/.config/cely/opencode.env; set +a; exec opencode serve --port 4096 --hostname 0.0.0.0'
+  'set -a; . ~/.config/celly/opencode.env; set +a; exec opencode serve --port 4096 --hostname 0.0.0.0'
 ```
 
 - Because an exec session is active, the sandbox is not idle-stopped.
@@ -259,7 +258,7 @@ sbx exec <name> bash -lc \
 - `/project remove` (owner-only, typed confirmation): stop child,
   `sbx rm --force <name>`, delete DB rows, and **delete the Discord channel**
   (Discord text channels cannot be archived); alternatively move it to an
-  `Eregion-Archive` category. Choice is by config flag; default delete.
+  `Forge-Archive` category. Choice is by config flag; default delete.
 
 ## 8. OpenCode bridge (`src/opencode.ts`, `src/events.ts`, `src/runner.ts`)
 
@@ -380,7 +379,7 @@ Streaming renderer:
   text.
 
 Attachments (in scope, hardened): text-like files <= `ATTACHMENT_MAX_BYTES`
-(default 100 KB) are written to `.cely/inbox/<uuid>-<basename>` under the
+(default 100 KB) are written to `.celly/inbox/<uuid>-<basename>` under the
 project directory. `path.basename`, reject `/\:`, `..`, control chars, reserved
 Windows device names, and trailing dots/spaces; `realpath` containment check
 after resolution. Other attachment types are acknowledged and ignored.
@@ -421,12 +420,12 @@ instant updates; `/project` uses subcommands.
 
 ## 11. Terminal coexistence
 
-- Terminal: `sbx exec -it cely-<slug> bash`, then `opencode attach
-  http://127.0.0.1:4096` (verify at spike) or `sbx run --name cely-<slug>`.
+- Terminal: `sbx exec -it celly-<slug> bash`, then `opencode attach
+  http://127.0.0.1:4096` (verify at spike) or `sbx run --name celly-<slug>`.
   Sessions live in the sandbox's OpenCode storage, so Discord and the terminal
   share conversations.
 - The server password is stored in the DB (`projects.server_password`) and in
-  `~/.config/cely/opencode.env` inside the sandbox; `/project status` shows it
+  `~/.config/celly/opencode.env` inside the sandbox; `/project status` shows it
   masked and ephemerally.
 - OpenCode's browser UI (`opencode web`) is deferred: it raises CSRF/DNS-
   rebinding risk for a localhost control plane, and the same sessions are
@@ -443,7 +442,7 @@ mounted project directory and all content inside it are untrusted.
 - **Path containment.** Project directories must resolve inside
   `PROJECTS_ROOT`; deny bot repo, `DATA_DIR`, user profile, and system
   directories (realpath + case-insensitive). Attachments
-  live in `.cely/inbox` with the sanitization above. A single helper owns this
+  live in `.celly/inbox` with the sanitization above. A single helper owns this
   logic; call sites do not hand-roll it.
 - **Egress.** The sandbox policy is defined and verified (spike): provider
   hosts + package registries only, `balanced` preset as the floor, per-sandbox
@@ -477,7 +476,7 @@ mounted project directory and all content inside it are untrusted.
 | `DISCORD_GUILD_ID` | required | Single guild v1. |
 | `PROJECTS_ROOT` | required | Allowed project root. |
 | `ACCESS_ROLE_ID` / `BLOCK_ROLE_ID` | unset | Role IDs (names deprecated). |
-| `CATEGORY_ID` | auto-create `Eregion` | Discord category. |
+| `CATEGORY_ID` | auto-create `Forge` | Discord category. |
 | `SANDBOX_TEMPLATE` | `opencode` | `sbx create` agent/template. |
 | `SANDBOX_CPUS` / `SANDBOX_MEMORY` | `2` / `4g` | Resource limits. |
 | `PORT_RANGE_START` / `PORT_RANGE_END` | `4300` / `4399` | Host port pool. |
@@ -610,8 +609,8 @@ Ordered by risk; items 1-3 gate the implementation plan.
    `Partials.Channel` behavior for archived-thread replies; `startThread` on
    non-system messages.
 8. **Permission enforcement precedence.** Verify `OPENCODE_CONFIG` is honored
-   for the cely config file, that project-level `opencode.json` cannot loosen
-   the cely policy, or that the API-layer enforcement reliably overrides it.
+   for the celly config file, that project-level `opencode.json` cannot loosen
+   the celly policy, or that the API-layer enforcement reliably overrides it.
 9. **SDK auth + event names/payloads.** Basic-auth mechanism; exact SSE event
    names and part shapes; record fixtures for the fake server.
 10. **Single-instance lock** behavior on Windows (port listener vs named mutex).

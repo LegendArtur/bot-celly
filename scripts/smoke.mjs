@@ -17,13 +17,13 @@ import { join } from "node:path"
 const dir = process.argv[2]
 if (!dir) { console.error("usage: node scripts/smoke.mjs <project-dir> [hostPort]"); process.exit(2) }
 
-const name = `cely-smoke-${Date.now()}`
+const name = `celly-smoke-${Date.now()}`
 const hostPort = Number(process.argv[3] ?? 4399)
 const password = randomBytes(16).toString("hex")
 const baseUrl = `http://127.0.0.1:${hostPort}`
 const auth = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`
 
-const CELY_CONFIG = `{
+const CELLY_CONFIG = `{
   "$schema": "https://opencode.ai/config.json",
   "share": "disabled",
   "permission": {
@@ -34,10 +34,10 @@ const CELY_CONFIG = `{
   }
 }
 `
-const CELY_ENV = `OPENCODE_SERVER_PASSWORD=${password}\nOPENCODE_CONFIG=$HOME/.config/cely/opencode.json\n`
-const BOOTSTRAP = "set -e; mkdir -p $HOME/.config/cely; mv /tmp/cely-opencode.json $HOME/.config/cely/opencode.json; mv /tmp/cely-opencode.env $HOME/.config/cely/opencode.env; chmod 600 $HOME/.config/cely/opencode.env"
-const VERIFY = "test -s $HOME/.config/cely/opencode.json && test -s $HOME/.config/cely/opencode.env && grep -q OPENCODE_SERVER_PASSWORD $HOME/.config/cely/opencode.env"
-const SERVE = "set -a; . ~/.config/cely/opencode.env; set +a; exec opencode serve --port 4096 --hostname 0.0.0.0"
+const CELLY_ENV = `OPENCODE_SERVER_PASSWORD=${password}\nOPENCODE_CONFIG=$HOME/.config/celly/opencode.json\n`
+const BOOTSTRAP = "set -e; mkdir -p $HOME/.config/celly; mv /tmp/celly-opencode.json $HOME/.config/celly/opencode.json; mv /tmp/celly-opencode.env $HOME/.config/celly/opencode.env; chmod 600 $HOME/.config/celly/opencode.env"
+const VERIFY = "test -s $HOME/.config/celly/opencode.json && test -s $HOME/.config/celly/opencode.env && grep -q OPENCODE_SERVER_PASSWORD $HOME/.config/celly/opencode.env"
+const SERVE = "set -a; . ~/.config/celly/opencode.env; set +a; exec opencode serve --port 4096 --hostname 0.0.0.0"
 
 let server
 let failed = false
@@ -102,13 +102,13 @@ const teardown = () => {
 }
 
 async function main() {
-  const stage = mkdtempSync(join(tmpdir(), "cely-smoke-"))
-  writeFileSync(join(stage, "opencode.json"), CELY_CONFIG)
-  writeFileSync(join(stage, "opencode.env"), CELY_ENV)
+  const stage = mkdtempSync(join(tmpdir(), "celly-smoke-"))
+  writeFileSync(join(stage, "opencode.json"), CELLY_CONFIG)
+  writeFileSync(join(stage, "opencode.env"), CELLY_ENV)
   try {
     step("create", ["create", "opencode", dir, "--name", name, "--publish", `${hostPort}:4096`])
-    step("copy config", ["cp", join(stage, "opencode.json"), `${name}:/tmp/cely-opencode.json`])
-    step("copy env", ["cp", join(stage, "opencode.env"), `${name}:/tmp/cely-opencode.env`])
+    step("copy config", ["cp", join(stage, "opencode.json"), `${name}:/tmp/celly-opencode.json`])
+    step("copy env", ["cp", join(stage, "opencode.env"), `${name}:/tmp/celly-opencode.env`])
     step("bootstrap", ["exec", name, "bash", "-lc", BOOTSTRAP])
     step("verify bootstrap", ["exec", name, "bash", "-lc", VERIFY])
 

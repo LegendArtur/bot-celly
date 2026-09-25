@@ -97,34 +97,34 @@ test("rejects environment-inspection deny patterns", () => {
   expect(evaluatePermission({ tool: "bash", patterns: ["printenv"] })).toBe("reject")
   expect(evaluatePermission({ tool: "bash", patterns: ["printenv PATH"] })).toBe("reject")
   expect(evaluatePermission({ tool: "bash", patterns: ["env"] })).toBe("reject")
-  expect(evaluatePermission({ tool: "bash", patterns: ["cat ~/.config/cely/opencode.env"] })).toBe("reject")
-  expect(evaluatePermission({ tool: "bash", patterns: ["cat /root/.config/cely/opencode.env"] })).toBe("reject")
+  expect(evaluatePermission({ tool: "bash", patterns: ["cat ~/.config/celly/opencode.env"] })).toBe("reject")
+  expect(evaluatePermission({ tool: "bash", patterns: ["cat /root/.config/celly/opencode.env"] })).toBe("reject")
 })
 
-test("rejects the broadened env-inspection utilities against the cely config", () => {
+test("rejects the broadened env-inspection utilities against the celly config", () => {
   const commands = [
-    "head -n 5 ~/.config/cely/opencode.env",
-    "tail -1 ~/.config/cely/opencode.env",
-    "base64 ~/.config/cely/opencode.env",
-    "xxd ~/.config/cely/opencode.env",
-    "od -c ~/.config/cely/opencode.env",
-    "strings ~/.config/cely/opencode.env",
-    "cp ~/.config/cely/opencode.env /tmp/leak",
-    "less ~/.config/cely/opencode.env",
-    "grep OPENCODE_SERVER_PASSWORD ~/.config/cely/opencode.env",
-    "sed -n 1p ~/.config/cely/opencode.env",
-    "awk '{print}' ~/.config/cely/opencode.env",
-    "head -n 5 /root/.config/cely/other.json",
-    "env -i cat ~/.config/cely/opencode.env",
+    "head -n 5 ~/.config/celly/opencode.env",
+    "tail -1 ~/.config/celly/opencode.env",
+    "base64 ~/.config/celly/opencode.env",
+    "xxd ~/.config/celly/opencode.env",
+    "od -c ~/.config/celly/opencode.env",
+    "strings ~/.config/celly/opencode.env",
+    "cp ~/.config/celly/opencode.env /tmp/leak",
+    "less ~/.config/celly/opencode.env",
+    "grep OPENCODE_SERVER_PASSWORD ~/.config/celly/opencode.env",
+    "sed -n 1p ~/.config/celly/opencode.env",
+    "awk '{print}' ~/.config/celly/opencode.env",
+    "head -n 5 /root/.config/celly/other.json",
+    "env -i cat ~/.config/celly/opencode.env",
   ]
   for (const command of commands) {
     expect(evaluatePermission({ tool: "bash", patterns: [command] }), command).toBe("reject")
   }
 })
 
-test("rejects read and grep tool paths into the cely config directory", () => {
-  expect(evaluatePermission({ tool: "read", patterns: ["/root/.config/cely/opencode.env"] })).toBe("reject")
-  expect(evaluatePermission({ tool: "grep", patterns: ["/home/u/.config/cely/*"] })).toBe("reject")
+test("rejects read and grep tool paths into the celly config directory", () => {
+  expect(evaluatePermission({ tool: "read", patterns: ["/root/.config/celly/opencode.env"] })).toBe("reject")
+  expect(evaluatePermission({ tool: "grep", patterns: ["/home/u/.config/celly/*"] })).toBe("reject")
   expect(evaluatePermission({ tool: "read", patterns: ["opencode.env"] })).toBe("reject")
   expect(evaluatePermission({ tool: "read", patterns: ["/srv/project/README.md"] })).toBe("once")
 })

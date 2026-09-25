@@ -12,15 +12,15 @@ test("slugify keeps only [a-z0-9-]", () => {
 })
 test("sandbox names cap at 63 and trim trailing separators", () => {
   const n = buildSandboxName("a".repeat(80), new Set())
-  expect(n.startsWith("cely-")).toBe(true)
+  expect(n.startsWith("celly-")).toBe(true)
   expect(n.length).toBeLessThanOrEqual(63)
   expect(n.endsWith("-")).toBe(false)
 })
 test("sandbox names dedupe against taken set", () => {
-  expect(buildSandboxName("demo", new Set(["cely-demo"]))).toBe("cely-demo-2")
+  expect(buildSandboxName("demo", new Set(["celly-demo"]))).toBe("celly-demo-2")
 })
 test("parses sbx ls fixtures", () => {
-  expect(parseSbxLs(ls)).toEqual([{ name: "cely-spike", agent: "opencode", status: "running", hostPort: 4399, workspace: "C:\\Users\\artur\\projects\\spike" }])
+  expect(parseSbxLs(ls)).toEqual([{ name: "celly-spike", agent: "opencode", status: "running", hostPort: 4399, workspace: "C:\\Users\\artur\\projects\\spike" }])
 })
 test("parses sbx ports fixtures", () => {
   expect(parseSbxPorts(ports)).toEqual([{ hostIp: "127.0.0.1", hostPort: 4399, sandboxPort: 4096, protocol: "tcp4" }])
@@ -82,8 +82,8 @@ test("reserved device names are rejected after trimming", () => {
   expect(() => sanitizeAttachmentName("conin$")).toThrow()
 })
 test("path containment resolves symlinked ancestors", () => {
-  const root = mkdtempSync(join(tmpdir(), "cely-root-"))
-  const outside = mkdtempSync(join(tmpdir(), "cely-out-"))
+  const root = mkdtempSync(join(tmpdir(), "celly-root-"))
+  const outside = mkdtempSync(join(tmpdir(), "celly-out-"))
   try {
     symlinkSync(outside, join(root, "link"))
     expect(isPathInside(root, join(root, "link", "sub", "file.txt"))).toBe(false)
@@ -113,7 +113,7 @@ test("defaultForbiddenPaths allows ordinary home subfolders but keeps the profil
   const home = process.env.HOME ?? process.env.USERPROFILE
   if (!home) return
   const forbidden = defaultForbiddenPaths()
-  expect(isSensitivePath(join(home, "Cely", "projects", "demo"), forbidden)).toBe(false)
+  expect(isSensitivePath(join(home, "Celly", "projects", "demo"), forbidden)).toBe(false)
   expect(isSensitivePath(join(home, ".ssh"), forbidden)).toBe(true)
   expect(isSensitivePath(join(home, ".ssh", "keys"), forbidden)).toBe(true)
   expect(isSensitivePath(home, forbidden)).toBe(true)

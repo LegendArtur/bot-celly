@@ -5,7 +5,7 @@ const sh = (args, opts = {}) => {
   console.log(r.stdout || "", r.stderr || "")
   return r
 }
-const name = "cely-spike"
+const name = "celly-spike"
 let child
 const teardown = () => {
   try { child?.kill() } catch {}

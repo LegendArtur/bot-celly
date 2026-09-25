@@ -1,6 +1,6 @@
-# Deploying Cely on Windows 11
+# Deploying Celly on Windows 11
 
-This guide covers running Cely as a long-lived service on a Windows 11 host,
+This guide covers running Celly as a long-lived service on a Windows 11 host,
 including the Task Scheduler setup and the personal-access-token (PAT) flow for
 re-authenticating `sbx` without an interactive browser.
 
@@ -38,7 +38,7 @@ an elevated PowerShell prompt; the rest run as the normal user.
    ```powershell
    sbx secret set <provider>
    ```
-7. Record the installed version. Cely targets `sbx` >= 0.45.0:
+7. Record the installed version. Celly targets `sbx` >= 0.45.0:
    ```powershell
    sbx version
    ```
@@ -83,8 +83,8 @@ $settings = New-ScheduledTaskSettingsSet `
   -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
   -ExecutionTimeLimit ([TimeSpan]::Zero) `
   -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-Register-ScheduledTask -TaskName "Cely" -Action $action -Trigger $trigger `
-  -Settings $settings -Description "Cely Discord bot" -Force
+Register-ScheduledTask -TaskName "Celly" -Action $action -Trigger $trigger `
+  -Settings $settings -Description "Celly Discord bot" -Force
 ```
 
 `-ExecutionTimeLimit ([TimeSpan]::Zero)` clears the default 72-hour limit so the
@@ -93,15 +93,15 @@ bot is not killed. Adjust `$repo` to the clone location.
 To inspect, run, or remove the task:
 
 ```powershell
-Get-ScheduledTask -TaskName Cely | Get-ScheduledTaskInfo
-Start-ScheduledTask -TaskName Cely
-Unregister-ScheduledTask -TaskName Cely -Confirm:$false
+Get-ScheduledTask -TaskName Celly | Get-ScheduledTaskInfo
+Start-ScheduledTask -TaskName Celly
+Unregister-ScheduledTask -TaskName Celly -Confirm:$false
 ```
 
 ### Option B: Task Scheduler GUI
 
 1. Open **Task Scheduler** and choose **Create Task** (not "Basic Task").
-2. **General:** name it `Cely`; select **Run only when user is logged on**.
+2. **General:** name it `Celly`; select **Run only when user is logged on**.
 3. **Triggers:** add **At log on**, scoped to the user who owns `sbx`.
 4. **Actions:** **Start a program** with:
    - Program/script: the full path to `node.exe` (e.g.
@@ -142,7 +142,7 @@ but `sbx` is not authenticated. Re-authenticate non-interactively with a Docker
 4. If the bot is already running, restart the scheduled task so the daemon
    picks up the new credential:
    ```powershell
-   Restart-ScheduledTask -TaskName Cely
+   Restart-ScheduledTask -TaskName Celly
    ```
 
 Store the PAT the same way you store other host secrets (for example, Windows
@@ -170,14 +170,13 @@ it in `.env`.
 | Task starts but nothing happens | Task configured as LocalSystem / "run whether logged on" | Recreate the task as "Run only when user is logged on". |
 | Sandboxes not stopped after reboot | Expected | Sandboxes stop automatically when idle; the next prompt wakes them via `ensureReady`. |
 
-## 7. Caveats
+## 7. Sensitive paths
 
-`PROJECTS_ROOT` must not live under the user profile. The sensitive-path
-denylist includes `HOME`/`USERPROFILE` and `DATA_DIR`, and the containment check
-rejects both ancestors and descendants of a forbidden root. A `PROJECTS_ROOT`
-such as `C:\Users\you\projects` is therefore rejected in full and no project can
-be mounted; use a path outside the profile (e.g. `D:\projects`) or move
-`DATA_DIR` out of `PROJECTS_ROOT`.
+`PROJECTS_ROOT` may live under the user profile (the default is
+`%USERPROFILE%\Celly\projects`). The sensitive-path denylist rejects specific
+sensitive subtrees (`.ssh`, `.aws`, `.gnupg`, `.config`, `.docker`, `.kube`,
+`.azure`, `.npmrc`, `.netrc`, `.celly`, `AppData`), `DATA_DIR`, the bot
+repository, and system directories, so keep projects out of those.
 
 ## 8. Deferred (v1.1) and limitations
 

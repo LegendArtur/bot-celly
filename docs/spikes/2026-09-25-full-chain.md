@@ -27,7 +27,7 @@ From the repo root, in PowerShell:
 node scripts/spike-full-chain.mjs
 ```
 
-The script force-removes the `cely-spike` sandbox at the end (and on Ctrl-C),
+The script force-removes the `celly-spike` sandbox at the end (and on Ctrl-C),
 so a failed run does not leave it behind.
 
 **Hint:** if the health probe logs `ECONNREFUSED`, the `opencode serve` child
@@ -80,7 +80,7 @@ before the host run; correct them from the real output.
 
 ```json
 [
-  { "name": "cely-spike", "agent": "opencode", "status": "running",
+  { "name": "celly-spike", "agent": "opencode", "status": "running",
     "ports": [ { "host_ip": "127.0.0.1", "host_port": 4399, "sandbox_port": 4096, "protocol": "tcp4" } ],
     "workspace": "C:\\Users\\artur\\projects\\spike" }
 ]

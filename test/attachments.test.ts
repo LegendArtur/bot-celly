@@ -24,7 +24,7 @@ test("ingests only within the size cap", () => {
 test("attachment destinations live under the project inbox", () => {
   const dir = "C:\\projects\\demo"
   const dest = attachmentDestination(dir, "notes.txt", "abc-123")
-  expect(dest).toBe(join(dir, ".cely", "inbox", "abc-123-notes.txt"))
+  expect(dest).toBe(join(dir, ".celly", "inbox", "abc-123-notes.txt"))
 })
 
 test("attachment destinations reject traversal and reserved names", () => {
@@ -33,31 +33,31 @@ test("attachment destinations reject traversal and reserved names", () => {
 })
 
 test("attachment destinations use the basename of backslash names", () => {
-  expect(attachmentDestination("/srv/projects/demo", "..\\..\\evil.txt", "id")).toBe("/srv/projects/demo/.cely/inbox/id-evil.txt")
+  expect(attachmentDestination("/srv/projects/demo", "..\\..\\evil.txt", "id")).toBe("/srv/projects/demo/.celly/inbox/id-evil.txt")
 })
 
 test("attachment sandbox paths use the resolved in-sandbox root", () => {
   const host = "C:\\projects\\demo"
   const dest = attachmentDestination(host, "notes.txt", "abc")
-  expect(attachmentSandboxPath(host, "/sandbox/workspace", dest)).toBe("/sandbox/workspace/.cely/inbox/abc-notes.txt")
-  expect(attachmentSandboxPath(host, null, dest)).toBe("C:/projects/demo/.cely/inbox/abc-notes.txt")
+  expect(attachmentSandboxPath(host, "/sandbox/workspace", dest)).toBe("/sandbox/workspace/.celly/inbox/abc-notes.txt")
+  expect(attachmentSandboxPath(host, null, dest)).toBe("C:/projects/demo/.celly/inbox/abc-notes.txt")
 })
 
 test("ensureSafeInbox creates and returns a real inbox under the project", () => {
-  const root = mkdtempSync(join(tmpdir(), "cely-inbox-"))
+  const root = mkdtempSync(join(tmpdir(), "celly-inbox-"))
   try {
     const inbox = ensureSafeInbox(root)
-    expect(inbox).toBe(join(root, ".cely", "inbox"))
+    expect(inbox).toBe(join(root, ".celly", "inbox"))
     expect(existsSync(inbox)).toBe(true)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
 test("ensureSafeInbox rejects a symlinked inbox", () => {
-  const root = mkdtempSync(join(tmpdir(), "cely-inbox-"))
-  const outside = mkdtempSync(join(tmpdir(), "cely-out-"))
+  const root = mkdtempSync(join(tmpdir(), "celly-inbox-"))
+  const outside = mkdtempSync(join(tmpdir(), "celly-out-"))
   try {
-    mkdirSync(join(root, ".cely"))
-    symlinkSync(outside, join(root, ".cely", "inbox"))
+    mkdirSync(join(root, ".celly"))
+    symlinkSync(outside, join(root, ".celly", "inbox"))
     expect(() => ensureSafeInbox(root)).toThrow(/symlink/)
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -65,11 +65,11 @@ test("ensureSafeInbox rejects a symlinked inbox", () => {
   }
 })
 
-test("ensureSafeInbox rejects a symlinked .cely directory", () => {
-  const root = mkdtempSync(join(tmpdir(), "cely-inbox-"))
-  const outside = mkdtempSync(join(tmpdir(), "cely-out-"))
+test("ensureSafeInbox rejects a symlinked .celly directory", () => {
+  const root = mkdtempSync(join(tmpdir(), "celly-inbox-"))
+  const outside = mkdtempSync(join(tmpdir(), "celly-out-"))
   try {
-    symlinkSync(outside, join(root, ".cely"))
+    symlinkSync(outside, join(root, ".celly"))
     expect(() => ensureSafeInbox(root)).toThrow(/symlink/)
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -78,8 +78,8 @@ test("ensureSafeInbox rejects a symlinked .cely directory", () => {
 })
 
 test("ingestAttachments writes through the resolved inbox real path", async () => {
-  const realRoot = mkdtempSync(join(tmpdir(), "cely-real-"))
-  const linkRoot = join(tmpdir(), `cely-link-${process.pid}-${Date.now()}`)
+  const realRoot = mkdtempSync(join(tmpdir(), "celly-real-"))
+  const linkRoot = join(tmpdir(), `celly-link-${process.pid}-${Date.now()}`)
   symlinkSync(realRoot, linkRoot, "dir")
   const destinations: string[] = []
   try {
@@ -90,10 +90,10 @@ test("ingestAttachments writes through the resolved inbox real path", async () =
       write: async (destination) => { destinations.push(destination) },
       newId: () => "id",
     })
-    const realInbox = realpathSync(join(realRoot, ".cely", "inbox"))
+    const realInbox = realpathSync(join(realRoot, ".celly", "inbox"))
     expect(destinations).toEqual([join(realInbox, "id-a.txt")])
     expect(out[0]!.hostPath).toBe(join(realInbox, "id-a.txt"))
-    expect(out[0]!.sandboxPath).toBe("/sandbox/ws/.cely/inbox/id-a.txt")
+    expect(out[0]!.sandboxPath).toBe("/sandbox/ws/.celly/inbox/id-a.txt")
   } finally {
     rmSync(linkRoot, { force: true })
     rmSync(realRoot, { recursive: true, force: true })
@@ -101,8 +101,8 @@ test("ingestAttachments writes through the resolved inbox real path", async () =
 })
 
 test("writeAttachmentFile refuses to follow a symlinked destination", async () => {
-  const root = mkdtempSync(join(tmpdir(), "cely-write-"))
-  const outside = mkdtempSync(join(tmpdir(), "cely-write-out-"))
+  const root = mkdtempSync(join(tmpdir(), "celly-write-"))
+  const outside = mkdtempSync(join(tmpdir(), "celly-write-out-"))
   try {
     const target = join(outside, "secret.txt")
     writeFileSync(target, "original")
@@ -149,7 +149,7 @@ test("downloadAttachment buffers a body within the cap", async () => {
 })
 
 test("ingestAttachments writes within-cap bodies, skips non-ok and oversize, and records sandbox paths", async () => {
-  const root = mkdtempSync(join(tmpdir(), "cely-ingest-"))
+  const root = mkdtempSync(join(tmpdir(), "celly-ingest-"))
   vi.stubGlobal("fetch", async (url: string) => {
     if (url.endsWith("/ok")) return new Response("hello", { status: 200, headers: { "content-type": "text/plain" } })
     if (url.endsWith("/notok")) return new Response("nope", { status: 404 })
@@ -170,8 +170,8 @@ test("ingestAttachments writes within-cap bodies, skips non-ok and oversize, and
       warn: (m) => { warnings.push(m) },
     })
     expect(out).toHaveLength(1)
-    expect(out[0]!.sandboxPath).toBe("/sandbox/ws/.cely/inbox/id-a.txt")
-    expect(readFileSync(join(root, ".cely", "inbox", "id-a.txt"), "utf8")).toBe("hello")
+    expect(out[0]!.sandboxPath).toBe("/sandbox/ws/.celly/inbox/id-a.txt")
+    expect(readFileSync(join(root, ".celly", "inbox", "id-a.txt"), "utf8")).toBe("hello")
     expect(warnings).toEqual([])
   } finally {
     vi.unstubAllGlobals()
@@ -180,10 +180,10 @@ test("ingestAttachments writes within-cap bodies, skips non-ok and oversize, and
 })
 
 test("ingestAttachments warns and skips when the inbox is a symlink", async () => {
-  const root = mkdtempSync(join(tmpdir(), "cely-ingest-"))
-  const outside = mkdtempSync(join(tmpdir(), "cely-ingest-out-"))
-  mkdirSync(join(root, ".cely"))
-  symlinkSync(outside, join(root, ".cely", "inbox"))
+  const root = mkdtempSync(join(tmpdir(), "celly-ingest-"))
+  const outside = mkdtempSync(join(tmpdir(), "celly-ingest-out-"))
+  mkdirSync(join(root, ".celly"))
+  symlinkSync(outside, join(root, ".celly", "inbox"))
   vi.stubGlobal("fetch", async () => new Response("hello", { status: 200, headers: { "content-type": "text/plain" } }))
   try {
     const warnings: string[] = []

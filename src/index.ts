@@ -104,7 +104,7 @@ async function main(): Promise<void> {
     createChannel: async (name) => {
       const activeGuild = requireGuild()
       const categoryId = findCategoryId(activeGuild, cfg.categoryId)
-        ?? (await activeGuild.channels.create({ name: "Eregion", type: ChannelType.GuildCategory })).id
+        ?? (await activeGuild.channels.create({ name: "Forge", type: ChannelType.GuildCategory })).id
       const taken = new Set([...activeGuild.channels.cache.values()].map((c) => c.name))
       const channelName = uniqueChannelName(sanitizeChannelName(name), taken)
       const channel = await activeGuild.channels.create({ name: channelName, parent: categoryId, type: ChannelType.GuildText })
@@ -417,7 +417,7 @@ async function main(): Promise<void> {
   await guild.commands.set(commandData())
   if (client.isReady()) { subscribeReadyProjects(); void reconcileThreads().catch((err) => log.error("boot reconcile failed", { error: String(err) })) }
 
-  log.info("Cely ready", { guild: guild.name, permissions: guild.members.me?.permissions.toArray() })
+  log.info("Celly ready", { guild: guild.name, permissions: guild.members.me?.permissions.toArray() })
 }
 
 export function isMainModule(moduleUrl: string, argv1: string | undefined): boolean {

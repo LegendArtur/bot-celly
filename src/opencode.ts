@@ -14,15 +14,15 @@ export function resolveClient(p: Project): OpencodeClient {
   return createClient(`http://127.0.0.1:${p.hostPort}`, p.serverPassword)
 }
 export function buildServeArgs(): string[] {
-  const payload = "set -a; . ~/.config/cely/opencode.env; set +a; exec opencode serve --port 4096 --hostname 0.0.0.0"
+  const payload = "set -a; . ~/.config/celly/opencode.env; set +a; exec opencode serve --port 4096 --hostname 0.0.0.0"
   return ["bash", "-lc", payload]
 }
 
-export const CELY_CONFIG_DIR = "$HOME/.config/cely"
-export const CELY_CONFIG_PATH = "$HOME/.config/cely/opencode.json"
-export const CELY_ENV_PATH = "$HOME/.config/cely/opencode.env"
+export const CELLY_CONFIG_DIR = "$HOME/.config/celly"
+export const CELLY_CONFIG_PATH = "$HOME/.config/celly/opencode.json"
+export const CELLY_ENV_PATH = "$HOME/.config/celly/opencode.env"
 
-export interface CelyPolicy {
+export interface CellyPolicy {
   $schema: string
   share: "disabled"
   permission: {
@@ -45,21 +45,21 @@ export const BASH_DENY: Record<string, "allow" | "deny"> = {
   "printenv*": "deny",
   "env": "deny",
   "cat *opencode.env*": "deny",
-  "cat */.config/cely/*": "deny",
+  "cat */.config/celly/*": "deny",
 }
 for (const utility of ENV_INSPECT_UTILITIES) {
   BASH_DENY[`${utility} *opencode.env*`] = "deny"
-  BASH_DENY[`${utility} */.config/cely/*`] = "deny"
+  BASH_DENY[`${utility} */.config/celly/*`] = "deny"
 }
 BASH_DENY["*opencode.env*"] = "deny"
-BASH_DENY["*/.config/cely/*"] = "deny"
+BASH_DENY["*/.config/celly/*"] = "deny"
 
 /** The same deny patterns that are baked into the sandbox config, normalized. */
 export function bashDenyPatterns(): string[] {
   return Object.entries(BASH_DENY).filter(([key, value]) => key !== "*" && value === "deny").map(([key]) => key)
 }
 
-export function celyPolicy(): CelyPolicy {
+export function cellyPolicy(): CellyPolicy {
   return {
     $schema: "https://opencode.ai/config.json",
     share: "disabled",
@@ -72,17 +72,17 @@ export function celyPolicy(): CelyPolicy {
   }
 }
 
-export function buildCelyConfigJson(): string {
-  return JSON.stringify(celyPolicy(), null, 2) + "\n"
+export function buildCellyConfigJson(): string {
+  return JSON.stringify(cellyPolicy(), null, 2) + "\n"
 }
 
 export function buildOpencodeEnv(password: string): string {
   // OPENCODE_CONFIG_CONTENT is preferred when the pinned opencode supports it so
   // an untrusted project opencode.json/.opencode cannot loosen the policy. It is
-  // single-quoted for safe `set -a; . opencode.env` sourcing; the cely policy
+  // single-quoted for safe `set -a; . opencode.env` sourcing; the celly policy
   // contains no single quotes. The API-layer PATCH+assert below is the backstop.
-  const content = JSON.stringify(celyPolicy())
-  return `OPENCODE_SERVER_PASSWORD=${password}\nOPENCODE_CONFIG=${CELY_CONFIG_PATH}\nOPENCODE_CONFIG_CONTENT='${content}'\n`
+  const content = JSON.stringify(cellyPolicy())
+  return `OPENCODE_SERVER_PASSWORD=${password}\nOPENCODE_CONFIG=${CELLY_CONFIG_PATH}\nOPENCODE_CONFIG_CONTENT='${content}'\n`
 }
 
 export interface PolicyClient {
@@ -96,25 +96,25 @@ export function unwrapConfigResponse(response: unknown): any {
 }
 
 /**
- * Runtime enforcement of the cely policy. The bootstrap config is loaded below
+ * Runtime enforcement of the celly policy. The bootstrap config is loaded below
  * a project-level `opencode.json`, so a project can weaken it. After the server
  * is healthy we PATCH the policy and then GET /config to assert the running
- * server actually reports `celyPolicy()`. Any mismatch fails the caller closed.
+ * server actually reports `cellyPolicy()`. Any mismatch fails the caller closed.
  */
-export async function applyAndAssertCelyPolicy(client: PolicyClient): Promise<void> {
-  const policy = celyPolicy()
+export async function applyAndAssertCellyPolicy(client: PolicyClient): Promise<void> {
+  const policy = cellyPolicy()
   await client.config.update({ body: policy } as any)
   const current = unwrapConfigResponse(await client.config.get())
   if (!isDeepStrictEqual(current?.permission, policy.permission)) {
-    throw new Error(`cely permission policy was not enforced by the server: got ${JSON.stringify(current?.permission)}`)
+    throw new Error(`celly permission policy was not enforced by the server: got ${JSON.stringify(current?.permission)}`)
   }
   if (current?.share !== "disabled") {
-    throw new Error(`cely share policy was not enforced by the server: got ${JSON.stringify(current?.share)}`)
+    throw new Error(`celly share policy was not enforced by the server: got ${JSON.stringify(current?.share)}`)
   }
 }
 
-export const BOOTSTRAP_SCRIPT = `set -e; mkdir -p ${CELY_CONFIG_DIR}; mv /tmp/cely-opencode.json ${CELY_CONFIG_PATH}; mv /tmp/cely-opencode.env ${CELY_ENV_PATH}; chmod 600 ${CELY_ENV_PATH}`
-export const BOOTSTRAP_VERIFY = `test -s ${CELY_CONFIG_PATH} && test -s ${CELY_ENV_PATH} && grep -q '"permission"' ${CELY_CONFIG_PATH} && grep -q 'OPENCODE_SERVER_PASSWORD=' ${CELY_ENV_PATH}`
+export const BOOTSTRAP_SCRIPT = `set -e; mkdir -p ${CELLY_CONFIG_DIR}; mv /tmp/celly-opencode.json ${CELLY_CONFIG_PATH}; mv /tmp/celly-opencode.env ${CELLY_ENV_PATH}; chmod 600 ${CELLY_ENV_PATH}`
+export const BOOTSTRAP_VERIFY = `test -s ${CELLY_CONFIG_PATH} && test -s ${CELLY_ENV_PATH} && grep -q '"permission"' ${CELLY_CONFIG_PATH} && grep -q 'OPENCODE_SERVER_PASSWORD=' ${CELLY_ENV_PATH}`
 
 export async function waitForHealth(client: { baseUrl: string; auth?: string }, timeoutMs: number, intervalMs = 500): Promise<void> {
   const deadline = Date.now() + timeoutMs

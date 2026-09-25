@@ -6,7 +6,7 @@ export function findCategoryId(
 ): string | undefined {
   if (configuredId) return configuredId
   for (const channel of guild.channels.cache.values()) {
-    if (channel.type === ChannelType.GuildCategory && channel.name === "Eregion") return channel.id
+    if (channel.type === ChannelType.GuildCategory && channel.name === "Forge") return channel.id
   }
   return undefined
 }

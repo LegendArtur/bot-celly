@@ -7,7 +7,7 @@ import { openDb } from "../src/db.ts"
 function fresh() { const db = openDb(":memory:"); db.migrate(); return db }
 
 const proj = { channelId: "c", guildId: "g", name: "demo", directory: "C:\\p",
-  sandboxPath: null, sandboxName: "cely-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 }
+  sandboxPath: null, sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 }
 
 function interaction(over: any = {}) {
   const calls: any[] = []
@@ -244,7 +244,7 @@ test("resume lists sessions and shows an ephemeral select", async () => {
   const edit = editOf(i)
   expect(edit.content).toMatch(/Choose a session/)
   const menu = edit.components[0].components[0]
-  expect(menu.custom_id).toBe("cely:resume:c")
+  expect(menu.custom_id).toBe("celly:resume:c")
   expect(menu.options).toEqual([{ label: "First", value: "s1" }, { label: "Second", value: "s2" }])
 })
 
@@ -255,14 +255,14 @@ test("model and agent show selects for the current thread", async () => {
   await handleCommand(modelInteraction, { projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
     listModels: async () => [{ id: "anthropic/claude", name: "Claude" }] })
   const modelMenu = editOf(modelInteraction).components[0].components[0]
-  expect(modelMenu.custom_id).toBe("cely:model:t1")
+  expect(modelMenu.custom_id).toBe("celly:model:t1")
   expect(modelMenu.options).toEqual([{ label: "Claude", value: "anthropic/claude" }])
 
   const agentInteraction = interaction({ commandName: "agent", channelId: "t1" })
   await handleCommand(agentInteraction, { projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
     listAgents: async () => [{ id: "build", name: "build" }] })
   const agentMenu = editOf(agentInteraction).components[0].components[0]
-  expect(agentMenu.custom_id).toBe("cely:agent:t1")
+  expect(agentMenu.custom_id).toBe("celly:agent:t1")
   expect(agentMenu.options).toEqual([{ label: "build", value: "build" }])
 })
 
@@ -299,7 +299,7 @@ test("project start resubscribes before waking the sandbox", async () => {
 
 test("selecting a session resumes it in a new thread", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
-  const i = select({ customId: "cely:resume:c", values: ["s1"] })
+  const i = select({ customId: "celly:resume:c", values: ["s1"] })
   let captured: any
   await handleSelect(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
     createThread: async (input: any) => { captured = input; return { threadId: "t9", sessionId: "s1" } } })
@@ -311,7 +311,7 @@ test("selecting a session resumes it in a new thread", async () => {
 test("selecting a model updates the thread", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
   db.threads.upsert(threadRow("t1"))
-  const i = select({ customId: "cely:model:t1", values: ["openai/gpt"] })
+  const i = select({ customId: "celly:model:t1", values: ["openai/gpt"] })
   let set: any
   await handleSelect(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
     setThreadModel: (id: string, m: string | null) => { set = [id, m] } })
@@ -321,7 +321,7 @@ test("selecting a model updates the thread", async () => {
 
 test("selecting an agent updates the thread", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
-  const i = select({ customId: "cely:agent:t1", values: ["build"] })
+  const i = select({ customId: "celly:agent:t1", values: ["build"] })
   let set: any
   await handleSelect(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
     setThreadAgent: (id: string, a: string | null) => { set = [id, a] } })
@@ -330,7 +330,7 @@ test("selecting an agent updates the thread", async () => {
 })
 
 test("unauthorized selects are rejected before deferUpdate", async () => {
-  const i = select({ customId: "cely:model:t1", values: ["x"] })
+  const i = select({ customId: "celly:model:t1", values: ["x"] })
   await handleSelect(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => false })
   expect(i.calls).toHaveLength(1)
   expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "You are not authorized.", flags: 64, allowedMentions: { parse: [] } } })

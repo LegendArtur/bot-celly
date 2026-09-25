@@ -15,7 +15,7 @@ test("parses defaults", () => {
 })
 test("only token and guild are required; PROJECTS_ROOT defaults under the home dir", () => {
   const c = loadConfig({ DISCORD_TOKEN: "t", DISCORD_GUILD_ID: "g" })
-  expect(c.projectsRoot).toBe(join(homedir(), "Cely", "projects"))
+  expect(c.projectsRoot).toBe(join(homedir(), "Celly", "projects"))
   expect(c.projectsRoot).toBe(defaultProjectsRoot())
 })
 test("parses the owner role", () => {
@@ -46,7 +46,7 @@ test("rejects fractional counts and ports and non-positive cpu counts", () => {
 })
 
 test("ensureDataDir creates nested directories", () => {
-  const root = mkdtempSync(join(tmpdir(), "cely-data-"))
+  const root = mkdtempSync(join(tmpdir(), "celly-data-"))
   const nested = join(root, "a", "b", "c")
   try {
     expect(existsSync(nested)).toBe(false)
@@ -74,9 +74,9 @@ test("loadDotEnv reports success and failure without throwing", () => {
 })
 
 test("loadDotEnv loads a real .env into process.env", () => {
-  const root = mkdtempSync(join(tmpdir(), "cely-env-"))
+  const root = mkdtempSync(join(tmpdir(), "celly-env-"))
   const envPath = join(root, ".env")
-  const key = "CELY_TEST_DOTENV_VALUE"
+  const key = "CELLY_TEST_DOTENV_VALUE"
   try {
     writeFileSync(envPath, `${key}=loaded\n`)
     delete process.env[key]

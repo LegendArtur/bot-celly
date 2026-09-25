@@ -50,7 +50,7 @@ const int = (e: NodeJS.ProcessEnv, k: string, d: number, min = 1) => {
   return n
 }
 export function defaultProjectsRoot(): string {
-  return join(homedir(), "Cely", "projects")
+  return join(homedir(), "Celly", "projects")
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {

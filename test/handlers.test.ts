@@ -9,7 +9,7 @@ function fresh() { const db = openDb(":memory:"); db.migrate(); return db }
 
 const project = (over: Partial<Project> = {}): Project => ({
   channelId: "c", guildId: "g", name: "demo", directory: "C:\\p", sandboxPath: null,
-  sandboxName: "cely-demo", hostPort: 4300, serverPassword: "pw", status: "ready", createdAt: 1, ...over,
+  sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", status: "ready", createdAt: 1, ...over,
 })
 const thread = (over: Partial<Thread> = {}): Thread => ({
   threadId: "t1", channelId: "c", sessionId: "s1", title: "hello", model: null, agent: null,
@@ -147,10 +147,10 @@ test("!shell streams the command output through the channel bucket", async () =>
 test("attachment ingest feeds the sandbox path into the prompt", async () => {
   const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
   db.threads.upsert(thread())
-  const deps = baseDeps(db, { ingestAttachments: vi.fn(async () => [{ hostPath: "C:\\p\\.cely\\inbox\\a", sandboxPath: "/sandbox/.cely/inbox/a" }]) })
+  const deps = baseDeps(db, { ingestAttachments: vi.fn(async () => [{ hostPath: "C:\\p\\.celly\\inbox\\a", sandboxPath: "/sandbox/.celly/inbox/a" }]) })
   const { message } = fakeMessage({ channelId: "t1", parentId: "c", isThread: () => true, content: "see file" })
   await createMessageHandler(deps)(message)
-  expect(deps.runner.prompt).toHaveBeenCalledWith("t1", "see file\n\n[attachment] /sandbox/.cely/inbox/a", "u1")
+  expect(deps.runner.prompt).toHaveBeenCalledWith("t1", "see file\n\n[attachment] /sandbox/.celly/inbox/a", "u1")
 })
 
 test("a run notice is replied to the message", async () => {

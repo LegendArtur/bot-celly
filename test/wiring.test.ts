@@ -7,11 +7,11 @@ test("findCategoryId prefers the configured category", () => {
   expect(findCategoryId({ channels: { cache: new Map() } }, "configured")).toBe("configured")
 })
 
-test("findCategoryId finds an existing Eregion category", () => {
+test("findCategoryId finds an existing Forge category", () => {
   const cache = new Map([
-    ["c1", { id: "c1", name: "Eregion", type: ChannelType.GuildCategory }],
+    ["c1", { id: "c1", name: "Forge", type: ChannelType.GuildCategory }],
     ["c2", { id: "c2", name: "Other", type: ChannelType.GuildCategory }],
-    ["c3", { id: "c3", name: "Eregion", type: ChannelType.GuildText }],
+    ["c3", { id: "c3", name: "Forge", type: ChannelType.GuildText }],
   ])
   expect(findCategoryId({ channels: { cache } } as any, undefined)).toBe("c1")
 })
@@ -38,7 +38,7 @@ test("projectForChannel matches the channel or its parent", () => {
 })
 
 test("buildPromptText announces in-sandbox attachment paths and drops blanks", () => {
-  expect(buildPromptText("hello", ["/sandbox/.cely/inbox/a.txt"])).toBe("hello\n\n[attachment] /sandbox/.cely/inbox/a.txt")
+  expect(buildPromptText("hello", ["/sandbox/.celly/inbox/a.txt"])).toBe("hello\n\n[attachment] /sandbox/.celly/inbox/a.txt")
   expect(buildPromptText("   ", [])).toBe("")
   expect(buildPromptText("", ["/x"])).toBe("[attachment] /x")
 })

@@ -8,12 +8,12 @@ import { openDb } from "../src/db.ts"
 
 function fresh() { const db = openDb(":memory:"); db.migrate(); return db }
 const proj = { channelId: "c1", guildId: "g1", name: "demo", directory: "C:\\p\\demo",
-  sandboxPath: null, sandboxName: "cely-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 }
+  sandboxPath: null, sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 }
 
 test("inserts, reads, and enforces unique name/port", () => {
   const db = fresh()
   db.projects.insertProvisioning(proj)
-  expect(db.projects.getByChannel("c1")?.sandboxName).toBe("cely-demo")
+  expect(db.projects.getByChannel("c1")?.sandboxName).toBe("celly-demo")
   expect(db.projects.getByName("demo")?.channelId).toBe("c1")
   expect(() => db.projects.insertProvisioning({ ...proj, channelId: "c2" })).toThrow()
 })
@@ -64,7 +64,7 @@ test("updates per-thread model and agent overrides", () => {
 })
 test("migrate is idempotent", () => { const db = fresh(); db.migrate(); expect(db.projects.list()).toEqual([]) })
 test("v2 migration repairs a pre-cascade threads table", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cely-db-"))
+  const dir = mkdtempSync(join(tmpdir(), "celly-db-"))
   const file = join(dir, "bot.db")
   try {
     const legacy = new DatabaseSync(file)
@@ -79,7 +79,7 @@ test("v2 migration repairs a pre-cascade threads table", () => {
       CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       PRAGMA user_version = 1;
       INSERT INTO projects (channel_id,guild_id,name,directory,sandbox_path,sandbox_name,host_port,server_password,status,created_at)
-        VALUES ('c1','g','demo','C:\\p',NULL,'cely-demo',4300,'pw','ready',1);
+        VALUES ('c1','g','demo','C:\\p',NULL,'celly-demo',4300,'pw','ready',1);
       INSERT INTO threads (thread_id,channel_id,session_id,title,model,agent,worktree_path,live_message_id,render_state,created_at,last_active_at)
         VALUES ('t1','c1','s1',NULL,NULL,NULL,NULL,NULL,'idle',1,1);
     `)

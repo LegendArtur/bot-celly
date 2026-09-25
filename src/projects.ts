@@ -8,7 +8,7 @@ import type { Db } from "./db.ts"
 import type { Project } from "./types.ts"
 import { allocatePort, buildSandboxName, defaultForbiddenPaths, isPathInside, isSensitivePath, sanitizeProjectDirName, Sbx, SbxRunner } from "./sbx.js"
 import type { ChildProcess } from "./sbx.js"
-import { applyAndAssertCelyPolicy, BOOTSTRAP_SCRIPT, BOOTSTRAP_VERIFY, buildCelyConfigJson, buildOpencodeEnv, buildServeArgs, createClient, waitForHealth } from "./opencode.js"
+import { applyAndAssertCellyPolicy, BOOTSTRAP_SCRIPT, BOOTSTRAP_VERIFY, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, createClient, waitForHealth } from "./opencode.js"
 import type { OpencodeClient } from "./opencode.js"
 import { redact } from "./log.js"
 
@@ -59,7 +59,7 @@ export class ProjectService {
   }
 
   private applyPolicy(client: OpencodeClient): Promise<void> {
-    return (this.deps.applyPolicy ?? (applyAndAssertCelyPolicy as (c: OpencodeClient) => Promise<void>))(client)
+    return (this.deps.applyPolicy ?? (applyAndAssertCellyPolicy as (c: OpencodeClient) => Promise<void>))(client)
   }
 
   private async isPortFree(port: number): Promise<boolean> {
@@ -95,14 +95,14 @@ export class ProjectService {
   }
 
   private async runBootstrap(sandboxName: string, serverPassword: string): Promise<void> {
-    const dir = mkdtempSync(join(tmpdir(), "cely-boot-"))
+    const dir = mkdtempSync(join(tmpdir(), "celly-boot-"))
     const configFile = join(dir, "opencode.json")
     const envFile = join(dir, "opencode.env")
     try {
-      writeFileSync(configFile, buildCelyConfigJson(), { mode: 0o600 })
+      writeFileSync(configFile, buildCellyConfigJson(), { mode: 0o600 })
       writeFileSync(envFile, buildOpencodeEnv(serverPassword), { mode: 0o600 })
-      await this.deps.sbx.cp(configFile, `${sandboxName}:/tmp/cely-opencode.json`)
-      await this.deps.sbx.cp(envFile, `${sandboxName}:/tmp/cely-opencode.env`)
+      await this.deps.sbx.cp(configFile, `${sandboxName}:/tmp/celly-opencode.json`)
+      await this.deps.sbx.cp(envFile, `${sandboxName}:/tmp/celly-opencode.env`)
       await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_SCRIPT])
       await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_VERIFY])
     } finally {

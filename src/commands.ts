@@ -3,7 +3,7 @@ import type { ProjectService } from "./projects.ts"
 import type { Runner } from "./runner.ts"
 
 export function commandData(): any[] {
-  const project = { name: "project", description: "Manage Cely projects", options: [
+  const project = { name: "project", description: "Manage Celly projects", options: [
     { type: 1, name: "add", description: "Register an existing directory", options: [
       { type: 3, name: "name", description: "Project name", required: true },
       { type: 3, name: "path", description: "Host directory under PROJECTS_ROOT", required: true } ] },
@@ -51,7 +51,7 @@ export const RESUME_SELECT = "resume"
 export const MODEL_SELECT = "model"
 export const AGENT_SELECT = "agent"
 
-export function selectCustomId(action: string, id: string): string { return `cely:${action}:${id}` }
+export function selectCustomId(action: string, id: string): string { return `celly:${action}:${id}` }
 export function parseCustomId(customId: string): { action: string; id?: string } {
   const [, action = "", id] = customId.split(":")
   return { action, id }

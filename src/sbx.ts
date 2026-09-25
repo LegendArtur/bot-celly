@@ -38,7 +38,7 @@ export function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
 }
 export function buildSandboxName(name: string, taken: Set<string>): string {
-  let base = `cely-${slugify(name)}`.replace(/[-.]+$/g, "")
+  let base = `celly-${slugify(name)}`.replace(/[-.]+$/g, "")
   if (base.length > 63) base = base.slice(0, 63).replace(/[-.]+$/g, "")
   if (!taken.has(base)) return base
   for (let i = 2; ; i++) {
@@ -116,7 +116,7 @@ export function defaultForbiddenPaths(dataDir?: string): string[] {
   const home = process.env.HOME ?? process.env.USERPROFILE
   if (home) {
     const h = resolve(home)
-    for (const sub of [".ssh", ".aws", ".gnupg", ".config", ".docker", ".kube", ".azure", ".npmrc", ".netrc", ".cely", "AppData"]) {
+    for (const sub of [".ssh", ".aws", ".gnupg", ".config", ".docker", ".kube", ".azure", ".npmrc", ".netrc", ".celly", "AppData"]) {
       paths.push(join(h, sub))
     }
   }
