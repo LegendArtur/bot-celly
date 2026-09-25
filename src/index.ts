@@ -1,11 +1,9 @@
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { randomUUID } from "node:crypto"
 import { realpathSync } from "node:fs"
-import { writeFile } from "node:fs/promises"
 import { ChannelType, Events } from "discord.js"
 import type { Guild, Interaction, Message } from "discord.js"
 import type { Project, Thread } from "./types.ts"
-import { ensureDataDir, loadConfig, loadDotEnv } from "./config.js"
+import { ensureDataDir, loadConfig, loadDotEnv, seedSettings } from "./config.js"
 import { createLogger } from "./log.js"
 import { openDb } from "./db.js"
 import { Sbx, SbxRunner } from "./sbx.js"
@@ -16,14 +14,14 @@ import type { CommandDeps, CreateThreadInput } from "./commands.js"
 import { acquireLock } from "./lock.js"
 import { Runner } from "./runner.js"
 import { EventRouter } from "./events.js"
-import { Renderer, sanitizeThreadName } from "./render.js"
+import { Renderer, renderPayload, sanitizeThreadName } from "./render.js"
 import { createClient } from "./opencode.js"
 import { runShell } from "./shell.js"
-import { attachmentDestination, attachmentSandboxPath, downloadAttachment, ensureSafeInbox, shouldIngestAttachment } from "./attachments.js"
-import { ChannelBuckets, TokenBucket } from "./bucket.js"
+import { ingestAttachments } from "./attachments.js"
+import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
 import { SessionRoutes } from "./routing.js"
 import { createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "./handlers.js"
-import { buildPromptText, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
+import { buildPromptText, channelIdForBucket, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
 export { buildPromptText, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
@@ -37,8 +35,7 @@ async function main(): Promise<void> {
   const db = openDb(`${cfg.dataDir}/bot.db`)
   db.migrate()
   for (const project of db.projects.list()) secrets.push(project.serverPassword)
-  if (cfg.defaultModel) db.settings.set("default_model", cfg.defaultModel)
-  if (cfg.defaultAgent) db.settings.set("default_agent", cfg.defaultAgent)
+  seedSettings(db, cfg)
 
   const sbxRunner = new SbxRunner()
   const sbx = new Sbx(sbxRunner, cfg.sandboxTemplate)
@@ -74,6 +71,17 @@ async function main(): Promise<void> {
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   }))
   const bucketFor = (channelId: string) => buckets.for(channelId)
+  // Spec §9/§14: the shared per-channel bucket is the rate-limit chokepoint;
+  // a 429 pauses that channel's bucket for the server-supplied retry_after.
+  const scheduleWithBucket = async <T>(channelId: string, fn: () => Promise<T>): Promise<T> => {
+    const bucket = bucketFor(channelId)
+    try { return await bucket.schedule(fn) }
+    catch (e) {
+      const wait = retryAfterMs(e, cfg.editIntervalMs)
+      if (wait !== undefined) bucket.pause(wait)
+      throw e
+    }
+  }
   let guild: Guild | undefined
   const requireGuild = (): Guild => {
     if (!guild) throw new Error("Discord guild not ready")
@@ -149,24 +157,15 @@ async function main(): Promise<void> {
     return record
   }
 
-  const ingestAttachments = async (project: Project, message: Message): Promise<{ hostPath: string; sandboxPath: string }[]> => {
-    const paths: { hostPath: string; sandboxPath: string }[] = []
-    let inboxChecked = false
-    for (const attachment of message.attachments.values()) {
-      const like = { name: attachment.name, size: attachment.size, contentType: attachment.contentType }
-      if (!shouldIngestAttachment(like, cfg.attachmentMaxBytes)) continue
-      try {
-        if (!inboxChecked) { ensureSafeInbox(project.directory); inboxChecked = true }
-        const destination = attachmentDestination(project.directory, attachment.name, randomUUID())
-        const body = await downloadAttachment(attachment.url, cfg.attachmentMaxBytes)
-        if (!body) continue
-        await writeFile(destination, body, { flag: "wx", mode: 0o600 })
-        paths.push({ hostPath: destination, sandboxPath: attachmentSandboxPath(project.directory, project.sandboxPath, destination) })
-      } catch (e) {
-        log.warn("attachment ingest failed", { name: attachment.name, error: String(e) })
-      }
-    }
-    return paths
+  const ingestProjectAttachments = async (project: Project, message: Message): Promise<{ hostPath: string; sandboxPath: string }[]> => {
+    const attachments = [...message.attachments.values()].map((a: any) => ({ name: a.name, size: a.size, contentType: a.contentType, url: a.url }))
+    return ingestAttachments({
+      projectDirectory: project.directory,
+      sandboxPath: project.sandboxPath,
+      attachments,
+      maxBytes: cfg.attachmentMaxBytes,
+      warn: (msg, fields) => log.warn(msg, fields),
+    })
   }
 
   const typingTimers = new Map<string, ReturnType<typeof setInterval>>()
@@ -176,10 +175,12 @@ async function main(): Promise<void> {
   }
   const startTyping = (threadId: string): void => {
     if (typingTimers.has(threadId)) return
+    const thread = db.threads.get(threadId)
+    const bucketChannelId = thread ? channelIdForBucket(thread) : threadId
     const tick = async (): Promise<void> => {
       try {
         const channel = await client.channels.fetch(threadId)
-        if (channel && "sendTyping" in channel) await (channel as any).sendTyping()
+        if (channel && "sendTyping" in channel) await scheduleWithBucket(bucketChannelId, () => (channel as any).sendTyping())
       } catch {}
     }
     void tick()
@@ -195,18 +196,20 @@ async function main(): Promise<void> {
       if (!thread) throw new Error(`unknown thread ${threadId}`)
       const channel = await client.channels.fetch(threadId)
       if (!channel) throw new Error(`thread channel ${threadId} unavailable`)
+      // One bucket per project channel, shared by every thread (spec §9).
+      const bucketChannelId = channelIdForBucket(thread)
       return new Renderer({
         initialMessageId: liveMessageId,
-        send: async (content) => bucketFor(threadId).schedule(async () => {
-          const sent = await (channel as any).send({ content, allowedMentions: { parse: [] } })
+        send: async (content) => scheduleWithBucket(bucketChannelId, async () => {
+          const sent = await (channel as any).send(renderPayload(content))
           db.threads.setLiveMessage(threadId, sent.id)
           return sent.id as string
         }),
-        edit: async (messageId, content) => bucketFor(threadId).schedule(async () => {
+        edit: async (messageId, content) => scheduleWithBucket(bucketChannelId, async () => {
           const message = await (channel as any).messages.fetch(messageId)
-          await message.edit({ content, allowedMentions: { parse: [] } })
+          await message.edit(renderPayload(content))
         }),
-        delete: async (messageId) => bucketFor(threadId).schedule(async () => {
+        delete: async (messageId) => scheduleWithBucket(bucketChannelId, async () => {
           const message = await (channel as any).messages.fetch(messageId).catch(() => null)
           if (message) await message.delete().catch(() => {})
         }),
@@ -355,12 +358,18 @@ async function main(): Promise<void> {
     createThread: createThreadForProject,
     listSessions, listModels, listAgents,
     setThreadModel, setThreadAgent,
+    postConnected: async (channelId, projectName) => {
+      const channel = await client.channels.fetch(channelId).catch(() => null)
+      if (channel && "send" in channel) {
+        await scheduleWithBucket(channelId, () => (channel as any).send(renderPayload(`**${projectName}** is connected.`))).catch(() => {})
+      }
+    },
   }
 
   const onMessage = createMessageHandler({
     db, log, projects, runner: runnerSvc, bucketFor, subscribeProject,
     isAuthorized: (message: Message) => isMemberAuthorized(message.guild!.ownerId, { id: message.author.id, roles: rolesOf(message.member!), permissions: message.member!.permissions }),
-    ingestAttachments,
+    ingestAttachments: ingestProjectAttachments,
     runShell: async (channelId, command) => {
       const fresh = db.projects.getByChannel(channelId)
       if (!fresh) return []
