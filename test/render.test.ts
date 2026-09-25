@@ -143,6 +143,27 @@ test("renderer without a delete dep still drops surplus ids without throwing", a
   await expect(r.finalize()).resolves.toBeUndefined()
 })
 
+test("finalize flushes content pushed during an in-flight send", async () => {
+  const sends: string[] = []
+  const edits: { id: string; content: string }[] = []
+  let releaseSend!: () => void
+  const sendGate = new Promise<void>((r) => { releaseSend = r })
+  let t = 0
+  const r = new Renderer({
+    send: async (c) => { sends.push(c); await sendGate; return "m1" },
+    edit: async (id, c) => { edits.push({ id, content: c }) },
+    now: () => t, intervalMs: 1000,
+  })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "a" })
+  const pending = r.flush()
+  await Promise.resolve()
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "ab" })
+  releaseSend()
+  await pending
+  expect(sends).toEqual(["a"])
+  expect(edits).toEqual([{ id: "m1", content: "ab" }])
+})
+
 test("renderer rebuilds interleaved text parts", async () => {
   const calls: string[] = []
   const r = new Renderer({

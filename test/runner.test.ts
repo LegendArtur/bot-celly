@@ -20,13 +20,13 @@ test("allows an allowed tool with no deny matches", () => {
   expect(evaluatePermission({ tool: "read", patterns: [] })).toBe("once")
 })
 
-function makeDb(state = "running", threads: any[] = []) {
+function makeDb(state = "running", threads: any[] = [], liveMessageId: string | null = null) {
   const states: string[] = []
   const db = {
     threads: {
       setRenderState(_t: string, s: string) { states.push(s) },
       touch() {},
-      get() { return { renderState: state } },
+      get() { return { renderState: state, liveMessageId } },
       byChannel() { return threads },
     },
   } as any
@@ -72,13 +72,13 @@ test("per-thread lock: two overlapping prompts start only one run", async () => 
   expect(sent).toEqual(["a"])
 })
 
-test("returns busy when the global concurrency cap is reached", async () => {
+test("a prompt over the global concurrency cap is queued instead of dropped", async () => {
   const { db } = makeDb()
   const runner = new Runner({ db, clientFor: () => ({ session: { promptAsync: async () => {} } }) as any,
     createRenderer: async () => makeRenderer() as any,
     sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 1 })
   expect(await runner.prompt("t1", "a", "u")).toBeUndefined()
-  expect(await runner.prompt("t2", "b", "u")).toBe("busy")
+  expect(await runner.prompt("t2", "b", "u")).toBe("queued (1)")
 })
 
 test("global cap is enforced atomically across overlapping prompts", async () => {
@@ -90,9 +90,40 @@ test("global cap is enforced atomically across overlapping prompts", async () =>
     createRenderer: async () => makeRenderer() as any,
     sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 1 })
   const first = runner.prompt("t1", "a", "u")
-  expect(await runner.prompt("t2", "b", "u")).toBe("busy")
+  expect(await runner.prompt("t2", "b", "u")).toBe("queued (1)")
   release()
   await first
+})
+
+test("a queued prompt drains once a global slot frees up", async () => {
+  const sent: string[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async (a: any) => { sent.push(a.body.parts[0].text) } } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 5, maxConcurrentRuns: 1 })
+  expect(await runner.prompt("t1", "one", "u")).toBeUndefined()
+  expect(await runner.prompt("t2", "two", "u")).toBe("queued (1)")
+  expect(sent).toEqual(["one"])
+  await runner.onEvent("t1", { kind: "idle", sessionId: "s1" })
+  expect(sent).toEqual(["one", "two"])
+})
+
+test("queued prompts preserve FIFO order across drains", async () => {
+  const sent: string[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async (a: any) => { sent.push(a.body.parts[0].text) } } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 5, maxConcurrentRuns: 1 })
+  await runner.prompt("t1", "a", "u")
+  await runner.prompt("t1", "b", "u")
+  await runner.prompt("t1", "c", "u")
+  expect(sent).toEqual(["a"])
+  await runner.onEvent("t1", { kind: "idle", sessionId: "s1" })
+  expect(sent).toEqual(["a", "b"])
+  await runner.onEvent("t1", { kind: "idle", sessionId: "s1" })
+  expect(sent).toEqual(["a", "b", "c"])
 })
 
 test("idle drains the queue", async () => {
@@ -280,22 +311,127 @@ test("recover rebuilds and finalizes the renderer from the last assistant messag
   expect(states).toEqual(["idle"])
 })
 
-test("recover clears the renderer cache so the next run sends a new message", async () => {
+test("recover is idempotent: repeated recovers edit the live message instead of sending", async () => {
   const sends: string[] = []
-  const edits: string[] = []
+  const edits: { id: string; content: string }[] = []
+  const liveIds: (string | null | undefined)[] = []
   let n = 0, t = 0
-  const { db } = makeDb("idle")
+  const { db } = makeDb("idle", [], "m0")
   const runner = new Runner({ db,
     clientFor: () => ({ session: { messages: async () => ({ data: [
       { info: { id: "m2", role: "assistant" }, parts: [{ id: "p2", type: "text", text: "recovered" }] },
     ] }) } }) as any,
-    createRenderer: async () => new Renderer({ send: async (c) => { sends.push(c); return "m" + (++n) }, edit: async (_id, c) => { edits.push(c) }, now: () => t, intervalMs: 1000 }),
+    createRenderer: async (_threadId, liveId) => {
+      liveIds.push(liveId)
+      return new Renderer({ initialMessageId: liveId, send: async (c) => { sends.push(c); return "m" + (++n) }, edit: async (id, c) => { edits.push({ id, content: c }) }, now: () => t, intervalMs: 1000 })
+    },
     sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
   await runner.recover({ threadId: "t1", sessionId: "s1" })
-  t = 2000
-  await runner.onEvent("t1", { kind: "text", sessionId: "s1", messageId: "m", partId: "p", text: "fresh" })
-  expect(sends).toEqual(["recovered", "fresh"])
-  expect(edits).toEqual([])
+  await runner.recover({ threadId: "t1", sessionId: "s1" })
+  expect(liveIds).toEqual(["m0", "m0"])
+  expect(sends).toEqual([])
+  expect(edits.length).toBe(2)
+  expect(edits.every((e) => e.id === "m0")).toBe(true)
+})
+
+test("recover sends once when there is no persisted live message", async () => {
+  const sends: string[] = []
+  let n = 0
+  const { db } = makeDb("idle", [], null)
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { messages: async () => ({ data: [
+      { info: { id: "m2", role: "assistant" }, parts: [{ id: "p2", type: "text", text: "recovered" }] },
+    ] }) } }) as any,
+    createRenderer: async (_threadId, liveId) => new Renderer({ initialMessageId: liveId, send: async (c) => { sends.push(c); return "m" + (++n) }, edit: async () => {}, now: () => 0, intervalMs: 1000 }),
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.recover({ threadId: "t1", sessionId: "s1" })
+  expect(sends).toEqual(["recovered"])
+})
+
+test("a stale idle frame cannot terminate a newer run (epoch ownership)", async () => {
+  const sent: string[] = []
+  let releaseFinalize!: () => void
+  const finalizeGate = new Promise<void>((r) => { releaseFinalize = r })
+  const { db } = makeDb("running")
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async (a: any) => { sent.push(a.body.parts[0].text) } } }) as any,
+    createRenderer: async () => ({ push() {}, tick: async () => {}, finalize: async () => { await finalizeGate } }) as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 5, maxConcurrentRuns: 4 })
+  await runner.prompt("t1", "first", "u")
+  await runner.prompt("t1", "second", "u")
+  const h1 = runner.onEvent("t1", { kind: "idle", sessionId: "s1" })
+  const h2 = runner.onEvent("t1", { kind: "idle", sessionId: "s1" })
+  await Promise.resolve()
+  releaseFinalize()
+  await Promise.all([h1, h2])
+  expect(sent).toEqual(["first", "second"])
+  expect(runner.isActive("t1")).toBe(true)
+})
+
+test("a late abort acknowledgement does not wedge a newer run", async () => {
+  vi.useFakeTimers()
+  try {
+    const sent: string[] = []
+    let releaseAbort!: () => void
+    const abortGate = new Promise<void>((r) => { releaseAbort = r })
+    const { db } = makeDb("running")
+    const runner = new Runner({ db,
+      clientFor: () => ({ session: { promptAsync: async (a: any) => { sent.push(a.body.parts[0].text) }, abort: async () => { await abortGate } } }) as any,
+      createRenderer: async () => makeRenderer() as any,
+      sessionFor: async () => "s1", log() {}, maxQueue: 5, maxConcurrentRuns: 4 })
+    await runner.prompt("t1", "first", "u")
+    const pending = runner.abort("t1")
+    await runner.onEvent("t1", { kind: "idle", sessionId: "s1" })
+    await runner.prompt("t1", "newer", "u")
+    releaseAbort()
+    await pending
+    expect(sent).toEqual(["first", "newer"])
+    expect(runner.isActive("t1")).toBe(true)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(runner.isActive("t1")).toBe(true)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test("abort arms force-idle even when session.abort rejects", async () => {
+  vi.useFakeTimers()
+  try {
+    const finalized: number[] = []
+    const { db } = makeDb("aborting")
+    const runner = new Runner({ db,
+      clientFor: () => ({ session: { promptAsync: async () => {}, abort: async () => { throw new Error("nope") } } }) as any,
+      createRenderer: async () => ({ push() {}, tick: async () => {}, finalize: async () => { finalized.push(1) } }) as any,
+      sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+    await runner.prompt("t1", "a", "u")
+    await runner.abort("t1")
+    expect(runner.activeCount).toBe(1)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(runner.activeCount).toBe(0)
+    expect(finalized.length).toBe(1)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test("resetChannel clears active, queued, and cached state without draining", async () => {
+  const sent: string[] = []
+  const finalized: number[] = []
+  const { db, states } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async (a: any) => { sent.push(a.body.parts[0].text) } } }) as any,
+    createRenderer: async () => ({ push() {}, tick: async () => {}, finalize: async () => { finalized.push(1) } }) as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 5, maxConcurrentRuns: 1 })
+  db.threads.byChannel = () => [{ threadId: "t1", channelId: "c1", sessionId: "s1" }]
+  await runner.prompt("t1", "first", "u")
+  await runner.prompt("t1", "second", "u")
+  expect(runner.isActive("t1")).toBe(true)
+  await runner.resetChannel("c1", { notify: true })
+  expect(runner.isActive("t1")).toBe(false)
+  expect(states).toContain("idle")
+  expect(finalized.length).toBe(1)
+  expect(await runner.prompt("t1", "third", "u")).toBeUndefined()
+  expect(sent).toEqual(["first", "third"])
 })
 
 test("prompt applies the thread's model and agent overrides", async () => {

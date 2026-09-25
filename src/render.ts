@@ -92,7 +92,10 @@ export class Renderer {
     send(content: string): Promise<string>; edit(messageId: string, content: string): Promise<void>
     delete?(messageId: string): Promise<void>
     now(): number; intervalMs: number; onMessageId?(id: string): void
-  }) {}
+    initialMessageId?: string | null
+  }) {
+    if (deps.initialMessageId) this.ids = [deps.initialMessageId]
+  }
   private body(): string {
     const toolLines = [...this.tools.values()].map((t) => `> ${t}`).join("\n")
     return [toolLines, this.text].filter(Boolean).join("\n\n")
@@ -130,10 +133,11 @@ export class Renderer {
     if (this.revision === revision) this.dirty = false
   }
   async flush(): Promise<void> {
-    if (this.inFlight) return this.inFlight
-    if (!this.dirty) return
-    this.inFlight = this.runFlush()
-    try { await this.inFlight } finally { this.inFlight = null }
+    while (this.dirty) {
+      if (this.inFlight) { await this.inFlight; continue }
+      this.inFlight = this.runFlush()
+      try { await this.inFlight } finally { this.inFlight = null }
+    }
   }
   async tick(): Promise<void> {
     if (this.ids.length > 0 && this.deps.now() - this.lastEdit < this.deps.intervalMs) return
