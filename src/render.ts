@@ -14,7 +14,7 @@ function normalizeFences(text: string, fenceLen: number): string {
   const out: string[] = []
   let openRun = 0
   for (const line of lines) {
-    const m = /^(\s*)(`{3,})(.*)$/.exec(line)
+    const m = /^( {0,3})(`{3,})(.*)$/.exec(line)
     if (!m) { out.push(line); continue }
     const [, lead = "", ticks = "", info = ""] = m
     const run = ticks.length
@@ -26,7 +26,7 @@ function normalizeFences(text: string, fenceLen: number): string {
 }
 
 function fenceMarkerStarts(text: string, fenceLen: number): number[] {
-  const re = new RegExp("^\\s*`{" + fenceLen + ",}")
+  const re = new RegExp("^ {0,3}`{" + fenceLen + ",}")
   const starts: number[] = []
   let offset = 0
   for (const line of text.split("\n")) {
@@ -40,8 +40,9 @@ export function chunkMessage(text: string, max = 1900): string[] {
   if (text.length <= max) return [text]
   const fenceLen = Math.max(3, longestBacktickRun(text) + 1)
   const fence = "`".repeat(fenceLen)
-  const normalized = normalizeFences(text, fenceLen)
-  const markerStarts = fenceMarkerStarts(normalized, fenceLen)
+  const useFences = 4 * fence.length <= max
+  const normalized = useFences ? normalizeFences(text, fenceLen) : text
+  const markerStarts = useFences ? fenceMarkerStarts(normalized, fenceLen) : []
   const isInside = (offset: number): boolean => {
     let count = 0
     for (const start of markerStarts) { if (start < offset) count++; else break }
@@ -78,12 +79,14 @@ export function sanitizeThreadName(prompt: string): string {
 }
 
 export class Renderer {
+  private parts = new Map<string, string>()
+  private order: string[] = []
   private text = ""
   private tools = new Map<string, string>()
   private ids: string[] = []
   private lastEdit = Number.NEGATIVE_INFINITY
   private dirty = false
-  private lastPart = new Map<string, string>()
+  private inFlight: Promise<void> | null = null
   constructor(private readonly deps: {
     send(content: string): Promise<string>; edit(messageId: string, content: string): Promise<void>
     now(): number; intervalMs: number; onMessageId?(id: string): void
@@ -94,17 +97,17 @@ export class Renderer {
   }
   push(e: NormalizedEvent): void {
     if (e.kind === "text") {
-      const prev = this.lastPart.get(e.partId) ?? ""
-      this.text = this.text.slice(0, Math.max(0, this.text.length - prev.length)) + e.text
-      this.lastPart.set(e.partId, e.text)
+      if (!this.parts.has(e.partId)) this.order.push(e.partId)
+      this.parts.set(e.partId, e.text)
+      this.text = this.order.map((id) => this.parts.get(id) ?? "").filter(Boolean).join("\n\n")
       this.dirty = true
     } else if (e.kind === "tool") {
       this.tools.set(e.partId, `[${e.name}] ${e.status}`)
       this.dirty = true
     }
   }
-  async flush(): Promise<void> {
-    if (!this.dirty) return
+  private async runFlush(): Promise<void> {
+    this.dirty = false
     const chunks = chunkMessage(this.body(), 1900)
     for (const [i, content] of chunks.entries()) {
       const existing = this.ids[i]
@@ -116,7 +119,12 @@ export class Renderer {
       }
     }
     this.lastEdit = this.deps.now()
-    this.dirty = false
+  }
+  async flush(): Promise<void> {
+    if (this.inFlight) return this.inFlight
+    if (!this.dirty) return
+    this.inFlight = this.runFlush()
+    try { await this.inFlight } finally { this.inFlight = null }
   }
   async tick(): Promise<void> {
     if (this.ids.length > 0 && this.deps.now() - this.lastEdit < this.deps.intervalMs) return

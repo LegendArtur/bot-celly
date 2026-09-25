@@ -72,3 +72,37 @@ test("renderer spills long output into additional messages", async () => {
   for (const e of edits) latest.set(e.id, e.content)
   expect(["m1", "m2", "m3"].map((id) => latest.get(id)).join("")).toBe(finalChunks.join(""))
 })
+test("caps chunks when a backtick run exceeds the fence budget", () => {
+  const text = "`".repeat(1200) + "\nbody\n" + "`".repeat(1200)
+  const chunks = chunkMessage(text, 1900)
+  expect(chunks.every((c) => c.length <= 2000)).toBe(true)
+  expect(chunks.every((c) => c.length <= 1900)).toBe(true)
+})
+test("renderer does not double-send under overlapping ticks", async () => {
+  const sends: string[] = []
+  let n = 0
+  const r = new Renderer({
+    send: async (c) => { sends.push(c); return "m" + (++n) },
+    edit: async () => {},
+    now: () => 0, intervalMs: 1000,
+  })
+  const body = "a".repeat(1900) + "b".repeat(1900) + "c".repeat(200)
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: body })
+  await Promise.all([r.tick(), r.tick()])
+  expect(chunkMessage(body, 1900).length).toBe(3)
+  expect(sends.length).toBe(3)
+  expect(new Set(sends).size).toBe(sends.length)
+})
+test("renderer rebuilds interleaved text parts", async () => {
+  const calls: string[] = []
+  const r = new Renderer({
+    send: async (c) => { calls.push(c); return "m1" },
+    edit: async () => {},
+    now: () => 0, intervalMs: 1000,
+  })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "a", text: "A" })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "b", text: "B" })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "a", text: "AA" })
+  await r.tick()
+  expect(calls).toEqual(["AA\n\nB"])
+})
