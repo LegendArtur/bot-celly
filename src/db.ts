@@ -8,6 +8,7 @@ export interface Db {
     insertProvisioning(p: Omit<Project, "status">): void
     setReady(channelId: string, sandboxPath: string): void
     setStatus(channelId: string, s: ProjectStatus): void
+    setHostPort(channelId: string, port: number): void
     getByChannel(channelId: string): Project | undefined
     getByName(name: string): Project | undefined
     list(): Project[]
@@ -67,6 +68,7 @@ export function openDb(path: string): Db {
       },
       setReady(channelId, sandboxPath) { raw.prepare(`UPDATE projects SET status='ready', sandbox_path=? WHERE channel_id=?`).run(sandboxPath, channelId) },
       setStatus(channelId, s) { raw.prepare(`UPDATE projects SET status=? WHERE channel_id=?`).run(s, channelId) },
+      setHostPort(channelId, port) { raw.prepare(`UPDATE projects SET host_port=? WHERE channel_id=?`).run(port, channelId) },
       getByChannel(channelId) { const r = raw.prepare(`SELECT * FROM projects WHERE channel_id=?`).get(channelId); return r ? rowToProject(r) : undefined },
       getByName(name) { const r = raw.prepare(`SELECT * FROM projects WHERE name=?`).get(name); return r ? rowToProject(r) : undefined },
       list() { return raw.prepare(`SELECT * FROM projects ORDER BY created_at`).all().map(rowToProject) },

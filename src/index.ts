@@ -108,6 +108,19 @@ async function main(): Promise<void> {
       const channel = activeGuild.channels.cache.get(id) ?? (await activeGuild.channels.fetch(id).catch(() => null))
       if (channel) await channel.delete().catch(() => {})
     },
+    resolveSandboxPath: async (name) => {
+      const r = await sbxRunner.run(["exec", name, "pwd"])
+      const path = r.stdout.trim()
+      if (r.code !== 0 || !path) throw new Error(`could not resolve in-sandbox workspace for ${name}`)
+      return path
+    },
+    onProjectDown: (channelId) => {
+      void runnerSvc.handleProjectDown(channelId)
+      const channel = client.channels.cache.get(channelId)
+      if (channel && "send" in channel) {
+        void (channel as any).send({ content: "The project server stopped unexpectedly; it will restart on the next message.", allowedMentions: { parse: [] } }).catch(() => {})
+      }
+    },
   })
 
   const clientFor = (threadId: string) => {

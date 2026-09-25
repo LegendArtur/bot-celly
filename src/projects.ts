@@ -1,12 +1,12 @@
 import { randomBytes } from "node:crypto"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import type { Config } from "./config.ts"
 import type { Db } from "./db.ts"
 import type { Project } from "./types.ts"
-import { allocatePort, buildSandboxName, isPathInside, sanitizeProjectDirName, Sbx, SbxRunner } from "./sbx.js"
+import { allocatePort, buildSandboxName, defaultForbiddenPaths, isPathInside, isSensitivePath, sanitizeProjectDirName, Sbx, SbxRunner } from "./sbx.js"
 import { BOOTSTRAP_SCRIPT, BOOTSTRAP_VERIFY, buildCelyConfigJson, buildOpencodeEnv, buildServeArgs, createClient, waitForHealth } from "./opencode.js"
 
 export interface ProjectDeps {
@@ -16,12 +16,15 @@ export interface ProjectDeps {
   deleteChannel(channelId: string): Promise<void>
   resolveSandboxPath?(name: string): Promise<string>
   isPortFree?(port: number): Promise<boolean>
+  forbiddenPaths?: string[]
+  onProjectDown?(channelId: string, projectName: string): void
 }
 
 export class ProjectService {
   private children = new Map<string, import("node:child_process").ChildProcess>()
   private inflight = new Map<string, Promise<void>>()
   private intentional = new Set<string>()
+  private addQueue: Promise<unknown> = Promise.resolve()
   constructor(private readonly deps: ProjectDeps) {}
 
   childFor(channelId: string): import("node:child_process").ChildProcess | undefined { return this.children.get(channelId) }
@@ -52,6 +55,12 @@ export class ProjectService {
     child.kill()
   }
 
+  private withAddLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.addQueue.then(fn, fn)
+    this.addQueue = run.then(() => undefined, () => undefined)
+    return run
+  }
+
   private async bootstrapSandbox(sandboxName: string, serverPassword: string): Promise<void> {
     const dir = mkdtempSync(join(tmpdir(), "cely-boot-"))
     const configFile = join(dir, "opencode.json")
@@ -68,9 +77,15 @@ export class ProjectService {
     }
   }
 
-  async addProject(input: { guildId: string; name: string; directory: string; existingChannelId?: string }): Promise<Project> {
+  addProject(input: { guildId: string; name: string; directory: string; existingChannelId?: string }): Promise<Project> {
+    return this.withAddLock(() => this.doAddProject(input))
+  }
+
+  private async doAddProject(input: { guildId: string; name: string; directory: string; existingChannelId?: string }): Promise<Project> {
     const { config, db, sbx } = this.deps
     if (!isPathInside(config.projectsRoot, input.directory)) throw new Error(`directory must be inside PROJECTS_ROOT (${config.projectsRoot})`)
+    const forbidden = this.deps.forbiddenPaths ?? defaultForbiddenPaths(config.dataDir)
+    if (isSensitivePath(input.directory, forbidden)) throw new Error(`directory is too sensitive to mount: ${input.directory}`)
     const taken = new Set((await sbx.list()).map((s) => s.name))
     for (const p of db.projects.list()) taken.add(p.sandboxName)
     const sandboxName = buildSandboxName(input.name, taken)
@@ -87,11 +102,12 @@ export class ProjectService {
       await sbx.create({ name: sandboxName, directory: input.directory, hostPort, cpus: config.sandboxCpus, memory: config.sandboxMemory, template: config.sandboxTemplate })
       await sbx.exec(sandboxName, ["true"])
       await this.bootstrapSandbox(sandboxName, serverPassword)
-      const bootstrap = this.deps.resolveSandboxPath ? await this.deps.resolveSandboxPath(sandboxName) : input.directory
-      await this.bootServer(channelId)
-      const client = createClient(`http://127.0.0.1:${hostPort}`, serverPassword)
+      const actualPort = await this.readBackPort(channelId, sandboxName, hostPort)
+      const sandboxPath = await this.resolveSandboxPath(channelId, sandboxName, input.directory)
+      this.bootServer(channelId)
+      const client = createClient(`http://127.0.0.1:${actualPort}`, serverPassword)
       await waitForHealth(client, config.healthTimeoutMs)
-      db.projects.setReady(channelId, bootstrap)
+      db.projects.setReady(channelId, sandboxPath)
       return db.projects.getByChannel(channelId)!
     } catch (e) {
       if (channelId) this.killChild(channelId)
@@ -102,17 +118,51 @@ export class ProjectService {
     }
   }
 
-  private async bootServer(channelId: string): Promise<void> {
+  private async readBackPort(channelId: string, sandboxName: string, requested: number): Promise<number> {
+    try {
+      const mappings = await this.deps.sbx.ports(sandboxName)
+      const mapping = mappings.find((m) => m.sandboxPort === 4096)
+      if (mapping && Number.isFinite(mapping.hostPort)) {
+        if (mapping.hostPort !== requested) {
+          this.deps.log.info("host port read back from sandbox", { channelId, requested, actual: mapping.hostPort })
+          this.deps.db.projects.setHostPort(channelId, mapping.hostPort)
+        }
+        return mapping.hostPort
+      }
+      this.deps.log.warn("no sandbox 4096 port mapping; using the requested host port", { channelId, requested })
+    } catch (e) {
+      this.deps.log.warn("host port read-back failed; using the requested host port", { channelId, requested, error: String(e) })
+    }
+    return requested
+  }
+
+  private async resolveSandboxPath(channelId: string, sandboxName: string, fallback: string): Promise<string> {
+    if (!this.deps.resolveSandboxPath) return fallback
+    try {
+      return await this.deps.resolveSandboxPath(sandboxName)
+    } catch (e) {
+      this.deps.log.warn("in-sandbox path resolution failed; falling back to the host directory", { channelId, error: String(e) })
+      return fallback
+    }
+  }
+
+  private bootServer(channelId: string): void {
     const project = this.deps.db.projects.getByChannel(channelId)
     if (!project) throw new Error(`project ${channelId} not found`)
     if (this.children.get(channelId)) return
     const child = this.deps.sbx.execStream(project.sandboxName, buildServeArgs())
-    child.stdout?.on("data", (d) => this.deps.log.debug("project server stdout", { channelId, line: String(d) }))
-    child.stderr?.on("data", (d) => this.deps.log.warn("project server stderr", { channelId, line: String(d) }))
+    const logFile = join(this.deps.config.dataDir, "logs", `${project.sandboxName}.log`)
+    try { mkdirSync(dirname(logFile), { recursive: true }) } catch {}
+    const appendLog = (prefix: string, data: unknown): void => { try { appendFileSync(logFile, `[${prefix}] ${String(data)}`) } catch {} }
+    child.stdout?.on("data", (d) => { appendLog("out", d); this.deps.log.debug("project server stdout", { channelId, line: String(d) }) })
+    child.stderr?.on("data", (d) => { appendLog("err", d); this.deps.log.warn("project server stderr", { channelId, line: String(d) }) })
     child.on("exit", () => {
-      if (this.children.get(channelId) === child) this.children.delete(channelId)
+      const tracked = this.children.get(channelId) === child
+      if (tracked) this.children.delete(channelId)
       if (this.intentional.delete(channelId)) return
+      if (!tracked) return
       this.deps.db.projects.setStatus(channelId, "degraded")
+      this.deps.onProjectDown?.(channelId, project.name)
     })
     this.children.set(channelId, child)
   }
@@ -125,9 +175,15 @@ export class ProjectService {
       if (!p) throw new Error(`unknown project ${channelId}`)
       await this.deps.sbx.start(p.sandboxName)
       const client = createClient(`http://127.0.0.1:${p.hostPort}`, p.serverPassword)
-      try { await waitForHealth(client, this.deps.config.healthTimeoutMs); this.deps.db.projects.setStatus(channelId, "ready"); return } catch {}
+      let healthy = false
+      try { await waitForHealth(client, this.deps.config.healthTimeoutMs); healthy = true } catch {}
+      if (healthy) {
+        this.deps.db.projects.setStatus(channelId, "ready")
+        if (!this.children.has(channelId)) this.bootServer(channelId)
+        return
+      }
       this.killChild(channelId)
-      await this.bootServer(channelId)
+      this.bootServer(channelId)
       try { await waitForHealth(client, this.deps.config.healthTimeoutMs) }
       catch (e) { throw new Error(`project ${channelId} not healthy: ${(e as Error).message}`) }
       this.deps.db.projects.setStatus(channelId, "ready")
