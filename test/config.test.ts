@@ -1,8 +1,8 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
-import { ensureDataDir, loadConfig, loadDotEnv, seedSettings } from "../src/config.ts"
+import { defaultProjectsRoot, ensureDataDir, loadConfig, loadDotEnv, seedSettings } from "../src/config.ts"
 
 const base = { DISCORD_TOKEN: "t", DISCORD_GUILD_ID: "g", PROJECTS_ROOT: "C:\\projects" }
 
@@ -12,6 +12,11 @@ test("parses defaults", () => {
   expect(c.sandboxCpus).toBe(2)
   expect(c.maxConcurrentRuns).toBe(4)
   expect(c.editIntervalMs).toBe(1200)
+})
+test("only token and guild are required; PROJECTS_ROOT defaults under the home dir", () => {
+  const c = loadConfig({ DISCORD_TOKEN: "t", DISCORD_GUILD_ID: "g" })
+  expect(c.projectsRoot).toBe(join(homedir(), "Cely", "projects"))
+  expect(c.projectsRoot).toBe(defaultProjectsRoot())
 })
 test("parses the owner role", () => {
   expect(loadConfig({ ...base, OWNER_ROLE_ID: "own" }).ownerRoleId).toBe("own")

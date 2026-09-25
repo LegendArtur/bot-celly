@@ -111,8 +111,15 @@ export function isSensitivePath(target: string, forbidden: string[]): boolean {
 }
 
 export function defaultForbiddenPaths(dataDir?: string): string[] {
-  const paths = [process.cwd(), resolve(process.env.HOME ?? process.env.USERPROFILE ?? "/")]
+  const paths = [process.cwd()]
   if (dataDir) paths.push(resolve(dataDir))
+  const home = process.env.HOME ?? process.env.USERPROFILE
+  if (home) {
+    const h = resolve(home)
+    for (const sub of [".ssh", ".aws", ".gnupg", ".config", ".docker", ".kube", ".azure", ".npmrc", ".netrc", ".cely", "AppData"]) {
+      paths.push(join(h, sub))
+    }
+  }
   if (process.platform === "win32") {
     const systemRoot = process.env.SystemRoot ?? "C:\\Windows"
     paths.push(systemRoot, `${systemRoot}\\System32`, process.env.ProgramFiles ?? "C:\\Program Files", process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)", process.env.ProgramData ?? "C:\\ProgramData")

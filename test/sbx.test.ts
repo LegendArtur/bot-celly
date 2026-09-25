@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
-import { SbxError, SbxRunner, buildSandboxName, isPathInside, isSensitivePath, parseSbxLs, parseSbxPorts, sanitizeAttachmentName, sanitizeProjectDirName, slugify } from "../src/sbx.ts"
+import { defaultForbiddenPaths, SbxError, SbxRunner, buildSandboxName, isPathInside, isSensitivePath, parseSbxLs, parseSbxPorts, sanitizeAttachmentName, sanitizeProjectDirName, slugify } from "../src/sbx.ts"
 import ls from "./fixtures/sbx-ls.json"
 import ports from "./fixtures/sbx-ports.json"
 
@@ -107,4 +107,14 @@ test("isSensitivePath rejects ancestors and descendants of forbidden roots", () 
   expect(isSensitivePath("/srv", ["/srv/projects"])).toBe(true)
   expect(isSensitivePath("/srv/projects/demo", ["/srv/projects/other"])).toBe(false)
   expect(isSensitivePath("C:\\projects\\demo", ["C:\\projects\\demo\\secret"])).toBe(true)
+})
+
+test("defaultForbiddenPaths allows ordinary home subfolders but keeps the profile root and secrets forbidden", () => {
+  const home = process.env.HOME ?? process.env.USERPROFILE
+  if (!home) return
+  const forbidden = defaultForbiddenPaths()
+  expect(isSensitivePath(join(home, "Cely", "projects", "demo"), forbidden)).toBe(false)
+  expect(isSensitivePath(join(home, ".ssh"), forbidden)).toBe(true)
+  expect(isSensitivePath(join(home, ".ssh", "keys"), forbidden)).toBe(true)
+  expect(isSensitivePath(home, forbidden)).toBe(true)
 })

@@ -64,26 +64,29 @@ Run these on the Windows host before the first bot start:
 
 ## Configure
 
-Copy `.env.example` to `.env` and fill it in. `.env` is gitignored and is the
-single source of truth for configuration. It is loaded automatically at startup
-(`process.loadEnvFile`, so `npm run dev`, `npm start`, and `node dist/index.js`
-all pick it up); a missing file is non-fatal and is reported later as a missing
-required variable. All values are validated at boot; the bot fails fast on a
-missing or malformed value. If you prefer Node's own flag, `node --env-file=.env
-dist/index.js` works too, but it errors if `.env` does not exist.
+Only **two** values are required: `DISCORD_TOKEN` and `DISCORD_GUILD_ID`. Copy
+`.env.example` to `.env`, fill those two in, and start the bot — every other
+setting has a working default and is commented out in the template. `.env` is
+gitignored and is the single source of truth for configuration. It is loaded
+automatically at startup (`process.loadEnvFile`, so `npm run dev`, `npm start`,
+and `node dist/index.js` all pick it up); a missing file is non-fatal and is
+reported later as a missing required variable. All values are validated at boot;
+the bot fails fast on a missing or malformed value. If you prefer Node's own
+flag, `node --env-file=.env dist/index.js` works too, but it errors if `.env`
+does not exist.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `DISCORD_TOKEN` | required | Bot token. |
 | `DISCORD_GUILD_ID` | required | Single guild v1. |
-| `PROJECTS_ROOT` | required | Allowed project root. |
+| `PROJECTS_ROOT` | `~\Cely\projects` | Allowed project root; created on boot. |
 | `ACCESS_ROLE_ID` / `BLOCK_ROLE_ID` | unset | Role **IDs** only; the role-name fallback described in the spec is not implemented in v1. |
 | `OWNER_ROLE_ID` | unset | Owner-only role ID for `/project` mutations (guild owner always allowed). |
 | `CATEGORY_ID` | auto-create `Eregion` | Discord category. |
 | `SANDBOX_TEMPLATE` | `opencode` | `sbx create` agent/template. |
 | `SANDBOX_CPUS` / `SANDBOX_MEMORY` | `2` / `4g` | Resource limits. |
 | `PORT_RANGE_START` / `PORT_RANGE_END` | `4300` / `4399` | Host port pool. |
-| `DEFAULT_MODEL` / `DEFAULT_AGENT` | unset | Seeded into `settings`. |
+| `DEFAULT_MODEL` / `DEFAULT_AGENT` | unset | Seeded into `settings` on first boot. |
 | `BOOT_TIMEOUT_MS` / `HEALTH_TIMEOUT_MS` | `120000` / `30000` | Create-saga health wait / `ensureReady` health wait. |
 | `EDIT_INTERVAL_MS` | `1200` | Render throttle floor. |
 | `ATTACHMENT_MAX_BYTES` | `102400` | Attachment cap. |
@@ -91,16 +94,11 @@ dist/index.js` works too, but it errors if `.env` does not exist.
 | `DATA_DIR` | `./data` | SQLite, logs, lock. |
 | `LOG_LEVEL` | `info` | Logging. |
 
-`PROJECTS_ROOT` is not runtime-editable (security).
-
-> **Caveat — do not put `PROJECTS_ROOT` under the user profile.** The sensitive
-> path denylist includes the user's home directory (`HOME`/`USERPROFILE`) and
-> `DATA_DIR`; a project directory that overlaps a forbidden root is rejected by
-> `isSensitivePath`. Because the check rejects both ancestors and descendants of
-> a forbidden root, a `PROJECTS_ROOT` such as `C:\Users\you\projects` would be
-> rejected in full and no project could be mounted. Use a path outside the
-> profile (e.g. `D:\projects`), or move `DATA_DIR` out of `PROJECTS_ROOT`. This
-> is spec-mandated behavior, not a bug.
+`PROJECTS_ROOT` is not runtime-editable (security). It may live under your home
+directory; the denylist rejects the profile root itself and sensitive subtrees
+(`.ssh`, `.aws`, `.gnupg`, `.config`, `.docker`, `.kube`, `.azure`, `.npmrc`,
+`.netrc`, `.cely`, `AppData`), plus `DATA_DIR`, the bot repo, and system
+directories.
 
 ## Install, build, run
 
@@ -212,10 +210,10 @@ v1 and are backlog items (`docs/superpowers/specs/2026-09-25-cely-v1-design.md`
 - **`DATA_DIR` cloud-sync detection is backlog.** The spec calls for a warning
   when `DATA_DIR` lives in a cloud-sync folder; it is not implemented, so keep
   `DATA_DIR` outside OneDrive/Dropbox yourself.
-- **`PROJECTS_ROOT` must not live under the user profile** (see the caveat in
-  [Configure](#configure)): the sensitive-path denylist includes
-  `HOME`/`USERPROFILE`, and the ancestor/descendant check rejects the whole
-  subtree.
+- **`PROJECTS_ROOT` may live under your home directory.** The sensitive-path
+  denylist rejects the profile root itself, sensitive subtrees (`.ssh`, `.aws`,
+  `.gnupg`, `.config`, `.docker`, `.kube`, `.azure`, `.npmrc`, `.netrc`,
+  `.cely`, `AppData`), `DATA_DIR`, the bot repo, and system directories.
 - **Host-only items** (recording the spike, `sbx policy ls` semantics, Windows
   path mapping, and live Discord behavior) are exercised manually on the host,
   not in the Linux dev/test environment.

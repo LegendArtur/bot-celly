@@ -29,6 +29,7 @@ async function main(): Promise<void> {
   loadDotEnv()
   const cfg = loadConfig(process.env)
   ensureDataDir(cfg.dataDir)
+  ensureDataDir(cfg.projectsRoot)
   const secrets = [cfg.discordToken]
   const log = createLogger({ level: cfg.logLevel, file: `${cfg.dataDir}/bot.log`, secrets })
   const lock = await acquireLock(4555)

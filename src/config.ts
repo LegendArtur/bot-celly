@@ -1,4 +1,6 @@
 import { mkdirSync } from "node:fs"
+import { homedir } from "node:os"
+import { join } from "node:path"
 
 export interface Config {
   discordToken: string; guildId: string; projectsRoot: string
@@ -47,8 +49,12 @@ const int = (e: NodeJS.ProcessEnv, k: string, d: number, min = 1) => {
   if (!Number.isInteger(n) || n < min) throw new Error(`${k} must be an integer >= ${min}, got "${e[k]}"`)
   return n
 }
+export function defaultProjectsRoot(): string {
+  return join(homedir(), "Cely", "projects")
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
-  const missing = ["DISCORD_TOKEN", "DISCORD_GUILD_ID", "PROJECTS_ROOT"].filter((k) => !str(env, k))
+  const missing = ["DISCORD_TOKEN", "DISCORD_GUILD_ID"].filter((k) => !str(env, k))
   if (missing.length) throw new Error(`Missing required env: ${missing.join(", ")}`)
   const portRangeStart = int(env, "PORT_RANGE_START", 4300, 1)
   const portRangeEnd = int(env, "PORT_RANGE_END", 4399, 1)
@@ -57,7 +63,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   if (!["debug", "info", "warn", "error"].includes(level)) throw new Error(`LOG_LEVEL invalid: ${level}`)
   return {
     discordToken: str(env, "DISCORD_TOKEN")!, guildId: str(env, "DISCORD_GUILD_ID")!,
-    projectsRoot: str(env, "PROJECTS_ROOT")!,
+    projectsRoot: str(env, "PROJECTS_ROOT") ?? defaultProjectsRoot(),
     accessRoleId: str(env, "ACCESS_ROLE_ID"), blockRoleId: str(env, "BLOCK_ROLE_ID"),
     ownerRoleId: str(env, "OWNER_ROLE_ID"),
     categoryId: str(env, "CATEGORY_ID"),
