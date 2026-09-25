@@ -68,6 +68,35 @@ test("message in a project channel creates a thread and prompts", async () => {
   expect(deps.createThread).toHaveBeenCalledWith({ channelId: "c", title: "build the thing", prompt: "build the thing", authorId: "u1" })
 })
 
+test("a queued first message that created a thread surfaces the notice", async () => {
+  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  const deps = baseDeps(db, { createThread: vi.fn(async () => ({ threadId: "tnew", sessionId: "snew", notice: "queued (1)" })) })
+  const { message, replies } = fakeMessage({ content: "build the thing" })
+  await createMessageHandler(deps)(message)
+  expect(replies.map((r) => r.content)).toEqual(["queued (1)"])
+  expect(replies.every((r) => r.allowedMentions?.parse?.length === 0)).toBe(true)
+  expect(deps.startTyping).toHaveBeenCalledWith("tnew")
+})
+
+test("a 'queue full' first message that created a thread surfaces the notice without typing", async () => {
+  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  const deps = baseDeps(db, { createThread: vi.fn(async () => ({ threadId: "tnew", sessionId: "snew", notice: "queue full" })) })
+  const { message, replies } = fakeMessage({ content: "build the thing" })
+  await createMessageHandler(deps)(message)
+  expect(replies.map((r) => r.content)).toEqual(["queue full"])
+  expect(deps.startTyping).not.toHaveBeenCalled()
+})
+
+test("a handler failure posts a plain error notice without mentions", async () => {
+  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  const deps = baseDeps(db, { projects: { ensureReady: vi.fn(async () => { throw new Error("sandbox down") }) } })
+  const { message, replies } = fakeMessage({ content: "hello" })
+  await createMessageHandler(deps)(message)
+  expect(replies.length).toBe(1)
+  expect(replies[0].content).toMatch(/went wrong/i)
+  expect(replies[0].allowedMentions).toEqual({ parse: [] })
+})
+
 test("message in a registered thread continues the session", async () => {
   const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
   db.threads.upsert(thread())
@@ -223,4 +252,35 @@ test("boot reconcile resets threads whose project is not ready", async () => {
   await reconcile()
   expect(recover).not.toHaveBeenCalled()
   expect(db.threads.get("t1")?.renderState).toBe("idle")
+})
+
+test("concurrent reconcile calls share one pass", async () => {
+  const db = fresh()
+  db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  db.threads.upsert(thread({ threadId: "t-run", renderState: "running" }))
+  let release!: () => void
+  const gate = new Promise<void>((r) => { release = r })
+  let calls = 0
+  const reconcile = createReconcileThreads({ db, runner: { recover: async () => { calls++; await gate } }, log: silent })
+  const first = reconcile()
+  const second = reconcile()
+  release()
+  await Promise.all([first, second])
+  expect(calls).toBe(1)
+  await reconcile()
+  expect(calls).toBe(2)
+})
+
+test("project-down handler swallows a rejected runner reset", async () => {
+  const handleProjectDown = vi.fn(async () => { throw new Error("boom") })
+  const send = vi.fn(async () => ({}))
+  const handler = createProjectDownHandler({
+    runner: { handleProjectDown },
+    client: { channels: { cache: { get: () => ({ send }) } } },
+    bucketFor: () => ({ schedule: (fn: any) => fn() }),
+    log: silent,
+  })
+  expect(() => handler("c")).not.toThrow()
+  await new Promise((r) => setTimeout(r, 0))
+  expect(send).toHaveBeenCalledTimes(1)
 })

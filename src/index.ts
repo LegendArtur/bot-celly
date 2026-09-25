@@ -21,9 +21,9 @@ import { ingestAttachments } from "./attachments.js"
 import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
 import { SessionRoutes } from "./routing.js"
 import { createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "./handlers.js"
-import { buildPromptText, channelIdForBucket, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
+import { buildPromptText, channelIdForBucket, createSubscriptionGate, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
-export { buildPromptText, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
+export { buildPromptText, createSubscriptionGate, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
 async function main(): Promise<void> {
   loadDotEnv()
@@ -70,11 +70,10 @@ async function main(): Promise<void> {
     now: () => Date.now(),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   }))
-  const bucketFor = (channelId: string) => buckets.for(channelId)
   // Spec §9/§14: the shared per-channel bucket is the rate-limit chokepoint;
   // a 429 pauses that channel's bucket for the server-supplied retry_after.
   const scheduleWithBucket = async <T>(channelId: string, fn: () => Promise<T>): Promise<T> => {
-    const bucket = bucketFor(channelId)
+    const bucket = buckets.for(channelId)
     try { return await bucket.schedule(fn) }
     catch (e) {
       const wait = retryAfterMs(e, cfg.editIntervalMs)
@@ -82,6 +81,7 @@ async function main(): Promise<void> {
       throw e
     }
   }
+  const bucketFor = (channelId: string) => ({ schedule: <T>(fn: () => Promise<T>) => scheduleWithBucket(channelId, fn) })
   let guild: Guild | undefined
   const requireGuild = (): Guild => {
     if (!guild) throw new Error("Discord guild not ready")
@@ -95,6 +95,7 @@ async function main(): Promise<void> {
   }
 
   const controllers = new Map<string, AbortController>()
+  const subscriptionGate = createSubscriptionGate()
   let runnerSvc: Runner
 
   const projects = new ProjectService({
@@ -127,7 +128,7 @@ async function main(): Promise<void> {
       runner: { handleProjectDown: (channelId) => runnerSvc.handleProjectDown(channelId) },
       client, bucketFor, log,
     }),
-    onProjectReady: (project) => { secrets.push(project.serverPassword) },
+    onProjectReady: (project) => { secrets.push(project.serverPassword); subscribeProject(project) },
   })
 
   const clientFor = (threadId: string) => {
@@ -239,7 +240,7 @@ async function main(): Promise<void> {
   })
 
   const subscribeProject = (project: Project): void => {
-    if (controllers.has(project.channelId)) return
+    if (!subscriptionGate.claim(project.channelId)) return
     for (const thread of db.threads.byChannel(project.channelId)) if (thread.sessionId) registerSession(thread.threadId, thread.sessionId)
     const controller = new AbortController()
     controllers.set(project.channelId, controller)
@@ -261,6 +262,7 @@ async function main(): Promise<void> {
     for (const project of db.projects.list()) if (project.status === "ready") subscribeProject(project)
   }
   const stopSubscription = (channelId: string): void => {
+    subscriptionGate.release(channelId)
     const controller = controllers.get(channelId)
     if (controller) { controller.abort(); controllers.delete(channelId) }
     const threadIds = db.threads.byChannel(channelId).map((thread) => thread.threadId)
@@ -290,7 +292,7 @@ async function main(): Promise<void> {
     if (project) subscribeProject(project)
   }
 
-  const createThreadForProject = async (input: CreateThreadInput): Promise<{ threadId: string; sessionId: string }> => {
+  const createThreadForProject = async (input: CreateThreadInput): Promise<{ threadId: string; sessionId: string; notice?: string }> => {
     const project = db.projects.getByChannel(input.channelId)
     if (!project) throw new Error(`unknown project channel ${input.channelId}`)
     await projects.ensureReady(project.channelId)
@@ -302,11 +304,12 @@ async function main(): Promise<void> {
     if (input.authorId) await thread.members.add(input.authorId).catch(() => {})
     const sessionId = input.sessionId ?? (await createSessionFor(project, title))
     registerThread(project, thread.id, title, sessionId)
+    let notice: string | undefined
     if (input.prompt) {
-      const notice = await runnerSvc.prompt(thread.id, input.prompt, input.authorId ?? "n/a")
-      if (notice === undefined) startTyping(thread.id)
+      notice = await runnerSvc.prompt(thread.id, input.prompt, input.authorId ?? "n/a")
+      if (notice === undefined || notice.startsWith("queued")) startTyping(thread.id)
     }
-    return { threadId: thread.id, sessionId }
+    return { threadId: thread.id, sessionId, notice }
   }
 
   const listSessions = async (channelId: string): Promise<{ id: string; title: string }[]> => {

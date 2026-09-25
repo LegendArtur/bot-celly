@@ -20,7 +20,7 @@ export interface MessageHandlerDeps {
   ingestAttachments(project: Project, message: any): Promise<{ hostPath: string; sandboxPath: string }[]>
   runShell(channelId: string, command: string): Promise<string[]>
   startTyping(threadId: string): void
-  createThread(input: CreateThreadInput): Promise<{ threadId: string; sessionId: string }>
+  createThread(input: CreateThreadInput): Promise<{ threadId: string; sessionId: string; notice?: string }>
   registerSession(threadId: string, sessionId: string): void
 }
 
@@ -74,9 +74,16 @@ export function createMessageHandler(deps: MessageHandlerDeps): (message: any) =
       await deps.projects.ensureReady(project.channelId)
       deps.subscribeProject(project)
       const title = sanitizeThreadName(text.trim() || message.attachments?.first?.()?.name || "")
-      await deps.createThread({ channelId: project.channelId, title, prompt: promptText, authorId: message.author.id })
+      const created = await deps.createThread({ channelId: project.channelId, title, prompt: promptText, authorId: message.author.id })
+      if (created.notice) await deps.bucketFor(project.channelId).schedule(() => message.reply(renderPayload(created.notice!)))
+      if (!created.notice || created.notice.startsWith("queued")) deps.startTyping(created.threadId)
     } catch (err) {
       deps.log.error("message handler failed", { error: String(err) })
+      try {
+        if (message?.channel && typeof message.reply === "function") {
+          await deps.bucketFor(message.channelId).schedule(() => message.reply(renderPayload("Something went wrong handling that message; check the bot logs.")))
+        }
+      } catch {}
     }
   }
 }
@@ -90,7 +97,7 @@ export interface ProjectDownDeps {
 
 export function createProjectDownHandler(deps: ProjectDownDeps): (channelId: string) => void {
   return (channelId: string): void => {
-    void deps.runner.handleProjectDown(channelId)
+    void deps.runner.handleProjectDown(channelId).catch((e) => deps.log.warn("project down reset failed", { channelId, error: String(e) }))
     const channel = deps.client.channels.cache.get(channelId)
     if (channel && "send" in channel) {
       void deps.bucketFor(channelId)
@@ -104,7 +111,7 @@ export function createProjectDownHandler(deps: ProjectDownDeps): (channelId: str
 
 export function createProjectMissingHandler(deps: ProjectDownDeps): (channelId: string, projectName: string) => void {
   return (channelId: string, projectName: string): void => {
-    void deps.runner.handleProjectDown(channelId)
+    void deps.runner.handleProjectDown(channelId).catch((e) => deps.log.warn("project down reset failed", { channelId, error: String(e) }))
     const channel = deps.client.channels.cache.get(channelId)
     if (channel && "send" in channel) {
       void deps.bucketFor(channelId)
@@ -149,7 +156,8 @@ export interface ReconcileDeps {
 
 /** Boot/restart reconcile: re-attach live runs and reset stale render states. */
 export function createReconcileThreads(deps: ReconcileDeps): () => Promise<void> {
-  return async function reconcileThreads(): Promise<void> {
+  let inFlight: Promise<void> | undefined
+  const run = async (): Promise<void> => {
     for (const thread of deps.db.threads.recent(1000)) {
       const project = deps.db.projects.getByChannel(thread.channelId)
       if (!project || project.status !== "ready") {
@@ -167,6 +175,11 @@ export function createReconcileThreads(deps: ReconcileDeps): () => Promise<void>
         deps.db.threads.setRenderState(thread.threadId, "idle")
       }
     }
+  }
+  return function reconcileThreads(): Promise<void> {
+    if (inFlight) return inFlight
+    inFlight = run().finally(() => { inFlight = undefined })
+    return inFlight
   }
 }
 

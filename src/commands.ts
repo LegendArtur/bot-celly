@@ -39,7 +39,7 @@ export interface CommandDeps {
   stopSubscription?(channelId: string): void
   startSubscription?(channelId: string): void
   postConnected?(channelId: string, projectName: string): Promise<void> | void
-  createThread?(input: CreateThreadInput): Promise<{ threadId: string; sessionId: string }>
+  createThread?(input: CreateThreadInput): Promise<{ threadId: string; sessionId: string; notice?: string }>
   listSessions?(channelId: string): Promise<{ id: string; title: string }[]>
   listModels?(channelId: string): Promise<{ id: string; name: string }[]>
   listAgents?(channelId: string): Promise<{ id: string; name: string }[]>
@@ -133,7 +133,8 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (!deps.createThread) return void await interaction.editReply(noMentions("thread creation unavailable"))
       const prompt = interaction.options.getString("prompt", false) ?? undefined
       const thread = await deps.createThread({ channelId: project.channelId, title: prompt ?? `session ${new Date().toISOString()}`, prompt, authorId: interaction.user?.id })
-      return void await interaction.editReply(noMentions(`created <#${thread.threadId}>`))
+      const note = thread.notice ? ` (${thread.notice})` : ""
+      return void await interaction.editReply(noMentions(`created <#${thread.threadId}>${note}`))
     }
     if (interaction.commandName === "resume") {
       const project = deps.db.projects.getByChannel(interaction.channelId)

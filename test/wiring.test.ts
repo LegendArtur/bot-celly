@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url"
 import { expect, test } from "vitest"
 import { ChannelType } from "discord.js"
-import { buildPromptText, findCategoryId, isMainModule, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "../src/index.ts"
+import { buildPromptText, createSubscriptionGate, findCategoryId, isMainModule, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "../src/index.ts"
 
 test("findCategoryId prefers the configured category", () => {
   expect(findCategoryId({ channels: { cache: new Map() } }, "configured")).toBe("configured")
@@ -65,4 +65,15 @@ test("uniqueChannelName appends a numeric suffix on collision", () => {
   const long = "y".repeat(120)
   const base = sanitizeChannelName(long)
   expect(uniqueChannelName(base, new Set([base])).length).toBeLessThanOrEqual(90)
+})
+
+test("the project subscription gate starts at most one subscription and can resubscribe", () => {
+  const gate = createSubscriptionGate()
+  expect(gate.claim("c1")).toBe(true)
+  expect(gate.claim("c1")).toBe(false)
+  expect(gate.has("c1")).toBe(true)
+  expect(gate.claim("c2")).toBe(true)
+  gate.release("c1")
+  expect(gate.has("c1")).toBe(false)
+  expect(gate.claim("c1")).toBe(true)
 })
