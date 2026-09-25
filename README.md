@@ -4,7 +4,35 @@
 
 Celly turns Discord into a control surface for [OpenCode](https://opencode.ai)
 coding agents. Each project gets its own isolated `sbx` (Docker Sandboxes)
-microVM on your host, and you drive it from a Discord channel and thread.
+microVM on your host, and you drive it from a Discord channel and thread. Start
+a session from your phone, watch it work, and pick it back up later.
+
+## Why
+
+Coding agents are long-running and personal, but they are usually tied to one
+terminal on one machine. Celly moves the control surface somewhere you already
+are: Discord. Projects become channels, conversations become threads, and every
+project runs inside its own disposable sandbox — so an agent can work freely
+without touching the rest of your machine.
+
+## Contents
+
+- [What it is](#what-it-is)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Commands](#commands)
+- [Security model](#security-model)
+- [How it works](#how-it-works)
+- [Development](#development)
+- [Project layout](#project-layout)
+- [Status / roadmap](#status--roadmap)
+- [Limitations](#limitations)
+- [Contributing](#contributing)
+- [License](#license)
+- [Credits / Acknowledgements](#credits--acknowledgements)
 
 ## What it is
 
@@ -121,11 +149,11 @@ without a restart. Pin and record the version with `sbx version`.
 ### 2. Install and configure
 
 ```powershell
-git clone <repo-url> celly
+git clone https://github.com/<your-username>/celly.git
 cd celly
 npm ci
 npm run build
-copy .env.example .env
+copy .env.example .env    # macOS/Linux: cp .env.example .env
 ```
 
 Set **only** `DISCORD_TOKEN` and `DISCORD_GUILD_ID` in `.env`. Every other
@@ -238,7 +266,7 @@ than stored in the sandbox.
 
 ```powershell
 npm run dev          # tsx watch src/index.ts
-npm test             # 307 tests (vitest)
+npm test             # full vitest suite
 npm run typecheck    # tsc --noEmit
 npm run build        # tsc -p tsconfig.json
 ```
