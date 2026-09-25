@@ -1,0 +1,5 @@
+[
+  { "name": "cely-spike", "agent": "opencode", "status": "running",
+    "ports": [ { "host_ip": "127.0.0.1", "host_port": 4399, "sandbox_port": 4096, "protocol": "tcp4" } ],
+    "workspace": "C:\\Users\\artur\\projects\\spike" }
+]

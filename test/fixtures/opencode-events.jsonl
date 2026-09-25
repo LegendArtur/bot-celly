@@ -1,0 +1,4 @@
+{"type":"server.connected","properties":{}}
+{"type":"message.updated","properties":{"info":{"id":"msg_1","sessionID":"ses_1","role":"assistant"}}}
+{"type":"message.part.updated","properties":{"part":{"id":"prt_1","messageID":"msg_1","sessionID":"ses_1","type":"text","text":"hi"}}}
+{"type":"session.idle","properties":{"sessionID":"ses_1"}}
