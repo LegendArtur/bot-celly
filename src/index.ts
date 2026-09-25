@@ -21,7 +21,7 @@ import { ingestAttachments } from "./attachments.js"
 import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
 import { SessionRoutes } from "./routing.js"
 import { createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "./handlers.js"
-import { buildPromptText, channelIdForBucket, createSubscriptionGate, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
+import { buildPromptText, channelIdForBucket, createSubscriptionGate, describeDiscordStartupError, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
 export { buildPromptText, createSubscriptionGate, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
@@ -412,7 +412,20 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => { void shutdown() })
   process.on("SIGTERM", () => { void shutdown() })
 
-  await client.login(cfg.discordToken)
+  const isFatalDiscordError = (err: unknown): boolean =>
+    /disallowed intents|invalid token|token was provided/i.test(err instanceof Error ? err.message : String(err))
+  client.on(Events.Error, (err) => {
+    log.error("discord client error", { error: String(err) })
+    if (isFatalDiscordError(err)) { console.error(describeDiscordStartupError(err)); void shutdown(1) }
+  })
+
+  try {
+    await client.login(cfg.discordToken)
+  } catch (err) {
+    console.error(describeDiscordStartupError(err))
+    await shutdown(1)
+    return
+  }
   guild = await client.guilds.fetch(cfg.guildId)
   await guild.commands.set(commandData())
   if (client.isReady()) { subscribeReadyProjects(); void reconcileThreads().catch((err) => log.error("boot reconcile failed", { error: String(err) })) }
@@ -430,5 +443,5 @@ export function isMainModule(moduleUrl: string, argv1: string | undefined): bool
 }
 
 if (isMainModule(import.meta.url, process.argv[1])) {
-  main().catch((e) => { console.error(e); process.exit(1) })
+  main().catch((e) => { console.error(describeDiscordStartupError(e)); process.exit(1) })
 }

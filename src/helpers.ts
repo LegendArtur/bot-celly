@@ -75,3 +75,22 @@ export function createSubscriptionGate(): { claim(channelId: string): boolean; r
     has(channelId) { return claimed.has(channelId) },
   }
 }
+
+/** Turn raw Discord login/gateway errors into an actionable message for the operator. */
+export function describeDiscordStartupError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err)
+  if (/disallowed intents/i.test(raw)) {
+    return [
+      'Discord rejected the bot\'s privileged intents ("Used disallowed intents").',
+      "Enable the Message Content intent, then restart:",
+      "  1. Open https://discord.com/developers/applications and select your app.",
+      "  2. Go to the Bot tab, then Privileged Gateway Intents.",
+      '  3. Turn on "Message Content Intent" and click Save Changes.',
+      "  4. Run `node dist/index.js` again.",
+    ].join("\n")
+  }
+  if (/invalid token|token was provided/i.test(raw)) {
+    return `Discord rejected the bot token. Check DISCORD_TOKEN in .env (Developer Portal -> Bot -> Reset Token).\n${raw}`
+  }
+  return raw
+}

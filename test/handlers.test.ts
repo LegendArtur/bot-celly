@@ -1,6 +1,7 @@
 import { expect, test, vi } from "vitest"
 import { openDb } from "../src/db.ts"
 import { createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "../src/handlers.ts"
+import { describeDiscordStartupError } from "../src/helpers.ts"
 import type { Project, Thread } from "../src/types.ts"
 
 const silent = { debug() {}, info() {}, warn() {}, error() {}, child() { return this } } as any
@@ -283,4 +284,16 @@ test("project-down handler swallows a rejected runner reset", async () => {
   expect(() => handler("c")).not.toThrow()
   await new Promise((r) => setTimeout(r, 0))
   expect(send).toHaveBeenCalledTimes(1)
+})
+
+test("describeDiscordStartupError explains the Message Content intent", () => {
+  const message = describeDiscordStartupError(new Error("Used disallowed intents"))
+  expect(message).toMatch(/Message Content Intent/)
+  expect(message).toContain("discord.com/developers/applications")
+})
+test("describeDiscordStartupError explains an invalid token", () => {
+  expect(describeDiscordStartupError(new Error("An invalid token was provided."))).toMatch(/DISCORD_TOKEN/)
+})
+test("describeDiscordStartupError passes through unknown errors", () => {
+  expect(describeDiscordStartupError(new Error("boom"))).toBe("boom")
 })

@@ -133,9 +133,9 @@ export interface ShutdownDeps {
   exit(code: number): void
 }
 
-export function createShutdown(deps: ShutdownDeps): () => Promise<void> {
+export function createShutdown(deps: ShutdownDeps): (code?: number) => Promise<void> {
   let shuttingDown = false
-  return async function shutdown(): Promise<void> {
+  return async function shutdown(code = 0): Promise<void> {
     if (shuttingDown) return
     shuttingDown = true
     deps.log.info("shutting down")
@@ -144,7 +144,7 @@ export function createShutdown(deps: ShutdownDeps): () => Promise<void> {
     deps.destroyClient()
     deps.closeDb()
     deps.releaseLock()
-    deps.exit(0)
+    deps.exit(code)
   }
 }
 

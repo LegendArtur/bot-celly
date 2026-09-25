@@ -30,6 +30,7 @@ without touching the rest of your machine.
 - [Project layout](#project-layout)
 - [Status / roadmap](#status--roadmap)
 - [Limitations](#limitations)
+- [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [License](#license)
 - [Credits / Acknowledgements](#credits--acknowledgements)
@@ -331,6 +332,16 @@ v1 is the command set above. Deferred backlog items:
 - **Host-only items** (the spike, `sbx policy ls` semantics, Windows path
   mapping, and live Discord behavior) are exercised manually on the host, not in
   the Linux dev/test environment.
+
+## Troubleshooting
+
+- **`Error: Used disallowed intents` on startup** — enable the **Message
+  Content Intent**: Developer Portal → your app → **Bot** → **Privileged Gateway
+  Intents** → toggle it on → Save, then restart.
+- **`Celly is already running`** — another instance holds the single-instance
+  lock. Stop it before starting a new one.
+- **A project stops responding** — run `/project start <name>` to wake or
+  recreate its sandbox, then check `data/bot.log`.
 
 ## Contributing
 
