@@ -74,7 +74,7 @@ export function openDb(path: string): Db {
       upsert(t) {
         raw.prepare(`INSERT INTO threads (thread_id,channel_id,session_id,title,model,agent,worktree_path,live_message_id,render_state,created_at,last_active_at)
           VALUES (?,?,?,?,?,?,?,?,?,?,?)
-          ON CONFLICT(thread_id) DO UPDATE SET title=excluded.title, model=excluded.model, agent=excluded.agent, last_active_at=excluded.last_active_at`)
+          ON CONFLICT(thread_id) DO UPDATE SET session_id=excluded.session_id, title=excluded.title, model=excluded.model, agent=excluded.agent, last_active_at=excluded.last_active_at`)
           .run(t.threadId,t.channelId,t.sessionId,t.title,t.model,t.agent,t.worktreePath,t.liveMessageId,t.renderState,t.createdAt,t.lastActiveAt)
       },
       get(threadId) { const r = raw.prepare(`SELECT * FROM threads WHERE thread_id=?`).get(threadId); return r ? rowToThread(r) : undefined },

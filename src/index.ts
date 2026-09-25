@@ -157,13 +157,21 @@ async function main(): Promise<void> {
         void runnerSvc.onEvent(threadId, event).catch((err) => log.error("runner event failed", { threadId, error: String(err) }))
       },
       onResync: async (threadId, sessionId) => { await runnerSvc.recover({ threadId, sessionId }) },
-      knownSessions: () => [...sessionToThread.entries()].map(([sessionId, threadId]) => ({ threadId, sessionId })),
+      knownSessions: () => db.threads.byChannel(project.channelId)
+        .filter((thread) => !!thread.sessionId)
+        .map((thread) => ({ threadId: thread.threadId, sessionId: thread.sessionId })),
     })
     void router.subscribe(`http://127.0.0.1:${project.hostPort}`, project.serverPassword, controller.signal)
       .catch((err) => { if (!controller.signal.aborted) log.warn("event subscription ended", { channelId: project.channelId, error: String(err) }) })
   }
   const subscribeReadyProjects = (): void => {
     for (const project of db.projects.list()) if (project.status === "ready") subscribeProject(project)
+  }
+  const stopSubscription = (channelId: string): void => {
+    const controller = controllers.get(channelId)
+    if (controller) { controller.abort(); controllers.delete(channelId) }
+    const threadIds = new Set(db.threads.byChannel(channelId).map((thread) => thread.threadId))
+    for (const [sessionId, threadId] of sessionToThread) if (threadIds.has(threadId)) sessionToThread.delete(sessionId)
   }
 
   const isMemberAuthorized = (guildOwnerId: string, member: { id: string; roles: string[]; permissions: { has(bit: bigint): boolean } }): boolean =>
@@ -182,6 +190,7 @@ async function main(): Promise<void> {
         const command = text.slice(1).trim()
         if (!command) return
         await projects.ensureReady(project.channelId)
+        subscribeProject(project)
         const fresh = db.projects.getByChannel(project.channelId)
         if (!fresh) return
         for (const chunk of await runShell({ sbx, project: fresh }, command)) {
@@ -193,6 +202,8 @@ async function main(): Promise<void> {
       const existing = db.threads.get(message.channelId)
       if (existing) {
         await projects.ensureReady(project.channelId)
+        subscribeProject(project)
+        if (existing.sessionId) registerSession(existing.threadId, existing.sessionId)
         const notice = await runnerSvc.prompt(existing.threadId, text, message.author.id)
         if (notice) await message.reply({ content: notice, allowedMentions: { parse: [] } })
         return
@@ -201,6 +212,7 @@ async function main(): Promise<void> {
       await projects.ensureReady(project.channelId)
       subscribeProject(project)
       const thread = await message.startThread({ name: sanitizeThreadName(text) })
+      await thread.members.add(message.author.id)
       const sdk = createClient(`http://127.0.0.1:${project.hostPort}`, project.serverPassword)
       const created = await sdk.session.create({ body: { title: sanitizeThreadName(text) } })
       const sessionId = sessionIdFrom(created)
@@ -224,7 +236,7 @@ async function main(): Promise<void> {
     try {
       if (!interaction.isChatInputCommand()) return
       await handleCommand(interaction, {
-        projects, runner: runnerSvc, db,
+        projects, runner: runnerSvc, db, stopSubscription,
         authorized: () => {
           if (!interaction.inGuild() || !interaction.member || !interaction.memberPermissions) return false
           const member = interaction.member

@@ -153,6 +153,7 @@ test("ensureReady does not start a child when health already passes", async () =
     await svc.ensureReady("chan1")
     expect(children).toHaveLength(0)
     expect(svc.childFor("chan1")).toBeUndefined()
+    expect(db.projects.getByChannel("chan1")?.status).toBe("ready")
   } finally { await server.close() }
 })
 

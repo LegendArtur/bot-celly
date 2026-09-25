@@ -97,11 +97,12 @@ export class ProjectService {
       if (!p) throw new Error(`unknown project ${channelId}`)
       await this.deps.sbx.start(p.sandboxName)
       const client = createClient(`http://127.0.0.1:${p.hostPort}`, p.serverPassword)
-      try { await waitForHealth(client, this.deps.config.healthTimeoutMs); return } catch {}
+      try { await waitForHealth(client, this.deps.config.healthTimeoutMs); this.deps.db.projects.setStatus(channelId, "ready"); return } catch {}
       this.killChild(channelId)
       await this.bootServer(channelId)
       try { await waitForHealth(client, this.deps.config.healthTimeoutMs) }
       catch (e) { throw new Error(`project ${channelId} not healthy: ${(e as Error).message}`) }
+      this.deps.db.projects.setStatus(channelId, "ready")
     })()
     this.inflight.set(channelId, task.finally(() => this.inflight.delete(channelId)))
     return this.inflight.get(channelId)

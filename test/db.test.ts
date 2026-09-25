@@ -26,6 +26,14 @@ test("threads store render state and filter by activity", () => {
   expect(db.threads.get("t1")).toMatchObject({ renderState: "running", liveMessageId: "m1" })
   expect(db.threads.recent(10).map((t) => t.threadId)).toEqual(["t1"])
 })
+test("upsert updates the session id on conflict", () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const row = { threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
+    worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 }
+  db.threads.upsert(row)
+  db.threads.upsert({ ...row, sessionId: "s2", lastActiveAt: 9 })
+  expect(db.threads.get("t1")).toMatchObject({ sessionId: "s2", lastActiveAt: 9 })
+})
 test("migrate is idempotent", () => { const db = fresh(); db.migrate(); expect(db.projects.list()).toEqual([]) })
 test("removing a project cascades to its threads", () => {
   const db = fresh(); db.projects.insertProvisioning(proj)

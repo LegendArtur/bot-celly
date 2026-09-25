@@ -31,6 +31,7 @@ export interface CommandDeps {
   runner: Runner
   db: Db
   authorized(interaction: any): boolean
+  stopSubscription?(channelId: string): void
 }
 
 export async function handleCommand(interaction: any, deps: CommandDeps): Promise<void> {
@@ -55,6 +56,7 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (sub === "stop") {
         const p = deps.db.projects.getByName(name)
         if (!p) return void await interaction.editReply("not found")
+        deps.stopSubscription?.(p.channelId)
         await deps.projects.stop(p.channelId)
         return void await interaction.editReply("stopped")
       }
@@ -63,6 +65,7 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         if (!p) return void await interaction.editReply("not found")
         const expected = interaction.options.getString("confirm", true)
         if (expected !== name) return void await interaction.editReply("confirmation name does not match")
+        deps.stopSubscription?.(p.channelId)
         await deps.projects.remove(p.channelId)
         return void await interaction.editReply("removed")
       }

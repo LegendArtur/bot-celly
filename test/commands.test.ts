@@ -73,6 +73,20 @@ test("start/stop/remove on an unknown project reply not found", async () => {
     expect(editOf(i)).toBe("not found")
   }
 })
+test("stop and remove tear down the event subscription first", async () => {
+  for (const sub of ["stop", "remove"] as const) {
+    const i = interaction({ sub, strings: { name: "demo", confirm: "demo" } })
+    const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+    const order: string[] = []
+    const deps: any = {
+      projects: { stop: async () => { order.push("stop") }, remove: async () => { order.push("remove") } },
+      runner: {} as any, db, authorized: () => true,
+      stopSubscription: (channelId: string) => { order.push(`unsub:${channelId}`) },
+    }
+    await handleCommand(i, deps)
+    expect(order).toEqual(["unsub:c", sub])
+  }
+})
 test("abort in a project channel with no active thread says nothing to abort", async () => {
   const i = interaction({ commandName: "abort", channelId: "c" })
   const aborted: string[] = []
