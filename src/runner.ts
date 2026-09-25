@@ -1,11 +1,53 @@
+import { bashDenyPatterns } from "./opencode.js"
 import type { OpencodeClient } from "./opencode.ts"
 import type { NormalizedEvent } from "./events.ts"
 import type { Renderer } from "./render.ts"
 import type { Db } from "./db.ts"
 
-const DEFAULT_DENY = ["git push*", "git clean -fdx*", "npm publish*", "pnpm publish*", "yarn publish*"]
+const DEFAULT_DENY = bashDenyPatterns()
 const ALLOWED_TOOLS = new Set(["bash", "edit", "write", "read", "glob", "grep", "webfetch", "websearch", "task", "skill", "lsp", "doom_loop"])
 const ABORT_TIMEOUT_MS = 10_000
+
+const WRAPPERS = new Set(["command", "npx", "bunx", "pnpx", "doas", "sudo", "time", "nice"])
+const VALUE_OPTS = new Set([
+  "-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env", "--super-prefix",
+  "--prefix", "--dir", "--filter", "-F", "--cwd", "--upload-pack", "--receive-pack",
+])
+const MULTIWORD_TOOLS = new Set(["git", "npm", "pnpm", "yarn", "bun"])
+const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
+
+function executableName(token: string): string {
+  const parts = token.replace(/\\/g, "/").split("/")
+  return parts[parts.length - 1] || token
+}
+
+/**
+ * Reduce a shell command to `<exe> <subcommand> <args...>` before deny matching
+ * so trivial prefixes (`command`, `env FOO=bar`, absolute paths, `npx`, extra
+ * whitespace) and global options (`git -c k=v push`) cannot bypass the list.
+ */
+export function normalizeCommand(command: string): string {
+  const tokens = command.trim().replace(/\s+/g, " ").split(" ").filter(Boolean)
+  let i = 0
+  for (;;) {
+    const token = tokens[i]
+    if (token === undefined) return ""
+    if (token === "env") {
+      if (tokens[i + 1] === undefined) break
+      i++
+      while (tokens[i] && ENV_ASSIGNMENT.test(tokens[i]!)) i++
+      continue
+    }
+    if (WRAPPERS.has(token)) { i++; continue }
+    break
+  }
+  const exe = executableName(tokens[i]!)
+  i++
+  if (MULTIWORD_TOOLS.has(exe)) {
+    while (tokens[i]?.startsWith("-")) i += VALUE_OPTS.has(tokens[i]!) ? 2 : 1
+  }
+  return [exe, ...tokens.slice(i)].join(" ").trim()
+}
 
 export function evaluatePermission(req: { tool: string; patterns: string[] }, deny: string[] = DEFAULT_DENY): "once" | "always" | "reject" {
   if (!ALLOWED_TOOLS.has(req.tool)) return "reject"
@@ -13,7 +55,11 @@ export function evaluatePermission(req: { tool: string; patterns: string[] }, de
     const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")
     return new RegExp(`^${escaped}$`).test(value)
   }
-  for (const p of req.patterns) if (deny.some((d) => matches(d, p))) return "reject"
+  const normalizedDeny = deny.map(normalizeCommand)
+  for (const p of req.patterns) {
+    const normalized = normalizeCommand(p)
+    if (normalizedDeny.some((d) => matches(d, normalized))) return "reject"
+  }
   return "once"
 }
 

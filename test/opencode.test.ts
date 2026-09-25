@@ -12,7 +12,11 @@ test("serve args source the sandbox env and never contain a password", () => {
 test("the cely policy matches spec section 8 and disables share", () => {
   expect(celyPolicy().permission).toEqual({
     "*": "allow",
-    bash: { "*": "allow", "git push*": "deny", "git clean -fdx*": "deny", "npm publish*": "deny", "pnpm publish*": "deny", "yarn publish*": "deny" },
+    bash: {
+      "*": "allow", "git push*": "deny", "git clean -fdx*": "deny", "npm publish*": "deny",
+      "pnpm publish*": "deny", "yarn publish*": "deny", "printenv*": "deny", "env": "deny",
+      "cat *opencode.env*": "deny", "cat */.config/cely/*": "deny",
+    },
     external_directory: "deny", question: "deny",
   })
   expect(celyPolicy().share).toBe("disabled")

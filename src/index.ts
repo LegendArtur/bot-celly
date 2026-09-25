@@ -116,6 +116,7 @@ async function main(): Promise<void> {
       runner: { handleProjectDown: (channelId) => runnerSvc.handleProjectDown(channelId) },
       client, bucketFor, log,
     }),
+    onProjectReady: (project) => { secrets.push(project.serverPassword) },
   })
 
   const clientFor = (threadId: string) => {

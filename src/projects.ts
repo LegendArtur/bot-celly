@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto"
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -10,6 +10,7 @@ import { allocatePort, buildSandboxName, defaultForbiddenPaths, isPathInside, is
 import type { ChildProcess } from "./sbx.js"
 import { applyAndAssertCelyPolicy, BOOTSTRAP_SCRIPT, BOOTSTRAP_VERIFY, buildCelyConfigJson, buildOpencodeEnv, buildServeArgs, createClient, waitForHealth } from "./opencode.js"
 import type { OpencodeClient } from "./opencode.js"
+import { redact } from "./log.js"
 
 export interface ProjectDeps {
   sbx: Sbx; runner: SbxRunner; db: Db; config: Config
@@ -182,7 +183,11 @@ export class ProjectService {
     const child = this.deps.sbx.execStream(project.sandboxName, buildServeArgs())
     const logFile = join(this.deps.config.dataDir, "logs", `${project.sandboxName}.log`)
     try { mkdirSync(dirname(logFile), { recursive: true }) } catch {}
-    const appendLog = (prefix: string, data: unknown): void => { try { appendFileSync(logFile, `[${prefix}] ${String(data)}`) } catch {} }
+    try { chmodSync(logFile, 0o600) } catch {}
+    const logSecrets = [project.serverPassword]
+    const appendLog = (prefix: string, data: unknown): void => {
+      try { appendFileSync(logFile, redact(`[${prefix}] ${String(data)}`, logSecrets), { mode: 0o600 }) } catch {}
+    }
     child.stdout?.on("data", (d) => { appendLog("out", d); this.deps.log.debug("project server stdout", { channelId, line: String(d) }) })
     child.stderr?.on("data", (d) => { appendLog("err", d); this.deps.log.warn("project server stderr", { channelId, line: String(d) }) })
     child.on("exit", () => {

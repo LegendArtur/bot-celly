@@ -1,6 +1,6 @@
 // test/runner.test.ts
 import { expect, test, vi } from "vitest"
-import { evaluatePermission, Runner } from "../src/runner.ts"
+import { evaluatePermission, normalizeCommand, Runner } from "../src/runner.ts"
 import { Renderer } from "../src/render.ts"
 
 test("rejects deny-listed bash patterns", () => {
@@ -18,6 +18,35 @@ test("rejects default deny-listed publish and clean commands", () => {
 })
 test("allows an allowed tool with no deny matches", () => {
   expect(evaluatePermission({ tool: "read", patterns: [] })).toBe("once")
+})
+
+test("normalizes commands before deny matching", () => {
+  expect(normalizeCommand("  git    -c   x=y   push  ")).toBe("git push")
+  expect(normalizeCommand("env FOO=bar git push")).toBe("git push")
+  expect(normalizeCommand("/usr/bin/git push")).toBe("git push")
+})
+
+test("wrapper and global-option bypasses are still rejected", () => {
+  expect(evaluatePermission({ tool: "bash", patterns: ["git -c x=y push origin"] })).toBe("reject")
+  expect(evaluatePermission({ tool: "bash", patterns: ["command git push"] })).toBe("reject")
+  expect(evaluatePermission({ tool: "bash", patterns: ["env git push"] })).toBe("reject")
+  expect(evaluatePermission({ tool: "bash", patterns: ["env FOO=bar git push"] })).toBe("reject")
+  expect(evaluatePermission({ tool: "bash", patterns: ["npx npm publish"] })).toBe("reject")
+  expect(evaluatePermission({ tool: "bash", patterns: ["/usr/bin/git push"] })).toBe("reject")
+  expect(evaluatePermission({ tool: "bash", patterns: ["git   push   origin"] })).toBe("reject")
+})
+
+test("normalization does not deny benign wrapped commands", () => {
+  expect(evaluatePermission({ tool: "bash", patterns: ["npx tsc --noEmit"] })).toBe("once")
+  expect(evaluatePermission({ tool: "bash", patterns: ["git status"] })).toBe("once")
+})
+
+test("rejects environment-inspection deny patterns", () => {
+  expect(evaluatePermission({ tool: "bash", patterns: ["printenv"] })).toBe("reject")
+  expect(evaluatePermission({ tool: "bash", patterns: ["printenv PATH"] })).toBe("reject")
+  expect(evaluatePermission({ tool: "bash", patterns: ["env"] })).toBe("reject")
+  expect(evaluatePermission({ tool: "bash", patterns: ["cat ~/.config/cely/opencode.env"] })).toBe("reject")
+  expect(evaluatePermission({ tool: "bash", patterns: ["cat /root/.config/cely/opencode.env"] })).toBe("reject")
 })
 
 function makeDb(state = "running", threads: any[] = [], liveMessageId: string | null = null) {

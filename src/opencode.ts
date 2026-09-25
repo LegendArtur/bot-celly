@@ -33,20 +33,31 @@ export interface CelyPolicy {
   }
 }
 
+export const BASH_DENY: Record<string, "allow" | "deny"> = {
+  "*": "allow",
+  "git push*": "deny",
+  "git clean -fdx*": "deny",
+  "npm publish*": "deny",
+  "pnpm publish*": "deny",
+  "yarn publish*": "deny",
+  "printenv*": "deny",
+  "env": "deny",
+  "cat *opencode.env*": "deny",
+  "cat */.config/cely/*": "deny",
+}
+
+/** The same deny patterns that are baked into the sandbox config, normalized. */
+export function bashDenyPatterns(): string[] {
+  return Object.entries(BASH_DENY).filter(([key, value]) => key !== "*" && value === "deny").map(([key]) => key)
+}
+
 export function celyPolicy(): CelyPolicy {
   return {
     $schema: "https://opencode.ai/config.json",
     share: "disabled",
     permission: {
       "*": "allow",
-      bash: {
-        "*": "allow",
-        "git push*": "deny",
-        "git clean -fdx*": "deny",
-        "npm publish*": "deny",
-        "pnpm publish*": "deny",
-        "yarn publish*": "deny",
-      },
+      bash: { ...BASH_DENY },
       external_directory: "deny",
       question: "deny",
     },

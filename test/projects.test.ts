@@ -1,5 +1,5 @@
 import { createServer } from "node:http"
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
@@ -139,11 +139,8 @@ test("addProject writes and verifies the cely bootstrap before starting the serv
     expect(password).not.toBe("")
     expect(order.some((o) => o.includes(password))).toBe(false)
     const parsed = JSON.parse(configContent)
-    expect(parsed.permission).toEqual({
-      "*": "allow",
-      bash: { "*": "allow", "git push*": "deny", "git clean -fdx*": "deny", "npm publish*": "deny", "pnpm publish*": "deny", "yarn publish*": "deny" },
-      external_directory: "deny", question: "deny",
-    })
+    expect(parsed.permission).toEqual(celyPolicy().permission)
+    expect(parsed.share).toBe("disabled")
   } finally { await server.close() }
 })
 
@@ -485,13 +482,17 @@ test("the supervised child's output is written to data/logs/<sandbox>.log", asyn
       config: { ...makeCfg(server.port, server.port), dataDir }, log: logger(),
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
+    const password = db.projects.getByChannel("chan-demo")!.serverPassword
     children[0].emitStdout("hello from the server")
-    children[0].emitStderr("a warning")
+    children[0].emitStderr(`a warning token=${password}`)
     const logFile = join(dataDir, "logs", "cely-demo.log")
     expect(existsSync(logFile)).toBe(true)
     const contents = readFileSync(logFile, "utf8")
     expect(contents).toContain("hello from the server")
     expect(contents).toContain("a warning")
+    expect(contents).not.toContain(password)
+    expect(contents).toContain("[redacted]")
+    expect(statSync(logFile).mode & 0o777).toBe(0o600)
   } finally {
     await server.close()
     rmSync(dataDir, { recursive: true, force: true })

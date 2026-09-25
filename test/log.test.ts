@@ -59,6 +59,17 @@ test("logger does not throw on a circular field object", () => {
   expect(line).toContain("[circular]")
   info.mockRestore()
 })
+test("secrets added after logger construction are still redacted", () => {
+  const info = vi.spyOn(console, "info").mockImplementation(() => {})
+  const secrets = ["first"]
+  const log = createLogger({ level: "info", secrets })
+  secrets.push("project-password")
+  log.info("later", { note: "project-password" })
+  const line = info.mock.calls[0]?.[0] as string
+  expect(line).not.toContain("project-password")
+  expect(line).toContain("[redacted]")
+  info.mockRestore()
+})
 test("logger does not throw on a BigInt field", () => {
   const info = vi.spyOn(console, "info").mockImplementation(() => {})
   const log = createLogger({ level: "info" })
