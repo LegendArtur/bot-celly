@@ -19,7 +19,7 @@ import { EventRouter } from "./events.js"
 import { Renderer, sanitizeThreadName } from "./render.js"
 import { createClient } from "./opencode.js"
 import { runShell } from "./shell.js"
-import { attachmentDestination, shouldIngestAttachment } from "./attachments.js"
+import { attachmentDestination, attachmentSandboxPath, shouldIngestAttachment } from "./attachments.js"
 import { ChannelBuckets, TokenBucket } from "./bucket.js"
 
 export function findCategoryId(
@@ -47,6 +47,10 @@ export function projectForChannel<T extends { channelId: string }>(
   parentId?: string | null,
 ): T | undefined {
   return projects.find((p) => p.channelId === channelId || (parentId != null && p.channelId === parentId))
+}
+
+export function buildPromptText(text: string, attachmentPaths: string[]): string {
+  return [text, ...attachmentPaths.map((p) => `[attachment] ${p}`)].filter((part) => part.trim().length > 0).join("\n\n")
 }
 
 async function main(): Promise<void> {
@@ -162,8 +166,8 @@ async function main(): Promise<void> {
     return record
   }
 
-  const ingestAttachments = async (project: Project, message: Message): Promise<string[]> => {
-    const paths: string[] = []
+  const ingestAttachments = async (project: Project, message: Message): Promise<{ hostPath: string; sandboxPath: string }[]> => {
+    const paths: { hostPath: string; sandboxPath: string }[] = []
     for (const attachment of message.attachments.values()) {
       const like = { name: attachment.name, size: attachment.size, contentType: attachment.contentType }
       if (!shouldIngestAttachment(like, cfg.attachmentMaxBytes)) continue
@@ -175,7 +179,7 @@ async function main(): Promise<void> {
         if (body.byteLength > cfg.attachmentMaxBytes) continue
         await mkdir(dirname(destination), { recursive: true })
         await writeFile(destination, body)
-        paths.push(destination)
+        paths.push({ hostPath: destination, sandboxPath: attachmentSandboxPath(project.directory, project.sandboxPath, destination) })
       } catch (e) {
         log.warn("attachment ingest failed", { name: attachment.name, error: String(e) })
       }
@@ -378,7 +382,7 @@ async function main(): Promise<void> {
         return
       }
       const imported = await ingestAttachments(project, message)
-      const promptText = [text, ...imported.map((p) => `[attachment] ${p}`)].filter((part) => part.trim().length > 0).join("\n\n")
+      const promptText = buildPromptText(text, imported.map((a) => a.sandboxPath))
       if (!promptText.trim()) return
       const existing = db.threads.get(message.channelId)
       if (existing) {

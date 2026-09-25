@@ -218,6 +218,24 @@ test("recover rebuilds and finalizes the renderer from the last assistant messag
   expect(states).toEqual(["idle"])
 })
 
+test("recover clears the renderer cache so the next run sends a new message", async () => {
+  const sends: string[] = []
+  const edits: string[] = []
+  let n = 0, t = 0
+  const { db } = makeDb("idle")
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { messages: async () => ({ data: [
+      { info: { id: "m2", role: "assistant" }, parts: [{ id: "p2", type: "text", text: "recovered" }] },
+    ] }) } }) as any,
+    createRenderer: async () => new Renderer({ send: async (c) => { sends.push(c); return "m" + (++n) }, edit: async (_id, c) => { edits.push(c) }, now: () => t, intervalMs: 1000 }),
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.recover({ threadId: "t1", sessionId: "s1" })
+  t = 2000
+  await runner.onEvent("t1", { kind: "text", sessionId: "s1", messageId: "m", partId: "p", text: "fresh" })
+  expect(sends).toEqual(["recovered", "fresh"])
+  expect(edits).toEqual([])
+})
+
 test("prompt applies the thread's model and agent overrides", async () => {
   const bodies: any[] = []
   const { db } = makeDb()

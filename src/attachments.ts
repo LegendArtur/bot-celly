@@ -1,4 +1,4 @@
-import { join } from "node:path"
+import { basename, join, posix } from "node:path"
 import { isPathInside, sanitizeAttachmentName } from "./sbx.js"
 
 const TEXT_EXTENSIONS = new Set([
@@ -36,4 +36,13 @@ export function attachmentDestination(projectDirectory: string, name: string, id
   const destination = join(inbox, `${id}-${sanitizeAttachmentName(name)}`)
   if (!isPathInside(inbox, destination)) throw new Error("attachment escapes the inbox")
   return destination
+}
+
+export function attachmentSandboxPath(
+  projectDirectory: string,
+  sandboxPath: string | null | undefined,
+  hostDestination: string,
+): string {
+  const root = sandboxPath && sandboxPath.trim() ? sandboxPath : projectDirectory
+  return posix.join(root.replace(/\\/g, "/"), ".cely", "inbox", basename(hostDestination))
 }

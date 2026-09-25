@@ -1,6 +1,6 @@
 import { join } from "node:path"
 import { expect, test } from "vitest"
-import { attachmentDestination, isTextLikeAttachment, shouldIngestAttachment } from "../src/attachments.ts"
+import { attachmentDestination, attachmentSandboxPath, isTextLikeAttachment, shouldIngestAttachment } from "../src/attachments.ts"
 
 test("detects text-like attachments by content type or extension", () => {
   expect(isTextLikeAttachment({ name: "notes", size: 10, contentType: "text/plain" })).toBe(true)
@@ -31,4 +31,11 @@ test("attachment destinations reject traversal and reserved names", () => {
 
 test("attachment destinations use the basename of backslash names", () => {
   expect(attachmentDestination("/srv/projects/demo", "..\\..\\evil.txt", "id")).toBe("/srv/projects/demo/.cely/inbox/id-evil.txt")
+})
+
+test("attachment sandbox paths use the resolved in-sandbox root", () => {
+  const host = "C:\\projects\\demo"
+  const dest = attachmentDestination(host, "notes.txt", "abc")
+  expect(attachmentSandboxPath(host, "/sandbox/workspace", dest)).toBe("/sandbox/workspace/.cely/inbox/abc-notes.txt")
+  expect(attachmentSandboxPath(host, null, dest)).toBe("C:/projects/demo/.cely/inbox/abc-notes.txt")
 })

@@ -157,7 +157,8 @@ export class Runner {
     }
     await renderer.finalize()
     this.clearAbortTimer(thread.threadId)
-    this.deps.db.threads.setRenderState(thread.threadId, "idle")
+    if (this.active.has(thread.threadId)) this.clearRenderer(thread.threadId)
+    else this.idle(thread.threadId)
   }
   async handleProjectDown(channelId: string): Promise<void> {
     const threads = this.deps.db.threads.byChannel(channelId)

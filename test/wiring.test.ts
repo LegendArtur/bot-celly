@@ -1,6 +1,6 @@
 import { expect, test } from "vitest"
 import { ChannelType } from "discord.js"
-import { findCategoryId, projectForChannel, sessionIdFrom } from "../src/index.ts"
+import { buildPromptText, findCategoryId, projectForChannel, sessionIdFrom } from "../src/index.ts"
 
 test("findCategoryId prefers the configured category", () => {
   expect(findCategoryId({ channels: { cache: new Map() } }, "configured")).toBe("configured")
@@ -34,4 +34,10 @@ test("projectForChannel matches the channel or its parent", () => {
   expect(projectForChannel(projects, "thread", "p2")).toEqual({ channelId: "p2" })
   expect(projectForChannel(projects, "thread", "nope")).toBeUndefined()
   expect(projectForChannel(projects, "unknown")).toBeUndefined()
+})
+
+test("buildPromptText announces in-sandbox attachment paths and drops blanks", () => {
+  expect(buildPromptText("hello", ["/sandbox/.cely/inbox/a.txt"])).toBe("hello\n\n[attachment] /sandbox/.cely/inbox/a.txt")
+  expect(buildPromptText("   ", [])).toBe("")
+  expect(buildPromptText("", ["/x"])).toBe("[attachment] /x")
 })
