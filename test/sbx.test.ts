@@ -19,21 +19,29 @@ test("sandbox names cap at 63 and trim trailing separators", () => {
 test("sandbox names dedupe against taken set", () => {
   expect(buildSandboxName("demo", new Set(["celly-demo"]))).toBe("celly-demo-2")
 })
-test("parses sbx ls fixtures", () => {
-  expect(parseSbxLs(ls)).toEqual([{ name: "celly-spike", agent: "opencode", status: "running", hostPort: 4399, workspace: "C:\\Users\\artur\\projects\\spike" }])
+test("parses the real sbx ls --json shape ({ sandboxes: [...] })", () => {
+  expect(parseSbxLs(ls)).toEqual([
+    { name: "opencode-discordAI", agent: "opencode", status: "running", workspace: "C:\\Users\\artur\\Documents\\projects\\discordAI" },
+    { name: "opencode-projects", agent: "opencode", status: "stopped", workspace: "C:\\Users\\artur\\Documents\\projects" },
+  ])
+})
+test("parseSbxLs still accepts a bare array", () => {
+  expect(parseSbxLs([{ name: "s", agent: "opencode", status: "running", workspaces: ["C:\\p"] }]))
+    .toEqual([{ name: "s", agent: "opencode", status: "running", workspace: "C:\\p" }])
+})
+test("parseSbxLs accepts an empty sandbox list", () => {
+  expect(parseSbxLs({ sandboxes: [] })).toEqual([])
 })
 test("parses sbx ports fixtures", () => {
   expect(parseSbxPorts(ports)).toEqual([{ hostIp: "127.0.0.1", hostPort: 4399, sandboxPort: 4096, protocol: "tcp4" }])
 })
-test("parsers throw SbxError on non-array input", () => {
+test("parsers throw SbxError on unexpected input", () => {
   expect(() => parseSbxLs({})).toThrow(SbxError)
+  expect(() => parseSbxLs({ sandboxes: "nope" })).toThrow(SbxError)
   expect(() => parseSbxPorts(null)).toThrow(SbxError)
 })
-test("parseSbxLs throws SbxError when a published port lacks a host_port", () => {
-  expect(() => parseSbxLs([{ name: "s", ports: [{ sandbox_port: 4096 }] }])).toThrow(SbxError)
-})
 test("parse errors include the received JSON shape for diagnosis", () => {
-  expect(() => parseSbxLs({ sandboxes: [] })).toThrow(/got object \{"sandboxes":\[\]\}/)
+  expect(() => parseSbxLs({ foo: [] })).toThrow(/got object \{"foo":\[\]\}/)
   expect(() => parseSbxPorts(null)).toThrow(/got null null/)
 })
 test("parseSbxPorts throws SbxError on missing or non-numeric fields", () => {

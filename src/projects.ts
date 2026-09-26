@@ -144,7 +144,6 @@ export class ProjectService {
     for (const p of db.projects.list()) taken.add(p.sandboxName)
     const sandboxName = buildSandboxName(input.name, taken)
     const used = new Set(db.projects.list().map((p) => p.hostPort))
-    for (const s of listed) if (typeof s.hostPort === "number" && Number.isInteger(s.hostPort)) used.add(s.hostPort)
     const hostPort = await allocatePort({ start: config.portRangeStart, end: config.portRangeEnd, used, isFree: (p) => this.isPortFree(p) })
     const serverPassword = randomBytes(16).toString("hex")
     let channelId: string | undefined

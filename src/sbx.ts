@@ -53,14 +53,18 @@ function jsonPreview(json: unknown): string {
   const type = Array.isArray(json) ? "array" : json === null ? "null" : typeof json
   return `${type} ${text.length > 300 ? `${text.slice(0, 300)}…` : text}`
 }
-export function parseSbxLs(json: unknown) {
-  if (!Array.isArray(json)) throw new SbxError(`sbx ls --json: expected an array, got ${jsonPreview(json)}`)
-  return json.map((raw: any) => ({
-    name: String(raw.name),
-    agent: String(raw.agent ?? ""),
-    status: String(raw.status ?? ""),
-    hostPort: Array.isArray(raw.ports) && raw.ports[0] ? requireNumber(raw.ports[0].host_port, "ports[0].host_port") : undefined,
-    workspace: raw.workspace === undefined ? undefined : String(raw.workspace),
+export interface SbxSandbox { name: string; agent: string; status: string; workspace?: string }
+export function parseSbxLs(json: unknown): SbxSandbox[] {
+  const object = typeof json === "object" && json !== null ? (json as { sandboxes?: unknown }) : undefined
+  const raw = Array.isArray(json) ? json : Array.isArray(object?.sandboxes) ? object.sandboxes : undefined
+  if (!raw) throw new SbxError(`sbx ls --json: expected { sandboxes: [...] }, got ${jsonPreview(json)}`)
+  return raw.map((entry: any) => ({
+    name: String(entry.name),
+    agent: String(entry.agent ?? ""),
+    status: String(entry.status ?? ""),
+    workspace: Array.isArray(entry.workspaces) && entry.workspaces[0] !== undefined
+      ? String(entry.workspaces[0])
+      : entry.workspace === undefined ? undefined : String(entry.workspace),
   }))
 }
 export function parseSbxPorts(json: unknown) {

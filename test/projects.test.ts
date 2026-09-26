@@ -548,11 +548,11 @@ test("addProject ignores a non-loopback port mapping and keeps the requested loo
   } finally { await server.close() }
 })
 
-test("addProject does not reuse a host port held by an orphan sandbox", async () => {
+test("addProject does not reuse a host port that fails the free/bind check", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
-  sbx.list = async () => [{ name: "celly-orphan", agent: "opencode", status: "running", hostPort: 4700 }]
+  sbx.list = async () => []
   const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4700, 4700), log: logger(),
-    isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
+    isPortFree: async (p: number) => p !== 4700, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
   await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })).rejects.toThrow(/exhausted/)
 })
 
