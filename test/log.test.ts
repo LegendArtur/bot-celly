@@ -82,6 +82,16 @@ test("logger does not throw on a BigInt field", () => {
   expect(parsed.count).toBe("10")
   info.mockRestore()
 })
+test("removing a secret from the array stops redacting it", () => {
+  const info = vi.spyOn(console, "info").mockImplementation(() => {})
+  const secrets = ["first", "second"]
+  const log = createLogger({ level: "info", secrets })
+  secrets.splice(secrets.indexOf("second"), 1)
+  log.info("later", { note: "second" })
+  const line = info.mock.calls[0]?.[0] as string
+  expect(line).toContain("second")
+  info.mockRestore()
+})
 test("truncate clears an existing log file at construction", () => {
   const dir = mkdtempSync(join(tmpdir(), "celly-log-"))
   const file = join(dir, "bot.log")

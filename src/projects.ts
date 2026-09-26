@@ -22,6 +22,7 @@ export interface ProjectDeps {
   onProjectDown?(channelId: string, projectName: string): void
   onProjectMissing?(channelId: string, projectName: string): void
   onProjectReady?(project: Project): void
+  onProjectRemoved?(project: Project): void
   applyPolicy?(client: OpencodeClient): Promise<void>
   killTimeoutMs?: number
 }
@@ -450,5 +451,6 @@ export class ProjectService {
     await this.deps.sbx.remove(p.sandboxName).catch(() => {})
     this.deps.db.projects.remove(channelId)
     await this.deps.deleteChannel(channelId).catch(() => {})
+    this.deps.onProjectRemoved?.(p)
   }
 }

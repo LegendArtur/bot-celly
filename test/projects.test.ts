@@ -572,6 +572,21 @@ test("remove kills the child, deletes the sandbox, row, and channel", async () =
   } finally { await server.close() }
 })
 
+const proj = { channelId: "c", guildId: "g", name: "demo", directory: "C:\\p", sandboxPath: null,
+  sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 }
+
+test("remove notifies onProjectRemoved with the removed project", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
+  db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  const removed: string[] = []
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+    isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {},
+    onProjectRemoved: (p: any) => { removed.push(p.name) } } as any)
+  await svc.remove("c")
+  expect(removed).toEqual(["demo"])
+  expect(db.projects.list()).toEqual([])
+})
+
 test("addProject persists the actual host port read back from sbx ports", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
   const server = await healthServer(true)

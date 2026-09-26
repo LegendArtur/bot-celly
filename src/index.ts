@@ -130,6 +130,10 @@ async function main(): Promise<void> {
       client, bucketFor, log,
     }),
     onProjectReady: (project) => { secrets.push(project.serverPassword); subscribeProject(project) },
+    onProjectRemoved: (project) => {
+      const index = secrets.indexOf(project.serverPassword)
+      if (index >= 0) secrets.splice(index, 1)
+    },
   })
 
   const clientFor = (threadId: string) => {
