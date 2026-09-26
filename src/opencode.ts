@@ -3,7 +3,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk"
 import type { Project } from "./types.ts"
 export type OpencodeClient = ReturnType<typeof createOpencodeClient> & { baseUrl: string; auth: string }
 
-function basicAuth(password: string): string {
+export function basicAuth(password: string): string {
   return "Basic " + Buffer.from(`opencode:${password}`).toString("base64")
 }
 export function createClient(baseUrl: string, password: string): OpencodeClient {

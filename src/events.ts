@@ -1,3 +1,5 @@
+import { basicAuth } from "./opencode.js"
+
 export type NormalizedEvent =
   | { kind: "text"; sessionId: string; messageId: string; partId: string; text: string }
   | { kind: "tool"; sessionId: string; messageId: string; partId: string; name: string; status: string }
@@ -21,15 +23,20 @@ function toPatterns(value: unknown): string[] {
   return [String(value)]
 }
 
+export function partToEvent(sessionId: string, messageId: string, part: any): NormalizedEvent | null {
+  if (!part || typeof part !== "object") return null
+  if (part.type === "text") return { kind: "text", sessionId, messageId, partId: part.id, text: part.text ?? "" }
+  if (part.type === "tool") return { kind: "tool", sessionId, messageId, partId: part.id, name: part.tool ?? "tool", status: part.state?.status ?? "unknown" }
+  return null
+}
+
 export function normalizeEvent(raw: any): NormalizedEvent | null {
   const event = raw?.payload ?? raw
   const p = event?.properties ?? {}
   switch (event?.type) {
     case "message.part.updated": {
       const part = p.part ?? {}
-      if (part.type === "text") return { kind: "text", sessionId: part.sessionID ?? p.sessionID, messageId: part.messageID, partId: part.id, text: part.text ?? "" }
-      if (part.type === "tool") return { kind: "tool", sessionId: part.sessionID ?? p.sessionID, messageId: part.messageID, partId: part.id, name: part.tool ?? "tool", status: part.state?.status ?? "unknown" }
-      return null
+      return partToEvent(part.sessionID ?? p.sessionID, part.messageID, part)
     }
     case "session.idle": return { kind: "idle", sessionId: p.sessionID }
     case "session.error": return { kind: "error", sessionId: p.sessionID, message: errorMessage(p.error) }
@@ -77,7 +84,7 @@ export interface EventRouterDeps {
 export class EventRouter {
   constructor(private readonly deps: EventRouterDeps) {}
   async subscribe(baseUrl: string, password: string, signal: AbortSignal): Promise<void> {
-    const auth = "Basic " + Buffer.from(`opencode:${password}`).toString("base64")
+    const auth = basicAuth(password)
     let connectedBefore = false
     let backoff = INITIAL_BACKOFF
     let warned = false

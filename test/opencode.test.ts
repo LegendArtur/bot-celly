@@ -1,7 +1,11 @@
 // test/opencode.test.ts
 import { createServer } from "node:http"
 import { expect, test } from "vitest"
-import { applyAndAssertCellyPolicy, BASH_DENY, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, resolveClient, waitForHealth } from "../src/opencode.ts"
+import { applyAndAssertCellyPolicy, BASH_DENY, basicAuth, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, resolveClient, waitForHealth } from "../src/opencode.ts"
+
+test("basicAuth encodes the opencode user and password", () => {
+  expect(basicAuth("pw")).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
+})
 
 test("serve args source the sandbox env and never contain a password", () => {
   const args = buildServeArgs()

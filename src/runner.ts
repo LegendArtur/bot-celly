@@ -1,5 +1,6 @@
 import { bashDenyPatterns } from "./opencode.js"
 import type { OpencodeClient } from "./opencode.ts"
+import { partToEvent } from "./events.js"
 import type { NormalizedEvent } from "./events.ts"
 import type { Renderer } from "./render.ts"
 import type { Db } from "./db.ts"
@@ -146,13 +147,6 @@ export function evaluatePermission(req: { tool: string; patterns: string[] }, de
     if (normalizedDeny.some((d) => matches(d, normalized))) return "reject"
   }
   return "once"
-}
-
-function partToEvent(sessionId: string, messageId: string, part: any): NormalizedEvent | null {
-  if (!part || typeof part !== "object") return null
-  if (part.type === "text") return { kind: "text", sessionId, messageId, partId: part.id, text: part.text ?? "" }
-  if (part.type === "tool") return { kind: "tool", sessionId, messageId, partId: part.id, name: part.tool ?? "tool", status: part.state?.status ?? "unknown" }
-  return null
 }
 
 export interface RunnerDeps {

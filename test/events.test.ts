@@ -2,7 +2,7 @@
 import { createServer } from "node:http"
 import { readFileSync } from "node:fs"
 import { expect, test, vi } from "vitest"
-import { EventRouter, INITIAL_BACKOFF, MAX_BACKOFF, nextBackoff, normalizeEvent, trimSseBuffer } from "../src/events.ts"
+import { EventRouter, INITIAL_BACKOFF, MAX_BACKOFF, nextBackoff, normalizeEvent, partToEvent, trimSseBuffer } from "../src/events.ts"
 
 test("normalizes a text part", () => {
   expect(normalizeEvent({ type: "message.part.updated", properties: { part: { id: "p1", messageID: "m1", sessionID: "s1", type: "text", text: "hi" } } }))
@@ -64,6 +64,38 @@ const waitFor = async (predicate: () => boolean, timeoutMs = 5000) => {
   }
   throw new Error("waitFor timed out")
 }
+
+test("partToEvent maps a bare text or tool part and ignores others", () => {
+  expect(partToEvent("s1", "m1", { id: "p1", type: "text", text: "hi" }))
+    .toEqual({ kind: "text", sessionId: "s1", messageId: "m1", partId: "p1", text: "hi" })
+  expect(partToEvent("s1", "m1", { id: "p2", type: "tool", tool: "bash", state: { status: "running" } }))
+    .toEqual({ kind: "tool", sessionId: "s1", messageId: "m1", partId: "p2", name: "bash", status: "running" })
+  expect(partToEvent("s1", "m1", { id: "p3", type: "step" })).toBeNull()
+})
+
+test("the event stream sends the opencode basic auth header", async () => {
+  let auth: string | undefined
+  const server = createServer((req, res) => {
+    auth = req.headers.authorization
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
+    res.flushHeaders()
+    res.end()
+  })
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    const router = new EventRouter({ route: () => undefined, onEvent: () => {}, onResync: async () => {}, knownSessions: () => [] })
+    const ac = new AbortController()
+    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    await waitFor(() => auth !== undefined)
+    ac.abort()
+    await done
+    expect(auth).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
+  } finally {
+    server.close()
+    server.closeAllConnections()
+  }
+})
 
 test("routes SSE frames by session and resyncs known sessions on reconnect", async () => {
   const events: Array<{ threadId: string; e: any }> = []
