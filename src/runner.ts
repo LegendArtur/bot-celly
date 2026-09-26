@@ -4,6 +4,7 @@ import { partToEvent } from "./events.js"
 import type { NormalizedEvent } from "./events.ts"
 import type { Renderer } from "./render.ts"
 import type { Db } from "./db.ts"
+import type { Thread } from "./types.ts"
 
 const DEFAULT_DENY = bashDenyPatterns()
 // The real opencode tool ids (see @opencode-ai/sdk PermissionConfig) plus the
@@ -359,36 +360,33 @@ export class Runner {
     this.clearAbortTimer(thread.threadId)
     this.idle(thread.threadId, epoch)
   }
+  private async finalizeThread(thread: Thread, note?: { partId: string; text: string }): Promise<void> {
+    const epoch = this.owner.get(thread.threadId)
+    try {
+      const renderer = await this.rendererFor(thread.threadId)
+      if (note) renderer.push({ kind: "text", sessionId: thread.sessionId, messageId: "", partId: note.partId, text: note.text })
+      await renderer.finalize()
+    } catch {}
+    this.idle(thread.threadId, epoch)
+  }
+  private resetThread(thread: Thread): void {
+    this.clearRenderer(thread.threadId)
+    try { this.deps.db.threads.setRenderState(thread.threadId, "idle") } catch {}
+  }
   async handleProjectDown(channelId: string): Promise<void> {
     const threads = this.deps.db.threads.byChannel(channelId)
     for (const thread of threads) { this.queue.delete(thread.threadId); this.clearAbortTimer(thread.threadId) }
     for (const thread of threads) {
       if (!this.active.has(thread.threadId)) continue
-      const epoch = this.owner.get(thread.threadId)
-      try {
-        const renderer = await this.rendererFor(thread.threadId)
-        renderer.push({ kind: "text", sessionId: thread.sessionId, messageId: "", partId: `down-${thread.threadId}`, text: "[project server stopped]" })
-        await renderer.finalize()
-      } catch {}
-      this.idle(thread.threadId, epoch)
+      await this.finalizeThread(thread, { partId: `down-${thread.threadId}`, text: "[project server stopped]" })
     }
   }
   async resetChannel(channelId: string, opts: { notify?: boolean } = {}): Promise<void> {
     const threads = this.deps.db.threads.byChannel(channelId)
     for (const thread of threads) { this.queue.delete(thread.threadId); this.clearAbortTimer(thread.threadId) }
     for (const thread of threads) {
-      const epoch = this.owner.get(thread.threadId)
-      if (this.active.has(thread.threadId)) {
-        try {
-          const renderer = await this.rendererFor(thread.threadId)
-          if (opts.notify) renderer.push({ kind: "text", sessionId: thread.sessionId, messageId: "", partId: `stop-${thread.threadId}`, text: "[project stopped]" })
-          await renderer.finalize()
-        } catch {}
-        this.idle(thread.threadId, epoch)
-      } else {
-        this.clearRenderer(thread.threadId)
-        try { this.deps.db.threads.setRenderState(thread.threadId, "idle") } catch {}
-      }
+      if (!this.active.has(thread.threadId)) { this.resetThread(thread); continue }
+      await this.finalizeThread(thread, opts.notify ? { partId: `stop-${thread.threadId}`, text: "[project stopped]" } : undefined)
     }
   }
 }
