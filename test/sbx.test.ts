@@ -32,6 +32,10 @@ test("parsers throw SbxError on non-array input", () => {
 test("parseSbxLs throws SbxError when a published port lacks a host_port", () => {
   expect(() => parseSbxLs([{ name: "s", ports: [{ sandbox_port: 4096 }] }])).toThrow(SbxError)
 })
+test("parse errors include the received JSON shape for diagnosis", () => {
+  expect(() => parseSbxLs({ sandboxes: [] })).toThrow(/got object \{"sandboxes":\[\]\}/)
+  expect(() => parseSbxPorts(null)).toThrow(/got null null/)
+})
 test("parseSbxPorts throws SbxError on missing or non-numeric fields", () => {
   expect(() => parseSbxPorts([{ host_port: 1 }])).toThrow(SbxError)
   expect(() => parseSbxPorts([{ host_port: 1, sandbox_port: "nope" }])).toThrow(SbxError)

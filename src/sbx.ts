@@ -47,8 +47,14 @@ export function buildSandboxName(name: string, taken: Set<string>): string {
   }
 }
 
+function jsonPreview(json: unknown): string {
+  let text: string
+  try { text = JSON.stringify(json) ?? String(json) } catch { text = String(json) }
+  const type = Array.isArray(json) ? "array" : json === null ? "null" : typeof json
+  return `${type} ${text.length > 300 ? `${text.slice(0, 300)}…` : text}`
+}
 export function parseSbxLs(json: unknown) {
-  if (!Array.isArray(json)) throw new SbxError("sbx ls --json: expected array")
+  if (!Array.isArray(json)) throw new SbxError(`sbx ls --json: expected an array, got ${jsonPreview(json)}`)
   return json.map((raw: any) => ({
     name: String(raw.name),
     agent: String(raw.agent ?? ""),
@@ -58,7 +64,7 @@ export function parseSbxLs(json: unknown) {
   }))
 }
 export function parseSbxPorts(json: unknown) {
-  if (!Array.isArray(json)) throw new SbxError("sbx ports --json: expected array")
+  if (!Array.isArray(json)) throw new SbxError(`sbx ports --json: expected an array, got ${jsonPreview(json)}`)
   return json.map((raw: any) => ({
     hostIp: String(raw.host_ip ?? "127.0.0.1"),
     hostPort: requireNumber(raw.host_port, "host_port"),
