@@ -1,5 +1,7 @@
 // test/commands.test.ts
+import { readFileSync } from "node:fs"
 import { expect, test } from "vitest"
+import { ApplicationCommandOptionType, ComponentType } from "discord.js"
 import { SELECT_OPTION_MAX, SELECT_OPTIONS_MAX, commandData, handleCommand, handleSelect, requiresOwner, sanitizeSelectOptions } from "../src/commands.ts"
 import { isOwner } from "../src/discord.ts"
 import { openDb } from "../src/db.ts"
@@ -60,6 +62,24 @@ test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
   const subs = project.options.map((o: any) => o.name).sort()
   expect(subs).toEqual(["add", "create", "list", "remove", "start", "status", "stop"])
+})
+test("command data and select rows use named Discord type constants", () => {
+  const source = readFileSync(new URL("../src/commands.ts", import.meta.url), "utf8")
+  expect(source).not.toMatch(/type:\s*[13]\b/)
+
+  const project = commandData().find((c) => c.name === "project")!
+  const create = project.options.find((o: any) => o.name === "create")!
+  expect(create.type).toBe(ApplicationCommandOptionType.Subcommand)
+  expect(create.options[0].type).toBe(ApplicationCommandOptionType.String)
+
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert(threadRow("t1"))
+  const i = interaction({ commandName: "resume", channelId: "c" })
+  return handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    listSessions: async () => [{ id: "s1", title: "First" }] }).then(() => {
+    expect(editOf(i).components[0].type).toBe(ComponentType.ActionRow)
+    expect(editOf(i).components[0].components[0].type).toBe(ComponentType.StringSelect)
+  })
 })
 test("handleCommand defers ephemerally and answers status", async () => {
   const i = interaction({ sub: "status", strings: { name: "demo" } })

@@ -1,25 +1,26 @@
+import { ApplicationCommandOptionType, ComponentType } from "discord.js"
 import type { Db } from "./db.ts"
 import type { ProjectService } from "./projects.ts"
 import type { Runner } from "./runner.ts"
 
 export function commandData(): any[] {
   const project = { name: "project", description: "Manage Celly projects", options: [
-    { type: 1, name: "add", description: "Register an existing directory", options: [
-      { type: 3, name: "name", description: "Project name", required: true },
-      { type: 3, name: "path", description: "Host directory under PROJECTS_ROOT", required: true } ] },
-    { type: 1, name: "create", description: "Create a project directory", options: [
-      { type: 3, name: "name", description: "Project name", required: true } ] },
-    { type: 1, name: "list", description: "List projects" },
-    { type: 1, name: "status", description: "Project status", options: [
-      { type: 3, name: "name", description: "Project name", required: true } ] },
-    { type: 1, name: "start", description: "Wake a project", options: [{ type: 3, name: "name", description: "Project name", required: true }] },
-    { type: 1, name: "stop", description: "Stop a project", options: [{ type: 3, name: "name", description: "Project name", required: true }] },
-    { type: 1, name: "remove", description: "Remove a project", options: [
-      { type: 3, name: "name", description: "Project name", required: true },
-      { type: 3, name: "confirm", description: "Type the project name to confirm", required: true } ] },
+    { type: ApplicationCommandOptionType.Subcommand, name: "add", description: "Register an existing directory", options: [
+      { type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true },
+      { type: ApplicationCommandOptionType.String, name: "path", description: "Host directory under PROJECTS_ROOT", required: true } ] },
+    { type: ApplicationCommandOptionType.Subcommand, name: "create", description: "Create a project directory", options: [
+      { type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true } ] },
+    { type: ApplicationCommandOptionType.Subcommand, name: "list", description: "List projects" },
+    { type: ApplicationCommandOptionType.Subcommand, name: "status", description: "Project status", options: [
+      { type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true } ] },
+    { type: ApplicationCommandOptionType.Subcommand, name: "start", description: "Wake a project", options: [{ type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true }] },
+    { type: ApplicationCommandOptionType.Subcommand, name: "stop", description: "Stop a project", options: [{ type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true }] },
+    { type: ApplicationCommandOptionType.Subcommand, name: "remove", description: "Remove a project", options: [
+      { type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true },
+      { type: ApplicationCommandOptionType.String, name: "confirm", description: "Type the project name to confirm", required: true } ] },
   ] }
   return [ project,
-    { name: "new", description: "Start a new session", options: [{ type: 3, name: "prompt", description: "Initial prompt" }] },
+    { name: "new", description: "Start a new session", options: [{ type: ApplicationCommandOptionType.String, name: "prompt", description: "Initial prompt" }] },
     { name: "resume", description: "Resume a session" },
     { name: "abort", description: "Abort the current run" },
     { name: "model", description: "Choose the model for this thread" },
@@ -94,7 +95,7 @@ export function sanitizeSelectOptions(options: { label?: unknown; value?: unknow
 }
 
 function selectRow(customId: string, placeholder: string, options: { label: string; value: string }[]): any {
-  return { type: 1, components: [{ type: 3, custom_id: customId, placeholder, min_values: 1, max_values: 1, options: sanitizeSelectOptions(options) }] }
+  return { type: ComponentType.ActionRow, components: [{ type: ComponentType.StringSelect, custom_id: customId, placeholder, min_values: 1, max_values: 1, options: sanitizeSelectOptions(options) }] }
 }
 
 const OWNER_ONLY_PROJECT_SUBS = new Set(["add", "create", "start", "stop", "remove"])
