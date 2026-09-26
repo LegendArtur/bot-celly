@@ -456,7 +456,10 @@ async function main(): Promise<void> {
   }
   guild = await client.guilds.fetch(cfg.guildId)
   await guild.commands.set(commandData())
-  if (client.isReady()) { subscribeReadyProjects(); void reconcileThreads().catch((err) => log.error("boot reconcile failed", { error: String(err) })) }
+  // Boot subscribe + thread reconcile are driven by the Events.ClientReady
+  // handler registered above; running them again here would double-wake every
+  // project. ClientReady fires during `client.login()` (the handler is attached
+  // before login), so no explicit fallback is needed.
 
   log.info("Celly ready", { guild: guild.name })
   const required: Array<[string, bigint]> = [
