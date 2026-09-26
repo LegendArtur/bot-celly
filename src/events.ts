@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises"
 import { basicAuth } from "./opencode.js"
 
 export type NormalizedEvent =
@@ -66,13 +67,9 @@ export function trimSseBuffer(buf: string, max = MAX_SSE_BUFFER): string {
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    let timer: ReturnType<typeof setTimeout>
-    const done = () => { clearTimeout(timer); signal.removeEventListener("abort", done); resolve() }
-    timer = setTimeout(done, ms)
-    if (signal.aborted) done()
-    else signal.addEventListener("abort", done, { once: true })
-  })
+  // `delay` rejects with AbortError when the signal fires; the caller checks
+  // signal.aborted itself, so swallow the rejection.
+  return delay(ms, undefined, { signal }).then(() => undefined, () => undefined)
 }
 
 export interface EventRouterDeps {
