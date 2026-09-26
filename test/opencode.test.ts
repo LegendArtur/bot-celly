@@ -75,7 +75,7 @@ test("waitForHealth resolves when /global/health is healthy", async () => {
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
     const port = (server.address() as any).port
     const client = { baseUrl: `http://127.0.0.1:${port}` } as any
-    await expect(waitForHealth(client, 2000, 10)).resolves.toBeUndefined()
+    await expect(waitForHealth(client, 2000, { intervalMs: 10 })).resolves.toBeUndefined()
   } finally {
     server.close()
   }
@@ -85,7 +85,7 @@ test("waitForHealth rejects on timeout", async () => {
   try {
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
     const port = (server.address() as any).port
-    await expect(waitForHealth({ baseUrl: `http://127.0.0.1:${port}` } as any, 150, 20)).rejects.toThrow(/health/)
+    await expect(waitForHealth({ baseUrl: `http://127.0.0.1:${port}` } as any, 150, { intervalMs: 20 })).rejects.toThrow(/health/)
   } finally {
     server.close()
   }
@@ -145,7 +145,7 @@ test("waitForHealth sends credentials and succeeds on an auth-guarded server", a
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
     const port = (server.address() as any).port
     const client = createClient(`http://127.0.0.1:${port}`, "pw")
-    await expect(waitForHealth(client, 1000, 10)).resolves.toBeUndefined()
+    await expect(waitForHealth(client, 1000, { intervalMs: 10 })).resolves.toBeUndefined()
   } finally {
     server.close()
   }
@@ -157,7 +157,7 @@ test("waitForHealth aborts a hung connection within its budget", async () => {
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
     const port = (server.address() as any).port
     const started = Date.now()
-    await expect(waitForHealth({ baseUrl: `http://127.0.0.1:${port}` } as any, 300, 50)).rejects.toThrow(/health/)
+    await expect(waitForHealth({ baseUrl: `http://127.0.0.1:${port}` } as any, 300, { intervalMs: 50 })).rejects.toThrow(/health/)
     expect(Date.now() - started).toBeLessThan(2000)
   } finally {
     server.close()
@@ -175,7 +175,7 @@ test("waitForHealth bounds each attempt so a hung connection cannot exhaust the 
   try {
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
     const port = (server.address() as any).port
-    await expect(waitForHealth({ baseUrl: `http://127.0.0.1:${port}` } as any, 2000, 10, 50)).resolves.toBeUndefined()
+    await expect(waitForHealth({ baseUrl: `http://127.0.0.1:${port}` } as any, 2000, { intervalMs: 10, attemptTimeoutMs: 50 })).resolves.toBeUndefined()
     expect(requests).toBeGreaterThanOrEqual(2)
   } finally {
     server.close()

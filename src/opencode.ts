@@ -143,12 +143,18 @@ export function buildBootstrapInstallScript(password: string): string {
  */
 export const HEALTH_ATTEMPT_TIMEOUT_MS = 3000
 
+export interface HealthWaitOptions {
+  intervalMs?: number
+  attemptTimeoutMs?: number
+}
+
 export async function waitForHealth(
   client: { baseUrl: string; auth?: string },
   timeoutMs: number,
-  intervalMs = 500,
-  attemptTimeoutMs = HEALTH_ATTEMPT_TIMEOUT_MS,
+  options: HealthWaitOptions = {},
 ): Promise<void> {
+  const intervalMs = options.intervalMs ?? 500
+  const attemptTimeoutMs = options.attemptTimeoutMs ?? HEALTH_ATTEMPT_TIMEOUT_MS
   const deadline = Date.now() + timeoutMs
   let last = ""
   while (Date.now() < deadline) {
