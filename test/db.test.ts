@@ -106,3 +106,19 @@ test("removing a project cascades to its threads", () => {
   expect(db.projects.getByChannel("c1")).toBeUndefined()
   expect(db.threads.get("t1")).toBeUndefined()
 })
+test("v4 adds an index on threads.channel_id", () => {
+  const dir = mkdtempSync(join(tmpdir(), "celly-db-index-"))
+  const file = join(dir, "bot.db")
+  try {
+    const db = openDb(file)
+    db.migrate()
+    db.close()
+    const raw = new DatabaseSync(file)
+    const names = (raw.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='threads'").all() as any[]).map((r) => r.name)
+    expect(names).toContain("idx_threads_channel")
+    expect(Number((raw.prepare("PRAGMA user_version").get() as any).user_version)).toBe(4)
+    raw.close()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

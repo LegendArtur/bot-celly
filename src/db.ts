@@ -62,6 +62,7 @@ const MIGRATIONS: { version: number; up(raw: DatabaseSync): void }[] = [
   { version: 1, up: (raw) => raw.exec(SCHEMA_V1) },
   { version: 2, up: (raw) => raw.exec(SCHEMA_V2) },
   { version: 3, up: (raw) => raw.exec("ALTER TABLE threads ADD COLUMN live_message_ids TEXT") },
+  { version: 4, up: (raw) => raw.exec("CREATE INDEX IF NOT EXISTS idx_threads_channel ON threads(channel_id)") },
 ]
 function userVersion(raw: DatabaseSync): number {
   const row = raw.prepare("PRAGMA user_version").get() as { user_version?: number } | undefined
