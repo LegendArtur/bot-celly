@@ -159,6 +159,12 @@ export class Sbx {
     await this.must(["create", o.template ?? this.template, o.directory, "--name", o.name, "--publish", `${o.hostPort}:4096`, "--cpus", String(o.cpus), "--memory", o.memory])
   }
   async exec(name: string, args: string[], opts: { timeoutMs?: number } = {}) { return this.must(["exec", name, ...args], opts.timeoutMs) }
+  async home(name: string): Promise<string> {
+    const r = await this.must(["exec", name, "bash", "-lc", 'printf %s "$HOME"'])
+    const home = r.stdout.trim()
+    if (!home.startsWith("/")) throw new SbxError(`could not resolve sandbox HOME (got "${home}")`)
+    return home
+  }
   execStream(name: string, argv: string[]) { return this.runner.spawnStream(["exec", name, ...argv]) }
   async cp(from: string, to: string) { await this.must(["cp", from, to]) }
   async stop(name: string) { await this.must(["stop", name]) }

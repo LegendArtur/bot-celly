@@ -8,7 +8,7 @@ import type { Db } from "./db.ts"
 import type { Project } from "./types.ts"
 import { allocatePort, buildSandboxName, defaultForbiddenPaths, isPathInside, isSensitivePath, sanitizeProjectDirName, Sbx, SbxRunner } from "./sbx.js"
 import type { ChildProcess } from "./sbx.js"
-import { applyAndAssertCellyPolicy, BOOTSTRAP_SCRIPT, BOOTSTRAP_VERIFY, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, createClient, waitForHealth } from "./opencode.js"
+import { applyAndAssertCellyPolicy, BOOTSTRAP_FINALIZE, BOOTSTRAP_PREPARE, BOOTSTRAP_VERIFY, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, createClient, waitForHealth } from "./opencode.js"
 import type { OpencodeClient } from "./opencode.js"
 import { redact } from "./log.js"
 
@@ -101,9 +101,14 @@ export class ProjectService {
     try {
       writeFileSync(configFile, buildCellyConfigJson(), { mode: 0o600 })
       writeFileSync(envFile, buildOpencodeEnv(serverPassword), { mode: 0o600 })
-      await this.deps.sbx.cp(configFile, `${sandboxName}:/tmp/celly-opencode.json`)
-      await this.deps.sbx.cp(envFile, `${sandboxName}:/tmp/celly-opencode.env`)
-      await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_SCRIPT])
+      // Copy straight into the sandbox config dir. Do NOT stage in the sandbox's
+      // /tmp and `mv`: that mount denies the rename/move (EPERM) in sbx sandboxes.
+      await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_PREPARE])
+      const home = await this.deps.sbx.home(sandboxName)
+      const base = `${sandboxName}:${home}/.config/celly`
+      await this.deps.sbx.cp(configFile, `${base}/opencode.json`)
+      await this.deps.sbx.cp(envFile, `${base}/opencode.env`)
+      await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_FINALIZE])
       await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_VERIFY])
     } finally {
       rmSync(dir, { recursive: true, force: true })

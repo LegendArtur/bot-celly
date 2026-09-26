@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
 import { openDb } from "../src/db.ts"
-import { BOOTSTRAP_SCRIPT, cellyPolicy } from "../src/opencode.ts"
+import { BOOTSTRAP_PREPARE, BOOTSTRAP_VERIFY, cellyPolicy } from "../src/opencode.ts"
 import { ProjectService } from "../src/projects.ts"
 
 function makeCfg(portStart: number, portEnd: number): any {
@@ -60,6 +60,7 @@ function fakes() {
     create: async (o: any) => { calls.push(["create", o.name]); published.set(o.name, o.hostPort) },
     publish: async (name: string, mapping: string) => { calls.push(["publish", name, mapping]); published.set(name, Number(mapping.split(":")[0])) },
     exec: async () => ({ code: 0, stdout: "", stderr: "" }),
+    home: async () => "/home/agent",
     start: async (n: string) => { calls.push(["start", n]); return { code: 0, stdout: "", stderr: "" } },
     cp: async () => {}, stop: async (n: string) => { calls.push(["stop", n]) },
     remove: async (n: string) => { calls.push(["rm", n]) },
@@ -134,7 +135,7 @@ test("addProject writes and verifies the celly bootstrap before starting the ser
     const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
-    expect(order.findIndex((o) => o === "serve")).toBeGreaterThan(order.findIndex((o) => o.includes("celly-opencode.env")))
+    expect(order.findIndex((o) => o === "serve")).toBeGreaterThan(order.findIndex((o) => o.includes("/.config/celly/opencode.env")))
     expect(envContent).toContain("OPENCODE_CONFIG=$HOME/.config/celly/opencode.json")
     const password = envContent.match(/OPENCODE_SERVER_PASSWORD=(\w+)/)?.[1] ?? ""
     expect(password).not.toBe("")
@@ -172,7 +173,7 @@ test("addProject fails the saga when sandbox bootstrap fails", async () => {
   const db = openDb(":memory:"); db.migrate()
   const { sbx, runner, calls } = fakes()
   sbx.exec = async (_n: string, args: string[]) => {
-    if (args.some((a) => a.includes("celly-opencode"))) throw new Error("bootstrap failed")
+    if (args[0] === "bash" && args[2] === BOOTSTRAP_VERIFY) throw new Error("bootstrap failed")
     return { code: 0, stdout: "", stderr: "" }
   }
   const deleted: string[] = []
@@ -319,7 +320,7 @@ test("addProject retries the sandbox bootstrap once before succeeding", async ()
   let bootstrapRuns = 0
   let failOnce = true
   sbx.exec = async (_n: string, args: string[]) => {
-    if (args[0] === "bash" && args[2] === BOOTSTRAP_SCRIPT) {
+    if (args[0] === "bash" && args[2] === BOOTSTRAP_PREPARE) {
       bootstrapRuns++
       if (failOnce) { failOnce = false; throw new Error("bootstrap flaky") }
     }

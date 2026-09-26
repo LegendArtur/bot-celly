@@ -113,7 +113,8 @@ export async function applyAndAssertCellyPolicy(client: PolicyClient): Promise<v
   }
 }
 
-export const BOOTSTRAP_SCRIPT = `set -e; mkdir -p ${CELLY_CONFIG_DIR}; mv /tmp/celly-opencode.json ${CELLY_CONFIG_PATH}; mv /tmp/celly-opencode.env ${CELLY_ENV_PATH}; chmod 600 ${CELLY_ENV_PATH}`
+export const BOOTSTRAP_PREPARE = `set -e; mkdir -p ${CELLY_CONFIG_DIR}; chmod 700 ${CELLY_CONFIG_DIR}`
+export const BOOTSTRAP_FINALIZE = `set -e; chmod 600 ${CELLY_CONFIG_PATH} ${CELLY_ENV_PATH}`
 export const BOOTSTRAP_VERIFY = `test -s ${CELLY_CONFIG_PATH} && test -s ${CELLY_ENV_PATH} && grep -q '"permission"' ${CELLY_CONFIG_PATH} && grep -q 'OPENCODE_SERVER_PASSWORD=' ${CELLY_ENV_PATH}`
 
 export async function waitForHealth(client: { baseUrl: string; auth?: string }, timeoutMs: number, intervalMs = 500): Promise<void> {
