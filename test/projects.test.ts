@@ -147,7 +147,7 @@ test("addProject reports staged progress around the slow steps", async () => {
     const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" }, (s) => { stages.push(s) })
-    expect(stages).toEqual(["creating sandbox…", "installing…", "waiting for server…"])
+    expect(stages).toEqual(["creating sandbox…", "installing…", "starting server…"])
   } finally { await server.close() }
 })
 

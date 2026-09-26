@@ -116,7 +116,7 @@ async function main(): Promise<void> {
       if (channel) await channel.delete().catch(() => {})
     },
     resolveSandboxPath: async (name) => {
-      const r = await sbxRunner.run(["exec", name, "pwd"])
+      const r = await sbxRunner.run(["exec", name, "pwd"], { timeoutMs: 15_000 })
       const path = r.stdout.trim()
       if (r.code !== 0 || !path) throw new Error(`could not resolve in-sandbox workspace for ${name}`)
       return path

@@ -164,7 +164,7 @@ export class Sbx {
     return r
   }
   async list() { const r = await this.must(["ls", "--json"]); return parseSbxLs(parseJson(r.stdout, "ls --json")) }
-  async ports(name: string) { const r = await this.must(["ports", name, "--json"]); return parseSbxPorts(parseJson(r.stdout, "ports --json")) }
+  async ports(name: string, opts: { timeoutMs?: number } = {}) { const r = await this.must(["ports", name, "--json"], opts.timeoutMs); return parseSbxPorts(parseJson(r.stdout, "ports --json")) }
   async publish(name: string, mapping: string, opts: { timeoutMs?: number } = {}) { await this.must(["ports", name, "--publish", mapping], opts.timeoutMs) }
   async create(o: CreateOpts) {
     validateCreateOpts(o)

@@ -149,12 +149,12 @@ export class ProjectService {
       await sbx.exec(sandboxName, ["true"])
       await this.report(onProgress, "installing…")
       await this.bootstrapSandbox(sandboxName, serverPassword)
-      await this.report(onProgress, "waiting for server…")
+      await this.report(onProgress, "starting server…")
       const actualPort = await this.readBackPort(channelId, sandboxName, hostPort)
       const sandboxPath = await this.resolveSandboxPath(channelId, sandboxName, input.directory)
-      this.bootServer(channelId)
+      const child = this.bootServer(channelId)
       const client = createClient(`http://127.0.0.1:${actualPort}`, serverPassword)
-      await waitForHealth(client, config.bootTimeoutMs)
+      await this.waitForServer(client, config.bootTimeoutMs, child, sandboxName)
       await this.applyPolicy(client)
       db.projects.setReady(channelId, sandboxPath)
       this.deps.onProjectReady?.(db.projects.getByChannel(channelId)!)
@@ -171,7 +171,7 @@ export class ProjectService {
   private async readBackPort(channelId: string, sandboxName: string, requested: number): Promise<number> {
     let mappings: Array<{ hostIp: string; hostPort: number; sandboxPort: number; protocol: string }>
     try {
-      mappings = await this.deps.sbx.ports(sandboxName)
+      mappings = await this.deps.sbx.ports(sandboxName, { timeoutMs: 15_000 })
     } catch (e) {
       this.deps.log.warn("host port read-back failed; using the requested host port", { channelId, requested, error: String(e) })
       return requested
@@ -280,10 +280,11 @@ export class ProjectService {
     }
   }
 
-  private bootServer(channelId: string): void {
+  private bootServer(channelId: string): ChildProcess {
     const project = this.deps.db.projects.getByChannel(channelId)
     if (!project) throw new Error(`project ${channelId} not found`)
-    if (this.children.get(channelId)) return
+    const existing = this.children.get(channelId)
+    if (existing) return existing
     this.adopted.delete(channelId)
     const child = this.deps.sbx.execStream(project.sandboxName, buildServeArgs())
     const logFile = join(this.deps.config.dataDir, "logs", `${project.sandboxName}.log`)
@@ -306,6 +307,32 @@ export class ProjectService {
       this.deps.onProjectDown?.(channelId, project.name)
     })
     this.children.set(channelId, child)
+    return child
+  }
+
+  /**
+   * Fail fast if the supervised serve child dies during startup instead of
+   * waiting out the full health timeout. The child's output is in the project
+   * log file, named in the error.
+   */
+  private async waitForServer(
+    client: OpencodeClient,
+    timeoutMs: number,
+    child: ChildProcess,
+    sandboxName: string,
+  ): Promise<void> {
+    const logFile = join(this.deps.config.dataDir, "logs", `${sandboxName}.log`)
+    let onExit: (() => void) | undefined
+    const exited = new Promise<never>((_, reject) => {
+      onExit = () => reject(new Error(`opencode serve exited during startup; see ${logFile}`))
+      child.on("exit", onExit)
+    })
+    void exited.catch(() => {})
+    try {
+      await Promise.race([waitForHealth(client, timeoutMs), exited])
+    } finally {
+      if (onExit) child.off?.("exit", onExit)
+    }
   }
 
   async ensureReady(channelId: string): Promise<void> {
