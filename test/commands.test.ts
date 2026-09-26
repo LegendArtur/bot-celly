@@ -248,15 +248,22 @@ test("resume lists sessions and shows an ephemeral select", async () => {
   expect(menu.options).toEqual([{ label: "First", value: "s1" }, { label: "Second", value: "s2" }])
 })
 
-test("model and agent show selects for the current thread", async () => {
+test("model shows a provider select then a model select; agent shows a select", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
   db.threads.upsert(threadRow("t1"))
   const modelInteraction = interaction({ commandName: "model", channelId: "t1" })
   await handleCommand(modelInteraction, { projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
-    listModels: async () => [{ id: "anthropic/claude", name: "Claude" }] })
-  const modelMenu = editOf(modelInteraction).components[0].components[0]
+    listModels: async () => [{ id: "anthropic/claude", name: "Claude" }, { id: "deepseek/deepseek-chat", name: "DeepSeek Chat" }] })
+  const providerMenu = editOf(modelInteraction).components[0].components[0]
+  expect(providerMenu.custom_id).toBe("celly:model-provider:t1")
+  expect(providerMenu.options).toEqual([{ label: "anthropic (1)", value: "anthropic" }, { label: "deepseek (1)", value: "deepseek" }])
+
+  const providerSelect = select({ customId: "celly:model-provider:t1", values: ["deepseek"] })
+  await handleSelect(providerSelect, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    listModels: async () => [{ id: "anthropic/claude", name: "Claude" }, { id: "deepseek/deepseek-chat", name: "DeepSeek Chat" }] })
+  const modelMenu = editOf(providerSelect).components[0].components[0]
   expect(modelMenu.custom_id).toBe("celly:model:t1")
-  expect(modelMenu.options).toEqual([{ label: "Claude", value: "anthropic/claude" }])
+  expect(modelMenu.options).toEqual([{ label: "DeepSeek Chat", value: "deepseek/deepseek-chat" }])
 
   const agentInteraction = interaction({ commandName: "agent", channelId: "t1" })
   await handleCommand(agentInteraction, { projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,

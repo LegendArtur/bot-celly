@@ -48,6 +48,7 @@ export interface CommandDeps {
 }
 
 export const RESUME_SELECT = "resume"
+export const MODEL_PROVIDER_SELECT = "model-provider"
 export const MODEL_SELECT = "model"
 export const AGENT_SELECT = "agent"
 
@@ -161,8 +162,17 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (interaction.commandName === "model") {
         const models = (await deps.listModels?.(thread.channelId)) ?? []
         if (!models.length) return void await interaction.editReply(noMentions("no models available"))
-        const options = models.slice(0, 25).map((m) => ({ label: (m.name || m.id).slice(0, 100), value: m.id }))
-        return void await interaction.editReply({ content: "Choose a model for this thread:", components: [selectRow(selectCustomId(MODEL_SELECT, thread.threadId), "Select a model", options)], allowedMentions: { parse: [] } })
+        // Discord select menus cap at 25 options, and a flattened model list
+        // across every provider overflows it. Offer providers first, then that
+        // provider's models, so no provider is unreachable.
+        const providers = new Map<string, number>()
+        for (const m of models) {
+          const slash = m.id.indexOf("/")
+          const provider = slash > 0 ? m.id.slice(0, slash) : m.id
+          providers.set(provider, (providers.get(provider) ?? 0) + 1)
+        }
+        const options = [...providers.entries()].slice(0, 25).map(([provider, count]) => ({ label: `${provider} (${count})`.slice(0, 100), value: provider }))
+        return void await interaction.editReply({ content: "Choose a provider for this thread:", components: [selectRow(selectCustomId(MODEL_PROVIDER_SELECT, thread.threadId), "Select a provider", options)], allowedMentions: { parse: [] } })
       }
       const agents = (await deps.listAgents?.(thread.channelId)) ?? []
       if (!agents.length) return void await interaction.editReply(noMentions("no agents available"))
@@ -197,6 +207,15 @@ export async function handleSelect(interaction: any, deps: CommandDeps): Promise
       const existing = deps.db.threads.getBySession(value)[0]
       const thread = await deps.createThread?.({ channelId: id, title: existing?.title ?? `resume ${new Date().toISOString()}`, sessionId: value, authorId: interaction.user?.id })
       return void await interaction.editReply({ content: thread ? `resumed in <#${thread.threadId}>` : "resume unavailable", components: [], allowedMentions: { parse: [] } })
+    }
+    if (action === MODEL_PROVIDER_SELECT) {
+      if (!id || !value) return void await interaction.editReply({ content: "no provider selected", components: [], allowedMentions: { parse: [] } })
+      const thread = deps.db.threads.get(id)
+      const models = (await deps.listModels?.(thread?.channelId ?? interaction.channelId)) ?? []
+      const forProvider = models.filter((m) => m.id.startsWith(`${value}/`))
+      if (!forProvider.length) return void await interaction.editReply({ content: `no models available for ${value}`, components: [], allowedMentions: { parse: [] } })
+      const options = forProvider.slice(0, 25).map((m) => ({ label: (m.name || m.id).slice(0, 100), value: m.id }))
+      return void await interaction.editReply({ content: `Choose a ${value} model:`, components: [selectRow(selectCustomId(MODEL_SELECT, id), "Select a model", options)], allowedMentions: { parse: [] } })
     }
     if (action === MODEL_SELECT) {
       deps.setThreadModel?.(id ?? interaction.channelId, value ?? null)
