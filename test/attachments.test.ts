@@ -95,7 +95,7 @@ test("ingestAttachments writes through the resolved inbox real path", async () =
     expect(out[0]!.hostPath).toBe(join(realInbox, "id-a.txt"))
     expect(out[0]!.sandboxPath).toBe("/sandbox/ws/.celly/inbox/id-a.txt")
   } finally {
-    rmSync(linkRoot, { force: true })
+    rmSync(linkRoot, { recursive: true, force: true })
     rmSync(realRoot, { recursive: true, force: true })
   }
 })

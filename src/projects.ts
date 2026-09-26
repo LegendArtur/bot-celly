@@ -26,6 +26,12 @@ export interface ProjectDeps {
   killTimeoutMs?: number
 }
 
+/**
+ * A short first health probe at wake distinguishes a live orphan server from a
+ * cold one without burning the full boot budget when the forwarder is stale.
+ */
+const INITIAL_HEALTH_PROBE_MS = 5000
+
 function isLoopbackHost(hostIp: string | undefined): boolean {
   const ip = (hostIp ?? "127.0.0.1").replace(/^\[|\]$/g, "").toLowerCase()
   return ip === "127.0.0.1" || ip === "localhost" || ip === "::1" || ip === "0:0:0:0:0:0:0:1"
@@ -238,6 +244,32 @@ export class ProjectService {
     return p.hostPort
   }
 
+  private async probeHealth(client: OpencodeClient, timeoutMs: number): Promise<boolean> {
+    try { await waitForHealth(client, timeoutMs); return true } catch { return false }
+  }
+
+  /**
+   * The sandboxd port-forwarder can keep accepting host connections after a
+   * sandbox restart while no longer forwarding them, so a health probe hangs
+   * until its timeout even though the in-sandbox server is up. Removing and
+   * re-adding the 4096 binding rebuilds the forwarder; re-read the live mapping
+   * afterwards because the host port can change.
+   */
+  private async recycleHostPortMapping(channelId: string, p: Project, currentPort: number): Promise<number> {
+    const mapping = `${currentPort}:4096`
+    try {
+      await this.deps.sbx.unpublish(p.sandboxName, mapping, { timeoutMs: 15_000 })
+    } catch (e) {
+      this.deps.log.warn("sandbox port unpublish failed", { channelId, mapping, error: String(e) })
+    }
+    try {
+      await this.deps.sbx.publish(p.sandboxName, mapping, { timeoutMs: 15_000 })
+    } catch (e) {
+      this.deps.log.warn("sandbox port re-publish failed", { channelId, mapping, error: String(e) })
+    }
+    return this.readBackPort(channelId, p.sandboxName, currentPort)
+  }
+
   /** `/project start`: wake the sandbox, recreating it via the create path if gone. */
   async start(channelId: string): Promise<void> {
     const p = this.deps.db.projects.getByChannel(channelId)
@@ -355,10 +387,18 @@ export class ProjectService {
         }
         throw e
       }
-      const hostPort = await this.reconcileHostPort(channelId, p)
-      const client = createClient(`http://127.0.0.1:${hostPort}`, p.serverPassword)
-      let healthy = false
-      try { await waitForHealth(client, this.deps.config.healthTimeoutMs); healthy = true } catch {}
+      let hostPort = await this.reconcileHostPort(channelId, p)
+      let client = createClient(`http://127.0.0.1:${hostPort}`, p.serverPassword)
+      const probeTimeout = Math.min(this.deps.config.healthTimeoutMs, INITIAL_HEALTH_PROBE_MS)
+      let healthy = await this.probeHealth(client, probeTimeout)
+      if (!healthy) {
+        // A stale port-forwarder after a sandbox restart looks identical to a
+        // dead server to a single hung probe. Rebuild the 4096 binding and try
+        // once more before killing the (possibly live) server and re-booting.
+        hostPort = await this.recycleHostPortMapping(channelId, p, hostPort)
+        client = createClient(`http://127.0.0.1:${hostPort}`, p.serverPassword)
+        healthy = await this.probeHealth(client, probeTimeout)
+      }
       if (healthy) {
         // Re-assert the policy: a project opencode.json may have weakened the
         // bootstrap config, and a newly woken server starts from files again.
@@ -378,7 +418,7 @@ export class ProjectService {
       }
       catch (e) {
         this.killChild(channelId)
-        throw new Error(`project ${channelId} not healthy: ${(e as Error).message}`)
+        throw new Error(`project ${channelId} not healthy on 127.0.0.1:${hostPort} (4096 mapping ${hostPort}:4096): ${(e as Error).message}`)
       }
       this.deps.db.projects.setStatus(channelId, "ready")
     })()

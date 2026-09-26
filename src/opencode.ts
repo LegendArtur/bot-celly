@@ -136,15 +136,28 @@ export function buildBootstrapInstallScript(password: string): string {
   ].join("\n") + "\n"
 }
 
-export async function waitForHealth(client: { baseUrl: string; auth?: string }, timeoutMs: number, intervalMs = 500): Promise<void> {
+/**
+ * One hung connection (a stale sandboxd port-forwarder) must not consume the
+ * whole health budget, otherwise a single aborted fetch makes a perfectly
+ * healthy server look dead. Bound each attempt and retry until the deadline.
+ */
+export const HEALTH_ATTEMPT_TIMEOUT_MS = 3000
+
+export async function waitForHealth(
+  client: { baseUrl: string; auth?: string },
+  timeoutMs: number,
+  intervalMs = 500,
+  attemptTimeoutMs = HEALTH_ATTEMPT_TIMEOUT_MS,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs
   let last = ""
   while (Date.now() < deadline) {
     const remaining = deadline - Date.now()
+    const attempt = Math.max(1, Math.min(remaining, attemptTimeoutMs))
     try {
       const res = await fetch(`${client.baseUrl}/global/health`, {
         headers: client.auth ? { Authorization: client.auth } : undefined,
-        signal: AbortSignal.timeout(remaining),
+        signal: AbortSignal.timeout(attempt),
       })
       if (res.ok) { const body: any = await res.json(); if (body?.healthy) return; last = JSON.stringify(body) }
       else last = `HTTP ${res.status}`

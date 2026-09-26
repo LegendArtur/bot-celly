@@ -59,6 +59,7 @@ function fakes() {
       : []),
     create: async (o: any) => { calls.push(["create", o.name]); published.set(o.name, o.hostPort) },
     publish: async (name: string, mapping: string) => { calls.push(["publish", name, mapping]); published.set(name, Number(mapping.split(":")[0])) },
+    unpublish: async (name: string, mapping: string) => { calls.push(["unpublish", name, mapping]) },
     exec: async () => ({ code: 0, stdout: "", stderr: "" }),
     execWithInput: async () => ({ code: 0, stdout: "", stderr: "" }),
     start: async (n: string) => { calls.push(["start", n]); return { code: 0, stdout: "", stderr: "" } },
@@ -88,7 +89,7 @@ test("createProjectDirectory sanitizes the name and creates it under PROJECTS_RO
   try {
     const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
     const svc = new ProjectService({ sbx, runner: runner as any, db,
-      config: { ...makeCfg(4600, 4600), projectsRoot: root }, log: logger(),
+      config: { ...makeCfg(4600, 4600), projectsRoot: root }, log: logger(), forbiddenPaths: [],
       isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
     const dir = await svc.createProjectDirectory("My App/../evil")
     expect(dir.startsWith(root)).toBe(true)
@@ -413,6 +414,61 @@ test("ensureReady re-publishes a missing 4096 mapping under a timeout", async ()
   } finally { await server.close() }
 })
 
+test("ensureReady recycles a hung 4096 mapping and adopts the recovered server", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls, children } = fakes()
+  // Before the mapping is recycled the forwarded health connection hangs; after
+  // an unpublish/publish cycle the server answers. This mirrors a stale
+  // sandboxd forwarder after a sandbox restart.
+  let recycled = false
+  const server = createServer((req, res) => {
+    const url = req.url ?? ""
+    if (url.startsWith("/config")) {
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(cellyPolicy()))
+      return
+    }
+    if (url.startsWith("/global/health")) {
+      if (!recycled) return
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true }))
+      return
+    }
+    res.writeHead(404).end()
+  })
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+  const port = (server.address() as any).port
+  sbx.ports = async () => [{ hostIp: "127.0.0.1", hostPort: port, sandboxPort: 4096, protocol: "tcp4" }]
+  const baseUnpublish = sbx.unpublish
+  sbx.unpublish = async (name: string, mapping: string) => { await baseUnpublish(name, mapping); recycled = true }
+  db.projects.insertProvisioning({ channelId: "chan1", guildId: "g", name: "demo", directory: "C:\\projects\\demo",
+    sandboxPath: null, sandboxName: "celly-demo", hostPort: port, serverPassword: "pw", createdAt: Date.now() })
+  db.projects.setStatus("chan1", "ready")
+  try {
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(port, port), log: logger(),
+      isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
+    await svc.ensureReady("chan1")
+    expect(calls).toContainEqual(["unpublish", "celly-demo", `${port}:4096`])
+    expect(calls).toContainEqual(["publish", "celly-demo", `${port}:4096`])
+    expect(children).toHaveLength(0)
+    expect(svc.isAdopted("chan1")).toBe(true)
+    expect(db.projects.getByChannel("chan1")?.status).toBe("ready")
+  } finally {
+    server.closeAllConnections?.()
+    await new Promise<void>((r) => server.close(() => r()))
+  }
+})
+
+test("ensureReady's failure error names the host port and the 4096 mapping", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
+  const server = await healthServer(false)
+  try {
+    db.projects.insertProvisioning({ channelId: "chan1", guildId: "g", name: "demo", directory: "C:\\projects\\demo",
+      sandboxPath: null, sandboxName: "celly-demo", hostPort: server.port, serverPassword: "pw", createdAt: Date.now() })
+    db.projects.setStatus("chan1", "ready")
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+      isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
+    await expect(svc.ensureReady("chan1")).rejects.toThrow(new RegExp(`127\\.0\\.0\\.1:${server.port}.*${server.port}:4096`))
+  } finally { await server.closeAllConnections?.(); await server.close() }
+})
+
 test("ensureReady waits for an in-flight create saga instead of racing it", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls } = fakes()
   const server = await healthServer(true)
@@ -636,7 +692,8 @@ test("the supervised child's output is written to data/logs/<sandbox>.log", asyn
     expect(contents).toContain("a warning")
     expect(contents).not.toContain(password)
     expect(contents).toContain("[redacted]")
-    expect(statSync(logFile).mode & 0o777).toBe(0o600)
+    // Windows reports synthesized POSIX modes; 0600 is a POSIX-host guarantee.
+    if (process.platform !== "win32") expect(statSync(logFile).mode & 0o777).toBe(0o600)
   } finally {
     await server.close()
     rmSync(dataDir, { recursive: true, force: true })

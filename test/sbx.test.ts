@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
-import { defaultForbiddenPaths, SbxError, SbxRunner, buildSandboxName, isPathInside, isSensitivePath, parseSbxLs, parseSbxPorts, sanitizeAttachmentName, sanitizeProjectDirName, slugify } from "../src/sbx.ts"
+import { defaultForbiddenPaths, Sbx, SbxError, SbxRunner, buildSandboxName, isPathInside, isSensitivePath, parseSbxLs, parseSbxPorts, sanitizeAttachmentName, sanitizeProjectDirName, slugify } from "../src/sbx.ts"
 import ls from "./fixtures/sbx-ls.json"
 import ports from "./fixtures/sbx-ports.json"
 
@@ -64,6 +64,17 @@ test("SbxRunner passes argv without a shell", async () => {
   const out = await r.run(["-e", "console.log(process.argv[1])", "literal ; && $(echo pwned)"])
   expect(out.code).toBe(0)
   expect(out.stdout.trim()).toBe("literal ; && $(echo pwned)")
+})
+test("Sbx unpublish and publish use argv without a shell", async () => {
+  const calls: string[][] = []
+  const runner = { run: async (args: string[]) => { calls.push(args); return { code: 0, stdout: "[]", stderr: "" } } }
+  const sbx = new Sbx(runner as any)
+  await sbx.unpublish("celly-demo", "4300:4096")
+  await sbx.publish("celly-demo", "4300:4096")
+  expect(calls).toEqual([
+    ["ports", "celly-demo", "--unpublish", "4300:4096"],
+    ["ports", "celly-demo", "--publish", "4300:4096"],
+  ])
 })
 test("spawnStream passes argv without a shell", async () => {
   const runner = new SbxRunner(process.execPath)

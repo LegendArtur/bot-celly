@@ -160,3 +160,21 @@ test("waitForHealth aborts a hung connection within its budget", async () => {
     server.closeAllConnections()
   }
 })
+
+test("waitForHealth bounds each attempt so a hung connection cannot exhaust the budget", async () => {
+  let requests = 0
+  const server = createServer((_req, res) => {
+    requests += 1
+    if (requests === 1) return // hang the first attempt only
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true, version: "x" }))
+  })
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    await expect(waitForHealth({ baseUrl: `http://127.0.0.1:${port}` } as any, 2000, 10, 50)).resolves.toBeUndefined()
+    expect(requests).toBeGreaterThanOrEqual(2)
+  } finally {
+    server.close()
+    server.closeAllConnections()
+  }
+})

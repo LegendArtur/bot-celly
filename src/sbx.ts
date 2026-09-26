@@ -2,7 +2,7 @@
 import { spawn } from "node:child_process"
 import type { ChildProcess } from "node:child_process"
 import { realpathSync } from "node:fs"
-import { basename, dirname, join, resolve, win32 } from "node:path"
+import { basename, dirname, join, posix, resolve, win32 } from "node:path"
 
 export type { ChildProcess }
 export interface RunResult { code: number; stdout: string; stderr: string }
@@ -115,8 +115,17 @@ function canon(p: string): string {
     const resolved = win32.normalize(win32.resolve(p))
     return realpathNearest(resolved, true).toLowerCase()
   }
-  const resolved = resolve(p)
+  // Sandbox paths are always POSIX. On Windows `resolve` would rewrite them onto
+  // the current drive (and `realpath` could resolve "/" to "C:\"), so keep POSIX
+  // semantics for POSIX-style input and only resolve symlinks on a POSIX host.
+  const resolved = posix.resolve(p)
+  if (process.platform === "win32") return resolved.toLowerCase()
   return realpathNearest(resolved, false).toLowerCase()
+}
+
+/** Join parts using the separator style of `base` so POSIX sandbox paths stay POSIX on Windows. */
+export function joinPathLike(base: string, ...parts: string[]): string {
+  return isWindowsPath(base) ? win32.join(base, ...parts) : posix.join(base, ...parts)
 }
 export function isPathInside(root: string, target: string): boolean {
   const sep = isWindowsPath(root) || isWindowsPath(target) ? "\\" : "/"
@@ -166,6 +175,7 @@ export class Sbx {
   async list() { const r = await this.must(["ls", "--json"]); return parseSbxLs(parseJson(r.stdout, "ls --json")) }
   async ports(name: string, opts: { timeoutMs?: number } = {}) { const r = await this.must(["ports", name, "--json"], opts.timeoutMs); return parseSbxPorts(parseJson(r.stdout, "ports --json")) }
   async publish(name: string, mapping: string, opts: { timeoutMs?: number } = {}) { await this.must(["ports", name, "--publish", mapping], opts.timeoutMs) }
+  async unpublish(name: string, mapping: string, opts: { timeoutMs?: number } = {}) { await this.must(["ports", name, "--unpublish", mapping], opts.timeoutMs) }
   async create(o: CreateOpts) {
     validateCreateOpts(o)
     await this.must(["create", o.template ?? this.template, o.directory, "--name", o.name, "--publish", `${o.hostPort}:4096`, "--cpus", String(o.cpus), "--memory", o.memory])

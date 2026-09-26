@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { constants, lstatSync, mkdirSync, realpathSync } from "node:fs"
 import { open } from "node:fs/promises"
-import { basename, join, posix } from "node:path"
-import { isPathInside, sanitizeAttachmentName } from "./sbx.js"
+import { basename, posix } from "node:path"
+import { isPathInside, joinPathLike, sanitizeAttachmentName } from "./sbx.js"
 
 export const ATTACHMENT_FETCH_TIMEOUT_MS = 30_000
 
@@ -23,8 +23,8 @@ function rejectSymlink(path: string, label: string): void {
  * build the destination from the vetted path rather than the raw join.
  */
 export function ensureSafeInbox(projectDirectory: string): string {
-  const cellyDir = join(projectDirectory, ".celly")
-  const inbox = join(cellyDir, "inbox")
+  const cellyDir = joinPathLike(projectDirectory, ".celly")
+  const inbox = joinPathLike(cellyDir, "inbox")
   rejectSymlink(cellyDir, ".celly")
   rejectSymlink(inbox, "inbox")
   mkdirSync(inbox, { recursive: true })
@@ -114,13 +114,13 @@ export function shouldIngestAttachment(attachment: AttachmentLike, maxBytes: num
 }
 
 export function attachmentDestinationIn(inbox: string, name: string, id: string): string {
-  const destination = join(inbox, `${id}-${sanitizeAttachmentName(name)}`)
+  const destination = joinPathLike(inbox, `${id}-${sanitizeAttachmentName(name)}`)
   if (!isPathInside(inbox, destination)) throw new Error("attachment escapes the inbox")
   return destination
 }
 
 export function attachmentDestination(projectDirectory: string, name: string, id: string): string {
-  return attachmentDestinationIn(join(projectDirectory, ".celly", "inbox"), name, id)
+  return attachmentDestinationIn(joinPathLike(projectDirectory, ".celly", "inbox"), name, id)
 }
 
 export interface IngestAttachmentsInput {
