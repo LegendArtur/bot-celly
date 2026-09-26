@@ -1,4 +1,4 @@
-import { appendFileSync } from "node:fs"
+import { appendFileSync, writeFileSync } from "node:fs"
 const SECRET_KEY = /("(?:authorization|password|token|secret)"\s*:\s*)("(?:[^"\\]|\\.)*"|true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/gi
 const AUTH_HEADER = /(authorization\s*:\s*)(?:bearer|basic)\s+[^\s"]+/gi
 export function redact(text: string, secrets: string[]): string {
@@ -34,8 +34,11 @@ export interface Logger {
   error(msg: string, fields?: Record<string, unknown>): void
   child(fields: Record<string, unknown>): Logger
 }
-export function createLogger(opts: { level: string; file?: string; secrets?: string[] }): Logger {
+export function createLogger(opts: { level: string; file?: string; secrets?: string[]; truncate?: boolean }): Logger {
   const min = (order[opts.level as Level] ?? 1)
+  if (opts.truncate && opts.file) {
+    try { writeFileSync(opts.file, "") } catch (err) { console.error(`log truncate failed: ${String(err)}`) }
+  }
   const build = (bound: Record<string, unknown>): Logger => {
     const emit = (level: Level, msg: string, fields?: Record<string, unknown>) => {
       if (order[level] < min) return

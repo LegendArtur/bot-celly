@@ -1,4 +1,7 @@
 import { expect, test, vi } from "vitest"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { createLogger, redact } from "../src/log.ts"
 
 test("redacts known secrets anywhere in a string", () => {
@@ -78,4 +81,20 @@ test("logger does not throw on a BigInt field", () => {
   const parsed = JSON.parse(line)
   expect(parsed.count).toBe("10")
   info.mockRestore()
+})
+test("truncate clears an existing log file at construction", () => {
+  const dir = mkdtempSync(join(tmpdir(), "celly-log-"))
+  const file = join(dir, "bot.log")
+  const info = vi.spyOn(console, "info").mockImplementation(() => {})
+  try {
+    writeFileSync(file, "old line\n")
+    const log = createLogger({ level: "info", file, truncate: true })
+    log.info("first")
+    const contents = readFileSync(file, "utf8")
+    expect(contents).not.toContain("old line")
+    expect(contents).toContain("first")
+  } finally {
+    info.mockRestore()
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

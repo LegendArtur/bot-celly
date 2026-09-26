@@ -31,7 +31,7 @@ async function main(): Promise<void> {
   ensureDataDir(cfg.dataDir)
   ensureDataDir(cfg.projectsRoot)
   const secrets = [cfg.discordToken]
-  const log = createLogger({ level: cfg.logLevel, file: `${cfg.dataDir}/bot.log`, secrets })
+  const log = createLogger({ level: cfg.logLevel, file: `${cfg.dataDir}/bot.log`, secrets, truncate: true })
   const lock = await acquireLock(4555)
   const db = openDb(`${cfg.dataDir}/bot.db`)
   db.migrate()
