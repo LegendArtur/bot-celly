@@ -38,6 +38,7 @@ const VALUE_OPTS = new Set([
 const MULTIWORD_TOOLS = new Set(["git", "npm", "pnpm", "yarn", "bun"])
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
 const SENSITIVE_PATH = /(^|[\\/])\.config[\\/]celly([\\/]|$)|opencode\.env/i
+const NORMALIZED_DEFAULT_DENY = DEFAULT_DENY.map(normalizeCommand)
 
 function executableName(token: string): string {
   if (/[*?]/.test(token)) return token
@@ -142,7 +143,7 @@ export function evaluatePermission(req: { tool: string; patterns: string[] }, de
     for (const p of req.patterns) if (SENSITIVE_PATH.test(p)) return "reject"
     return "once"
   }
-  const normalizedDeny = deny.map(normalizeCommand)
+  const normalizedDeny = deny === DEFAULT_DENY ? NORMALIZED_DEFAULT_DENY : deny.map(normalizeCommand)
   for (const p of req.patterns) {
     const normalized = normalizeCommand(p)
     if (normalizedDeny.some((d) => matches(d, normalized))) return "reject"
