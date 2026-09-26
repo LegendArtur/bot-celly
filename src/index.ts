@@ -350,10 +350,20 @@ async function main(): Promise<void> {
       const providers = Array.isArray(data?.providers) ? data.providers : []
       const out: { id: string; name: string }[] = []
       for (const p of providers) {
-        for (const [mid, model] of Object.entries(p.models ?? {})) out.push({ id: `${p.id}/${mid}`, name: (model as any)?.name ?? `${p.name ?? p.id}/${mid}` })
+        const providerId = typeof p?.id === "string" && p.id ? p.id : undefined
+        if (!providerId) continue
+        const models = p?.models && typeof p.models === "object" ? p.models : {}
+        for (const [mid, model] of Object.entries(models)) {
+          const id = `${providerId}/${mid}`
+          const name = (model as any)?.name
+          out.push({ id, name: typeof name === "string" && name ? name : `${p?.name ?? providerId}/${mid}` })
+        }
       }
       return out
-    } catch { return [] }
+    } catch (err) {
+      log.warn("list models failed", { channelId, error: String(err) })
+      return []
+    }
   }
   const listAgents = async (channelId: string): Promise<{ id: string; name: string }[]> => {
     const project = db.projects.getByChannel(channelId)
@@ -405,7 +415,7 @@ async function main(): Promise<void> {
       if (!interaction.isChatInputCommand()) return
       await handleCommand(interaction, commandDeps)
     } catch (err) {
-      log.error("interaction handler failed", { error: String(err) })
+      log.error("interaction handler failed", { error: err instanceof Error ? err.stack ?? err.message : String(err) })
     }
   }
 
@@ -424,6 +434,11 @@ async function main(): Promise<void> {
   })
   process.on("SIGINT", () => { void shutdown() })
   process.on("SIGTERM", () => { void shutdown() })
+  // A stray rejection (e.g. from a background Discord/SDK task) must not take
+  // the whole bot down; log the stack so it is diagnosable instead.
+  process.on("unhandledRejection", (reason) => {
+    log.error("unhandled promise rejection", { error: reason instanceof Error ? reason.stack ?? reason.message : String(reason) })
+  })
 
   const isFatalDiscordError = (err: unknown): boolean =>
     /disallowed intents|invalid token|token was provided/i.test(err instanceof Error ? err.message : String(err))

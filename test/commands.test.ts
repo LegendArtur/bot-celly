@@ -1,6 +1,6 @@
 // test/commands.test.ts
 import { expect, test } from "vitest"
-import { commandData, handleCommand, handleSelect, requiresOwner } from "../src/commands.ts"
+import { SELECT_OPTION_MAX, SELECT_OPTIONS_MAX, commandData, handleCommand, handleSelect, requiresOwner, sanitizeSelectOptions } from "../src/commands.ts"
 import { isOwner } from "../src/discord.ts"
 import { openDb } from "../src/db.ts"
 
@@ -371,4 +371,54 @@ test("isOwner accepts the guild owner or a configured owner role", () => {
   expect(isOwner({ id: "u", roles: ["own"] }, "o", { ownerRoleId: "own" })).toBe(true)
   expect(isOwner({ id: "u", roles: [] }, "o", { ownerRoleId: "own" })).toBe(false)
   expect(isOwner({ id: "u", roles: [] }, "o", {})).toBe(false)
+})
+
+test("sanitizeSelectOptions enforces Discord's 100-char, unique, non-empty, 25-option limits", () => {
+  expect(sanitizeSelectOptions([{ label: "A", value: "a" }, { label: "dup", value: "a" }, { label: "", value: "" }]))
+    .toEqual([{ label: "A", value: "a" }])
+  const long = "x".repeat(150)
+  const [option] = sanitizeSelectOptions([{ label: long, value: long }])
+  expect(option.value.length).toBeLessThanOrEqual(SELECT_OPTION_MAX)
+  expect(option.label.length).toBeLessThanOrEqual(SELECT_OPTION_MAX)
+  const many = Array.from({ length: 40 }, (_, i) => ({ label: `l${i}`, value: `v${i}` }))
+  expect(sanitizeSelectOptions(many)).toHaveLength(SELECT_OPTIONS_MAX)
+})
+
+test("model selection survives malformed and oversized model lists without throwing", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert(threadRow("t1"))
+  const oversized = "deepseek/" + "m".repeat(150)
+  const models: any[] = [
+    { id: "anthropic/claude", name: "Claude" },
+    { id: "deepseek/deepseek-chat", name: "DeepSeek Chat" },
+    { id: oversized, name: "DeepSeek Oversized" },
+    { id: "", name: "" },
+    { id: undefined, name: "broken" },
+  ]
+  const providerInteraction = interaction({ commandName: "model", channelId: "t1" })
+  await expect(handleCommand(providerInteraction, {
+    projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
+    listModels: async () => models,
+  })).resolves.toBeUndefined()
+  const providerMenu = editOf(providerInteraction).components[0].components[0]
+  expect(providerMenu.custom_id).toBe("celly:model-provider:t1")
+  expect(providerMenu.options.some((o: any) => o.value === "deepseek")).toBe(true)
+  for (const option of providerMenu.options) {
+    expect(option.value.length).toBeGreaterThan(0)
+    expect(option.value.length).toBeLessThanOrEqual(SELECT_OPTION_MAX)
+    expect(option.label.length).toBeLessThanOrEqual(SELECT_OPTION_MAX)
+  }
+
+  const modelInteraction = select({ customId: "celly:model-provider:t1", values: ["deepseek"] })
+  await expect(handleSelect(modelInteraction, {
+    projects: {} as any, runner: {} as any, db, authorized: () => true,
+    listModels: async () => models,
+  })).resolves.toBeUndefined()
+  const modelMenu = editOf(modelInteraction).components[0].components[0]
+  expect(modelMenu.custom_id).toBe("celly:model:t1")
+  expect(modelMenu.options.some((o: any) => o.value === "deepseek/deepseek-chat")).toBe(true)
+  for (const option of modelMenu.options) {
+    expect(option.value.length).toBeGreaterThan(0)
+    expect(option.value.length).toBeLessThanOrEqual(SELECT_OPTION_MAX)
+  }
 })

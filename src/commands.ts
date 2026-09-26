@@ -66,8 +66,35 @@ export function noMentions(content: string, extra: Record<string, unknown> = {})
   return { content, allowedMentions: { parse: [] }, ...extra }
 }
 
+/**
+ * Discord rejects a select menu whose option values/labels are empty, exceed
+ * 100 chars, duplicate, or number more than 25 — the whole interaction edit
+ * fails. Model/session ids are user data, so normalize here instead of trusting
+ * the caller. Invalid entries are dropped rather than crashing the command.
+ */
+export const SELECT_OPTION_MAX = 100
+export const SELECT_OPTIONS_MAX = 25
+export function sanitizeSelectOptions(options: { label?: unknown; value?: unknown }[]): { label: string; value: string }[] {
+  const seen = new Set<string>()
+  const out: { label: string; value: string }[] = []
+  for (const option of options) {
+    const rawValue = option?.value == null ? "" : String(option.value)
+    const rawLabel = option?.label == null ? "" : String(option.label)
+    if (!rawValue && !rawLabel) continue
+    let value = rawValue.slice(0, SELECT_OPTION_MAX)
+    let label = rawLabel.slice(0, SELECT_OPTION_MAX)
+    if (!value) value = label || "?"
+    if (!label) label = value
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    out.push({ label, value })
+    if (out.length >= SELECT_OPTIONS_MAX) break
+  }
+  return out
+}
+
 function selectRow(customId: string, placeholder: string, options: { label: string; value: string }[]): any {
-  return { type: 1, components: [{ type: 3, custom_id: customId, placeholder, min_values: 1, max_values: 1, options: options.slice(0, 25) }] }
+  return { type: 1, components: [{ type: 3, custom_id: customId, placeholder, min_values: 1, max_values: 1, options: sanitizeSelectOptions(options) }] }
 }
 
 const OWNER_ONLY_PROJECT_SUBS = new Set(["add", "create", "start", "stop", "remove"])
@@ -167,11 +194,14 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         // provider's models, so no provider is unreachable.
         const providers = new Map<string, number>()
         for (const m of models) {
+          if (typeof m?.id !== "string" || !m.id) continue
           const slash = m.id.indexOf("/")
           const provider = slash > 0 ? m.id.slice(0, slash) : m.id
+          if (!provider) continue
           providers.set(provider, (providers.get(provider) ?? 0) + 1)
         }
-        const options = [...providers.entries()].slice(0, 25).map(([provider, count]) => ({ label: `${provider} (${count})`.slice(0, 100), value: provider }))
+        const options = [...providers.entries()].map(([provider, count]) => ({ label: `${provider} (${count})`, value: provider }))
+        if (!options.length) return void await interaction.editReply(noMentions("no models available"))
         return void await interaction.editReply({ content: "Choose a provider for this thread:", components: [selectRow(selectCustomId(MODEL_PROVIDER_SELECT, thread.threadId), "Select a provider", options)], allowedMentions: { parse: [] } })
       }
       const agents = (await deps.listAgents?.(thread.channelId)) ?? []
@@ -212,9 +242,9 @@ export async function handleSelect(interaction: any, deps: CommandDeps): Promise
       if (!id || !value) return void await interaction.editReply({ content: "no provider selected", components: [], allowedMentions: { parse: [] } })
       const thread = deps.db.threads.get(id)
       const models = (await deps.listModels?.(thread?.channelId ?? interaction.channelId)) ?? []
-      const forProvider = models.filter((m) => m.id.startsWith(`${value}/`))
+      const forProvider = models.filter((m) => typeof m?.id === "string" && m.id.startsWith(`${value}/`))
       if (!forProvider.length) return void await interaction.editReply({ content: `no models available for ${value}`, components: [], allowedMentions: { parse: [] } })
-      const options = forProvider.slice(0, 25).map((m) => ({ label: (m.name || m.id).slice(0, 100), value: m.id }))
+      const options = forProvider.map((m) => ({ label: m.name || m.id, value: m.id }))
       return void await interaction.editReply({ content: `Choose a ${value} model:`, components: [selectRow(selectCustomId(MODEL_SELECT, id), "Select a model", options)], allowedMentions: { parse: [] } })
     }
     if (action === MODEL_SELECT) {
