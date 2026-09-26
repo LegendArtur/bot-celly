@@ -34,3 +34,23 @@ test("the child_process matcher catches every import form", () => {
   ]
   for (const s of samples) expect(CHILD_PROCESS_IMPORT.test(s)).toBe(true)
 })
+
+const LOOPBACK_TEMPLATE = /http:\/\/127\.0\.0\.1:\$\{/
+const LOOPBACK_ALLOWED = new Set(["src/opencode.ts", "src/projects.ts"])
+
+test("only opencode.ts and projects.ts build loopback opencode URLs", () => {
+  const files: string[] = []
+  const walk = (dir: string) => {
+    for (const e of readdirSync(dir)) {
+      const p = join(dir, e)
+      if (statSync(p).isDirectory()) walk(p)
+      else if (p.endsWith(".ts")) files.push(p)
+    }
+  }
+  walk("src")
+  const offenders = files
+    .map((f) => f.split("\\").join("/"))
+    .filter((f) => !LOOPBACK_ALLOWED.has(f))
+    .filter((f) => LOOPBACK_TEMPLATE.test(readFileSync(f, "utf8")))
+  expect(offenders).toEqual([])
+})

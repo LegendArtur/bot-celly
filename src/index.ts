@@ -15,7 +15,7 @@ import { acquireLock } from "./lock.js"
 import { Runner } from "./runner.js"
 import { EventRouter } from "./events.js"
 import { Renderer, renderPayload, sanitizeThreadName } from "./render.js"
-import { createClient } from "./opencode.js"
+import { resolveClient } from "./opencode.js"
 import { runShell } from "./shell.js"
 import { ingestAttachments } from "./attachments.js"
 import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
@@ -137,11 +137,11 @@ async function main(): Promise<void> {
     if (!thread) throw new Error(`unknown thread ${threadId}`)
     const project = db.projects.getByChannel(thread.channelId)
     if (!project) throw new Error(`unknown project for thread ${threadId}`)
-    return createClient(`http://127.0.0.1:${project.hostPort}`, project.serverPassword)
+    return resolveClient(project)
   }
 
   const createSessionFor = async (project: Project, title: string): Promise<string> => {
-    const sdk = createClient(`http://127.0.0.1:${project.hostPort}`, project.serverPassword)
+    const sdk = resolveClient(project)
     const created = await sdk.session.create({ body: { title } })
     const sessionId = sessionIdFrom(created)
     if (!sessionId) throw new Error("opencode session.create returned no id")
@@ -228,7 +228,7 @@ async function main(): Promise<void> {
       if (thread.sessionId) return thread.sessionId
       const project = db.projects.getByChannel(thread.channelId)
       if (!project) throw new Error(`unknown project for thread ${threadId}`)
-      const sdk = createClient(`http://127.0.0.1:${project.hostPort}`, project.serverPassword)
+      const sdk = resolveClient(project)
       const created = await sdk.session.create({ body: { title: thread.title ?? undefined } })
       const sessionId = sessionIdFrom(created)
       if (!sessionId) throw new Error("opencode session.create returned no id")
@@ -258,7 +258,7 @@ async function main(): Promise<void> {
           && (runnerSvc.isActive(thread.threadId) || thread.renderState === "running" || thread.renderState === "aborting"))
         .map((thread) => ({ threadId: thread.threadId, sessionId: thread.sessionId })),
     })
-    void router.subscribe(`http://127.0.0.1:${project.hostPort}`, project.serverPassword, controller.signal)
+    void router.subscribe(resolveClient(project).baseUrl, project.serverPassword, controller.signal)
       .catch((err) => { if (!controller.signal.aborted) log.warn("event subscription ended", { channelId: project.channelId, error: String(err) }) })
   }
   const subscribeReadyProjects = async (): Promise<void> => {
@@ -333,7 +333,7 @@ async function main(): Promise<void> {
     if (!project) return []
     await projects.ensureReady(channelId).catch(() => {})
     try {
-      const sdk = createClient(`http://127.0.0.1:${project.hostPort}`, project.serverPassword)
+      const sdk = resolveClient(project)
       const res: any = await sdk.session.list()
       const data = res?.data ?? res
       const list = Array.isArray(data) ? data : []
@@ -344,7 +344,7 @@ async function main(): Promise<void> {
     const project = db.projects.getByChannel(channelId)
     if (!project) return []
     try {
-      const sdk = createClient(`http://127.0.0.1:${project.hostPort}`, project.serverPassword)
+      const sdk = resolveClient(project)
       const res: any = await sdk.config.providers()
       const data = res?.data ?? res
       const providers = Array.isArray(data?.providers) ? data.providers : []
@@ -369,7 +369,7 @@ async function main(): Promise<void> {
     const project = db.projects.getByChannel(channelId)
     if (!project) return []
     try {
-      const sdk = createClient(`http://127.0.0.1:${project.hostPort}`, project.serverPassword)
+      const sdk = resolveClient(project)
       const res: any = await sdk.app.agents()
       const data = res?.data ?? res
       const list = Array.isArray(data) ? data : []
