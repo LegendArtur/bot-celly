@@ -38,6 +38,7 @@ const VALUE_OPTS = new Set([
 const MULTIWORD_TOOLS = new Set(["git", "npm", "pnpm", "yarn", "bun"])
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
 const SENSITIVE_PATH = /(^|[\\/])\.config[\\/]celly([\\/]|$)|opencode\.env/i
+// Must stay below every const that normalizeCommand closes over: calling it earlier throws a TDZ ReferenceError.
 const NORMALIZED_DEFAULT_DENY = DEFAULT_DENY.map(normalizeCommand)
 
 function executableName(token: string): string {

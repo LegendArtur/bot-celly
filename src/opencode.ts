@@ -10,8 +10,11 @@ export function createClient(baseUrl: string, password: string): OpencodeClient 
   const auth = basicAuth(password)
   return Object.assign(createOpencodeClient({ baseUrl, headers: { Authorization: auth }, throwOnError: true }), { baseUrl, auth })
 }
+export function resolveBaseUrl(p: { hostPort: number }): string {
+  return `http://127.0.0.1:${p.hostPort}`
+}
 export function resolveClient(p: Project): OpencodeClient {
-  return createClient(`http://127.0.0.1:${p.hostPort}`, p.serverPassword)
+  return createClient(resolveBaseUrl(p), p.serverPassword)
 }
 export function buildServeArgs(): string[] {
   const payload = "set -a; . ~/.config/celly/opencode.env; set +a; exec opencode serve --port 4096 --hostname 0.0.0.0"

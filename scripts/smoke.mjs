@@ -35,7 +35,10 @@ const run = (args, input) => {
 }
 const step = (label, args, input) => {
   const r = run(args, input)
-  if (r.status !== 0) fail(`${label}: sbx ${args[0]} exited ${r.status}`)
+  if (r.status !== 0) {
+    fail(`${label}: sbx ${args[0]} exited ${r.status}`)
+    throw new Error(`${label} failed`)
+  }
   return r
 }
 
@@ -77,9 +80,16 @@ async function waitForReply(sessionId, timeoutMs = 120_000) {
   throw new Error("no assistant reply arrived")
 }
 
+let removed = false
+const removeSandbox = () => {
+  if (removed) return
+  removed = true
+  step("remove", ["rm", "--force", name])
+}
+
 const teardown = () => {
   try { server?.kill() } catch {}
-  run(["rm", "--force", name])
+  try { removeSandbox() } catch {}
 }
 
 async function main() {
@@ -89,6 +99,7 @@ async function main() {
   step("verify bootstrap", ["exec", name, "bash", "-lc", BOOTSTRAP_VERIFY])
 
   server = spawn("sbx", ["exec", name, ...buildServeArgs()], { stdio: ["ignore", "pipe", "pipe"], shell: false })
+  server.on("error", (e) => fail(String(e)))
   server.stdout.on("data", (d) => process.stdout.write(d))
   server.stderr.on("data", (d) => process.stderr.write(d))
 
@@ -108,7 +119,7 @@ async function main() {
   console.log("abort OK")
 
   step("stop", ["stop", name])
-  step("remove", ["rm", "--force", name])
+  removeSandbox()
 }
 
 main().catch((e) => { fail(e.message) }).finally(() => {

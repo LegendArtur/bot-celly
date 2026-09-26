@@ -132,9 +132,9 @@ export class EventRouter {
         if (!warned) { console.warn("event stream connection failed; will keep retrying", String(err)); warned = true }
       }
       if (signal.aborted) return
-      const delay = connected ? INITIAL_BACKOFF : backoff
-      await sleep(delay, signal)
-      backoff = nextBackoff(delay, connected)
+      const waitMs = connected ? INITIAL_BACKOFF : backoff
+      await sleep(waitMs, signal)
+      backoff = nextBackoff(waitMs, connected)
     }
   }
 }

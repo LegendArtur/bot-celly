@@ -1,7 +1,7 @@
 // test/opencode.test.ts
 import { createServer } from "node:http"
 import { expect, test } from "vitest"
-import { applyAndAssertCellyPolicy, BASH_DENY, basicAuth, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, resolveClient, waitForHealth } from "../src/opencode.ts"
+import { applyAndAssertCellyPolicy, BASH_DENY, basicAuth, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, resolveBaseUrl, resolveClient, waitForHealth } from "../src/opencode.ts"
 
 test("basicAuth encodes the opencode user and password", () => {
   expect(basicAuth("pw")).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
@@ -133,6 +133,10 @@ test("resolveClient builds the loopback baseUrl from the project", () => {
   const client = resolveClient({ hostPort: 4321, serverPassword: "pw" } as any)
   expect(client.baseUrl).toBe("http://127.0.0.1:4321")
   expect(client.auth).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
+})
+
+test("resolveBaseUrl builds the loopback URL from a host port", () => {
+  expect(resolveBaseUrl({ hostPort: 4321 })).toBe("http://127.0.0.1:4321")
 })
 
 test("waitForHealth sends credentials and succeeds on an auth-guarded server", async () => {

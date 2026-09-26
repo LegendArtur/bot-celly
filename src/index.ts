@@ -15,7 +15,7 @@ import { acquireLock } from "./lock.js"
 import { Runner } from "./runner.js"
 import { EventRouter } from "./events.js"
 import { Renderer, renderPayload, sanitizeThreadName } from "./render.js"
-import { resolveClient } from "./opencode.js"
+import { resolveBaseUrl, resolveClient } from "./opencode.js"
 import { runShell } from "./shell.js"
 import { ingestAttachments } from "./attachments.js"
 import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
@@ -30,9 +30,9 @@ async function main(): Promise<void> {
   const cfg = loadConfig(process.env)
   ensureDataDir(cfg.dataDir)
   ensureDataDir(cfg.projectsRoot)
+  const lock = await acquireLock(4555)
   const secrets = [cfg.discordToken]
   const log = createLogger({ level: cfg.logLevel, file: `${cfg.dataDir}/bot.log`, secrets, truncate: true })
-  const lock = await acquireLock(4555)
   const db = openDb(`${cfg.dataDir}/bot.db`)
   db.migrate()
   for (const project of db.projects.list()) secrets.push(project.serverPassword)
@@ -262,7 +262,7 @@ async function main(): Promise<void> {
           && (runnerSvc.isActive(thread.threadId) || thread.renderState === "running" || thread.renderState === "aborting"))
         .map((thread) => ({ threadId: thread.threadId, sessionId: thread.sessionId })),
     })
-    void router.subscribe(resolveClient(project).baseUrl, project.serverPassword, controller.signal)
+    void router.subscribe(resolveBaseUrl(project), project.serverPassword, controller.signal)
       .catch((err) => { if (!controller.signal.aborted) log.warn("event subscription ended", { channelId: project.channelId, error: String(err) }) })
   }
   const subscribeReadyProjects = async (): Promise<void> => {

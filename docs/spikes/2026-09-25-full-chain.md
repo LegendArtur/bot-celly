@@ -2,7 +2,7 @@
 
 Date: 2026-09-25
 Task: Task 2 — Host spikes and recorded fixtures
-Script: `scripts/spike-full-chain.mjs`
+Script: `scripts/probe-serve.mjs` (serve spawn) and `scripts/smoke.mjs` (full chain)
 
 ## Status: HOST-VERIFIED
 
@@ -10,10 +10,12 @@ The maintained host diagnostics are `scripts/probe-serve.mjs` (exact serve
 spawn) and `scripts/smoke.mjs` (full chain). Both import the real spawn and
 bootstrap builders from `dist/opencode.js`, so run `npm run build` first.
 
-This spike **must run on the Windows host**. The dev sandbox has no `sbx` CLI
-(and the host is Windows), so this step could not be executed in the sandbox.
-The fixtures in `test/fixtures/` are the brief's **expected shapes**; the host
-run is expected to correct the real field names and event stream.
+This spike was run on the Windows host. `scripts/probe-serve.mjs` printed
+`opencode server listening on http://0.0.0.0:4096`, and the `scripts/smoke.mjs`
+run reached `health OK`, session creation, and prompt dispatch; the `reply OK`
+step is blocked only by missing provider credentials in the scratch sandbox.
+The fixtures in `test/fixtures/` remain the brief's **expected shapes**: the run
+did not capture the raw `sbx ls --json` / `sbx ports --json` output.
 
 ## Prerequisites
 
@@ -25,18 +27,18 @@ run is expected to correct the real field names and event stream.
 
 ## Command (run on the Windows host)
 
-From the repo root, in PowerShell:
+From the repo root, in PowerShell (after `npm run build`):
 
 ```powershell
-node scripts/spike-full-chain.mjs
+node scripts/probe-serve.mjs <sandbox>
+node scripts/smoke.mjs <project-dir> [hostPort]
 ```
 
-The script force-removes the `celly-spike` sandbox at the end (and on Ctrl-C),
-so a failed run does not leave it behind.
-
-**Hint:** if the health probe logs `ECONNREFUSED`, the `opencode serve` child
-had not started listening within the 8 s window. Increase the timeout at the
-bottom of the script (or re-run) and try again.
+`probe-serve.mjs` spawns the exact supervised serve command inside `<sandbox>`
+and kills it after 10 s. `smoke.mjs` creates a scratch `celly-smoke-*` sandbox,
+bootstraps it over stdin, serves it, and force-removes the sandbox on every exit
+path (idempotently, so a failed run does not leave it behind). The legacy
+`scripts/spike-full-chain.mjs` is superseded by these two scripts.
 
 ## Questions the run must answer
 
@@ -52,33 +54,49 @@ bottom of the script (or re-run) and try again.
 
 ## Recorded results
 
-> Not yet run in the sandbox. Paste host output below after running the
-> command above, and update the fixtures to match.
+> Captured on the Windows host. Results the host run did not observe are marked
+> unobserved; none are inferred.
 
 ### 1. Sandbox kept alive by supervised serve child
 
-_PENDING_
+Verified. `scripts/probe-serve.mjs` printed
+`opencode server listening on http://0.0.0.0:4096`, and the `scripts/smoke.mjs`
+serve child printed the same line before answering `GET /global/health`. The
+`sbx exec` running the serve child stays alive while the child runs.
 
 ### 2. Health result
 
-_PENDING_
+Verified: `scripts/smoke.mjs` reached `health OK`. The exact response body was
+not captured, so it is not recorded here.
 
 ### 3. Real `sbx ls --json` / `sbx ports --json` field names
 
-_PENDING — paste verbatim outputs._
+Unobserved (environment-blocked): the host run did not capture these outputs,
+so `test/fixtures/sbx-ls.json` and `test/fixtures/sbx-ports.json` keep the
+brief's expected shapes.
 
 ### 4. `sbx exec` default cwd
 
-_PENDING_
+Unobserved (environment-blocked) in the host run.
 
 ### 5. In-sandbox path of mounted workspace
 
-_PENDING_
+Unobserved (environment-blocked) in the host run.
 
-## Expected fixture shapes (pre-host-run)
+### 6. Full-chain smoke result
 
-These are the brief's expected shapes, used by unit tests (Tasks 6, 8, 9)
-before the host run; correct them from the real output.
+Reached: create, stdin bootstrap, verify bootstrap, supervised serve,
+`health OK`, session creation, prompt dispatch. `reply OK` is
+environment-blocked — the scratch sandbox warned `no OpenAI credentials
+available. opencode will start logged-out`, so no assistant reply could arrive
+within the wait. The steps after it (`abort OK`, `stop`) were not reached;
+teardown still ran and `sbx rm --force` removed the sandbox.
+
+## Expected fixture shapes (not yet corrected)
+
+These are the brief's expected shapes, used by unit tests (Tasks 6, 8, 9). The
+host run did not capture the raw output, so they are unchanged; correct them
+once section 3 above is filled in.
 
 `test/fixtures/sbx-ls.json`:
 
@@ -107,9 +125,13 @@ before the host run; correct them from the real output.
 
 ## Follow-up
 
-After the host run:
+Still open after the host run:
 
-1. Paste the outputs into the "Recorded results" section above.
-2. Correct `test/fixtures/sbx-ls.json`, `test/fixtures/sbx-ports.json`, and
-   `test/fixtures/opencode-events.jsonl` to the real shapes.
-3. Re-run the relevant unit tests (Tasks 6, 8, 9).
+1. Capture `sbx ls --json` and `sbx ports <name> --json` on the host and paste
+   them into section 3 above.
+2. If those shapes differ from the expected fixtures, correct
+   `test/fixtures/sbx-ls.json`, `test/fixtures/sbx-ports.json`, and
+   `test/fixtures/opencode-events.jsonl`, then re-run the relevant unit tests
+   (Tasks 6, 8, 9).
+3. Re-run `scripts/smoke.mjs` with provider credentials to verify `reply OK`,
+   `abort OK`, `stop`, and the success-path `smoke OK`.
