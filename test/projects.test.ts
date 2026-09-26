@@ -60,7 +60,7 @@ function fakes() {
     create: async (o: any) => { calls.push(["create", o.name]); published.set(o.name, o.hostPort) },
     publish: async (name: string, mapping: string) => { calls.push(["publish", name, mapping]); published.set(name, Number(mapping.split(":")[0])) },
     exec: async () => ({ code: 0, stdout: "", stderr: "" }),
-    home: async () => "/home/agent",
+    execWithInput: async () => ({ code: 0, stdout: "", stderr: "" }),
     start: async (n: string) => { calls.push(["start", n]); return { code: 0, stdout: "", stderr: "" } },
     cp: async () => {}, stop: async (n: string) => { calls.push(["stop", n]) },
     remove: async (n: string) => { calls.push(["rm", n]) },
@@ -119,30 +119,23 @@ test("addProject writes and verifies the celly bootstrap before starting the ser
   const db = openDb(":memory:"); db.migrate()
   const { sbx, runner, children } = fakes()
   const order: string[] = []
-  let envContent = ""
-  let configContent = ""
+  let installInput = ""
   const baseExec = sbx.exec
   sbx.exec = async (n: string, args: string[]) => { order.push("exec:" + args.join(" ")); return baseExec(n, args) }
-  sbx.cp = async (from: string, to: string) => {
-    const content = readFileSync(from, "utf8")
-    if (to.endsWith("opencode.env")) envContent = content
-    if (to.endsWith("opencode.json")) configContent = content
-    order.push("cp:" + to)
-  }
+  sbx.execWithInput = async (_n: string, _argv: string[], input: string) => { order.push("install"); installInput = input; return { code: 0, stdout: "", stderr: "" } }
   sbx.execStream = () => { order.push("serve"); const c = makeChild(); children.push(c); return c }
   const server = await healthServer(true)
   try {
     const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
-    expect(order.findIndex((o) => o === "serve")).toBeGreaterThan(order.findIndex((o) => o.includes("/.config/celly/opencode.env")))
-    expect(envContent).toContain("OPENCODE_CONFIG=$HOME/.config/celly/opencode.json")
-    const password = envContent.match(/OPENCODE_SERVER_PASSWORD=(\w+)/)?.[1] ?? ""
+    expect(order.findIndex((o) => o === "serve")).toBeGreaterThan(order.findIndex((o) => o === "install"))
+    expect(installInput).toContain("OPENCODE_CONFIG=$HOME/.config/celly/opencode.json")
+    const password = installInput.match(/OPENCODE_SERVER_PASSWORD=(\w+)/)?.[1] ?? ""
     expect(password).not.toBe("")
     expect(order.some((o) => o.includes(password))).toBe(false)
-    const parsed = JSON.parse(configContent)
-    expect(parsed.permission).toEqual(cellyPolicy().permission)
-    expect(parsed.share).toBe("disabled")
+    expect(installInput).toContain('"permission"')
+    expect(installInput).toContain('"share": "disabled"')
   } finally { await server.close() }
 })
 

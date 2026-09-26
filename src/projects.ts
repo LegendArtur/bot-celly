@@ -1,14 +1,13 @@
 import { randomBytes } from "node:crypto"
-import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { appendFileSync, chmodSync, mkdirSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
-import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import type { Config } from "./config.ts"
 import type { Db } from "./db.ts"
 import type { Project } from "./types.ts"
 import { allocatePort, buildSandboxName, defaultForbiddenPaths, isPathInside, isSensitivePath, sanitizeProjectDirName, Sbx, SbxRunner } from "./sbx.js"
 import type { ChildProcess } from "./sbx.js"
-import { applyAndAssertCellyPolicy, BOOTSTRAP_FINALIZE, BOOTSTRAP_PREPARE, BOOTSTRAP_VERIFY, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, createClient, waitForHealth } from "./opencode.js"
+import { applyAndAssertCellyPolicy, BOOTSTRAP_PREPARE, BOOTSTRAP_VERIFY, buildBootstrapInstallScript, buildServeArgs, createClient, waitForHealth } from "./opencode.js"
 import type { OpencodeClient } from "./opencode.js"
 import { redact } from "./log.js"
 
@@ -95,24 +94,11 @@ export class ProjectService {
   }
 
   private async runBootstrap(sandboxName: string, serverPassword: string): Promise<void> {
-    const dir = mkdtempSync(join(tmpdir(), "celly-boot-"))
-    const configFile = join(dir, "opencode.json")
-    const envFile = join(dir, "opencode.env")
-    try {
-      writeFileSync(configFile, buildCellyConfigJson(), { mode: 0o600 })
-      writeFileSync(envFile, buildOpencodeEnv(serverPassword), { mode: 0o600 })
-      // Copy straight into the sandbox config dir. Do NOT stage in the sandbox's
-      // /tmp and `mv`: that mount denies the rename/move (EPERM) in sbx sandboxes.
-      await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_PREPARE])
-      const home = await this.deps.sbx.home(sandboxName)
-      const base = `${sandboxName}:${home}/.config/celly`
-      await this.deps.sbx.cp(configFile, `${base}/opencode.json`)
-      await this.deps.sbx.cp(envFile, `${base}/opencode.env`)
-      await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_FINALIZE])
-      await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_VERIFY])
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
+    // The sandbox user writes its own config/env (content on stdin, 0600 via
+    // umask). No host temp files, no sandbox /tmp, no root-owned `sbx cp`.
+    await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_PREPARE])
+    await this.deps.sbx.execWithInput(sandboxName, ["bash", "-s"], buildBootstrapInstallScript(serverPassword))
+    await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_VERIFY])
   }
 
   // Spec §14: a transient `sbx cp`/bootstrap failure gets one retry before the

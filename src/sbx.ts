@@ -29,6 +29,18 @@ export class SbxRunner {
       child.on("close", (code) => { clearTimeout(t); resolvePromise({ code: code ?? -1, stdout: out, stderr: err }) })
     })
   }
+  runWithInput(args: string[], input: string, opts: { timeoutMs?: number } = {}): Promise<RunResult> {
+    return new Promise((resolvePromise, reject) => {
+      const child = spawn(this.bin, args, { shell: false, windowsHide: true })
+      let out = "", err = ""
+      child.stdout.on("data", (d) => (out += d))
+      child.stderr.on("data", (d) => (err += d))
+      const t = setTimeout(() => child.kill(), opts.timeoutMs ?? 300_000)
+      child.on("error", (e) => { clearTimeout(t); reject(e) })
+      child.on("close", (code) => { clearTimeout(t); resolvePromise({ code: code ?? -1, stdout: out, stderr: err }) })
+      child.stdin?.end(input)
+    })
+  }
   spawnStream(args: string[]) {
     return spawn(this.bin, args, { shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] })
   }
@@ -159,11 +171,10 @@ export class Sbx {
     await this.must(["create", o.template ?? this.template, o.directory, "--name", o.name, "--publish", `${o.hostPort}:4096`, "--cpus", String(o.cpus), "--memory", o.memory])
   }
   async exec(name: string, args: string[], opts: { timeoutMs?: number } = {}) { return this.must(["exec", name, ...args], opts.timeoutMs) }
-  async home(name: string): Promise<string> {
-    const r = await this.must(["exec", name, "bash", "-lc", 'printf %s "$HOME"'])
-    const home = r.stdout.trim()
-    if (!home.startsWith("/")) throw new SbxError(`could not resolve sandbox HOME (got "${home}")`)
-    return home
+  async execWithInput(name: string, argv: string[], input: string, opts: { timeoutMs?: number } = {}) {
+    const r = await this.runner.runWithInput(["exec", "-i", name, ...argv], input, opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {})
+    if (r.code !== 0) throw new SbxError(`sbx exec failed (${r.code}): ${r.stderr.trim() || r.stdout.trim()}`)
+    return r
   }
   execStream(name: string, argv: string[]) { return this.runner.spawnStream(["exec", name, ...argv]) }
   async cp(from: string, to: string) { await this.must(["cp", from, to]) }

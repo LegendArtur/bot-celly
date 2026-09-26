@@ -114,8 +114,27 @@ export async function applyAndAssertCellyPolicy(client: PolicyClient): Promise<v
 }
 
 export const BOOTSTRAP_PREPARE = `set -e; mkdir -p ${CELLY_CONFIG_DIR}; chmod 700 ${CELLY_CONFIG_DIR}`
-export const BOOTSTRAP_FINALIZE = `set -e; chmod 600 ${CELLY_CONFIG_PATH} ${CELLY_ENV_PATH}`
 export const BOOTSTRAP_VERIFY = `test -s ${CELLY_CONFIG_PATH} && test -s ${CELLY_ENV_PATH} && grep -q '"permission"' ${CELLY_CONFIG_PATH} && grep -q 'OPENCODE_SERVER_PASSWORD=' ${CELLY_ENV_PATH}`
+
+/**
+ * The config/env files are written by the sandbox user itself (via `sbx exec -i
+ * bash -s`, content on stdin). `sbx cp` creates root-owned 0755 files and the
+ * agent cannot chmod them, and staging in the sandbox /tmp then moving is
+ * denied (EPERM). `umask 077` makes both files 0600, and the password never
+ * touches a host command line.
+ */
+export function buildBootstrapInstallScript(password: string): string {
+  return [
+    "set -e",
+    "umask 077",
+    `cat > "$HOME/.config/celly/opencode.json" <<'CELLY_CONFIG'`,
+    buildCellyConfigJson().replace(/\n$/, ""),
+    "CELLY_CONFIG",
+    `cat > "$HOME/.config/celly/opencode.env" <<'CELLY_ENV'`,
+    buildOpencodeEnv(password).replace(/\n$/, ""),
+    "CELLY_ENV",
+  ].join("\n") + "\n"
+}
 
 export async function waitForHealth(client: { baseUrl: string; auth?: string }, timeoutMs: number, intervalMs = 500): Promise<void> {
   const deadline = Date.now() + timeoutMs
