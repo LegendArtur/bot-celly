@@ -1,17 +1,17 @@
+// Host-only probe that mirrors the bot's supervised serve spawn.
+//
+// Build first so dist/opencode.js exists: `npm run build`
+// Then: `node scripts/probe-serve.mjs <sandbox>`
 import { spawn } from "node:child_process"
+import { buildServeArgs } from "../dist/opencode.js"
 
 const name = process.argv[2]
 if (!name) { console.error("usage: node scripts/probe-serve.mjs <sandbox>"); process.exit(2) }
 
-const payload = "set -a; . ~/.config/celly/opencode.env; set +a; exec opencode serve --port 4096 --hostname 0.0.0.0"
-console.log("spawn: sbx", ["exec", name, "bash", "-lc", payload].join(" "))
+const args = ["exec", name, ...buildServeArgs()]
+console.log("spawn: sbx", args.join(" "))
 
-const child = spawn("sbx", ["exec", name, "bash", "-lc", payload], {
-  shell: false,
-  windowsHide: true,
-  stdio: ["ignore", "pipe", "pipe"],
-})
-
+const child = spawn("sbx", args, { shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] })
 child.on("error", (e) => console.error("ERROR", e))
 child.stdout.on("data", (d) => process.stdout.write("OUT " + String(d)))
 child.stderr.on("data", (d) => process.stdout.write("ERR " + String(d)))

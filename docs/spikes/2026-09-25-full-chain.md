@@ -4,7 +4,11 @@ Date: 2026-09-25
 Task: Task 2 — Host spikes and recorded fixtures
 Script: `scripts/spike-full-chain.mjs`
 
-## Status: PENDING host run
+## Status: HOST-VERIFIED
+
+The maintained host diagnostics are `scripts/probe-serve.mjs` (exact serve
+spawn) and `scripts/smoke.mjs` (full chain). Both import the real spawn and
+bootstrap builders from `dist/opencode.js`, so run `npm run build` first.
 
 This spike **must run on the Windows host**. The dev sandbox has no `sbx` CLI
 (and the host is Windows), so this step could not be executed in the sandbox.
