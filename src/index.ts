@@ -261,8 +261,21 @@ async function main(): Promise<void> {
     void router.subscribe(`http://127.0.0.1:${project.hostPort}`, project.serverPassword, controller.signal)
       .catch((err) => { if (!controller.signal.aborted) log.warn("event subscription ended", { channelId: project.channelId, error: String(err) }) })
   }
-  const subscribeReadyProjects = (): void => {
-    for (const project of db.projects.list()) if (project.status === "ready") subscribeProject(project)
+  const subscribeReadyProjects = async (): Promise<void> => {
+    for (const project of db.projects.list()) {
+      if (project.status === "provisioning") continue
+      try {
+        // After a restart the sandbox may be stopped and the serve child is
+        // always gone (it died with the previous bot process). Wake and boot it
+        // before subscribing, otherwise the SSE connection refuses forever.
+        await projects.ensureReady(project.channelId)
+      } catch (e) {
+        log.warn("project not ready at boot", { channelId: project.channelId, error: String(e) })
+        continue
+      }
+      const fresh = db.projects.getByChannel(project.channelId)
+      if (fresh) subscribeProject(fresh)
+    }
   }
   const stopSubscription = (channelId: string): void => {
     subscriptionGate.release(channelId)

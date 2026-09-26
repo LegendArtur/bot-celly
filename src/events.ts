@@ -80,6 +80,7 @@ export class EventRouter {
     const auth = "Basic " + Buffer.from(`opencode:${password}`).toString("base64")
     let connectedBefore = false
     let backoff = INITIAL_BACKOFF
+    let warned = false
     while (!signal.aborted) {
       let connected = false
       let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
@@ -87,6 +88,7 @@ export class EventRouter {
         const res = await fetch(`${baseUrl}/global/event`, { headers: { Authorization: auth, Accept: "text/event-stream" }, signal })
         if (!res.ok || !res.body) throw new Error(`SSE HTTP ${res.status}`)
         connected = true
+        warned = false
         if (connectedBefore) {
           let sessions: { threadId: string; sessionId: string }[] = []
           try { sessions = this.deps.knownSessions() } catch (err) { console.warn("knownSessions failed", err) }
@@ -123,7 +125,7 @@ export class EventRouter {
       } catch (err) {
         if (reader) { try { await reader.cancel() } catch {} reader = null }
         if (signal.aborted) return
-        console.warn("event stream connection failed", err)
+        if (!warned) { console.warn("event stream connection failed; will keep retrying", String(err)); warned = true }
       }
       if (signal.aborted) return
       const delay = connected ? INITIAL_BACKOFF : backoff

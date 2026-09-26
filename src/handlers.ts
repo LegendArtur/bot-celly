@@ -185,13 +185,15 @@ export function createReconcileThreads(deps: ReconcileDeps): () => Promise<void>
 
 export interface ReadyDeps {
   log: Logger
-  subscribeReadyProjects(): void
+  subscribeReadyProjects(): void | Promise<void>
   reconcileThreads(): Promise<void>
 }
 
 export function createReadyHandler(deps: ReadyDeps): () => void {
   return (): void => {
-    deps.subscribeReadyProjects()
-    void deps.reconcileThreads().catch((err) => deps.log.error("boot reconcile failed", { error: String(err) }))
+    void (async () => {
+      try { await deps.subscribeReadyProjects() } catch (err) { deps.log.error("boot subscribe failed", { error: String(err) }) }
+      await deps.reconcileThreads().catch((err) => deps.log.error("boot reconcile failed", { error: String(err) }))
+    })()
   }
 }
