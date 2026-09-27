@@ -35,6 +35,7 @@ function fakeMessage(over: any = {}) {
     content: over.content ?? "hello",
     channel,
     channelId: channel.id,
+    guildId: over.guildId ?? "g",
     webhookId: null,
     system: false,
     attachments: { values: () => attachments[Symbol.iterator](), first: () => attachments[0] },
@@ -163,6 +164,17 @@ test("a run notice is replied to the message", async () => {
   expect(replies.map((r) => r.content)).toEqual(["queued (1)"])
 })
 
+test("a message in a thread resolves its owning project across guilds", async () => {
+  const db = fresh()
+  db.projects.insertProvisioning(project({ channelId: "c1", guildId: "g1", name: "one", sandboxName: "celly-one", hostPort: 4300 })); db.projects.setReady("c1", "C:\\p1")
+  db.projects.insertProvisioning(project({ channelId: "c2", guildId: "g2", name: "two", sandboxName: "celly-two", hostPort: 4301 })); db.projects.setReady("c2", "C:\\p2")
+  db.threads.upsert(thread({ threadId: "t2", channelId: "c2", sessionId: "s2" }))
+  const deps = baseDeps(db)
+  const { message } = fakeMessage({ channelId: "t2", parentId: null, isThread: () => true, guildId: "g2", content: "hello" })
+  await createMessageHandler(deps)(message)
+  expect(deps.runner.prompt).toHaveBeenCalledWith("t2", "hello", "u1")
+})
+
 test("project-down handler fans out to the runner and notifies the channel once", async () => {
   const handleProjectDown = vi.fn(async () => {})
   const send = vi.fn(async () => ({}))
@@ -228,6 +240,17 @@ test("ready handler subscribes then reconciles", async () => {
   ready()
   await new Promise((r) => setTimeout(r, 0))
   expect(order).toEqual(["subscribe", "reconcile"])
+})
+
+test("ready handler runs subscribe and reconcile only once", async () => {
+  const subscribe = vi.fn()
+  const reconcile = vi.fn(async () => {})
+  const ready = createReadyHandler({ log: silent, subscribeReadyProjects: subscribe, reconcileThreads: reconcile })
+  ready()
+  ready()
+  await new Promise((r) => setTimeout(r, 0))
+  expect(subscribe).toHaveBeenCalledTimes(1)
+  expect(reconcile).toHaveBeenCalledTimes(1)
 })
 
 test("boot reconcile recovers live runs and resets stale states", async () => {
@@ -335,12 +358,22 @@ test("describeDiscordStartupError passes through unknown errors", () => {
   expect(describeDiscordStartupError(new Error("boom"))).toBe("boom")
 })
 
-test("formatStartupBanner summarizes the run and flags missing permissions", () => {
-  const ok = formatStartupBanner({ guild: "g", projects: 2, dataDir: "./data", model: "anthropic/x", missingPermissions: [] })
+test("formatStartupBanner lists every guild and flags its missing permissions", () => {
+  const ok = formatStartupBanner({
+    guilds: [
+      { id: "g1", name: "Guild One", missingPermissions: [] },
+      { id: "g2", name: "Guild Two", missingPermissions: [] },
+    ],
+    projects: 2, dataDir: "./data", model: "anthropic/x",
+  })
   expect(ok).toContain("Celly is running")
   expect(ok).toContain("Projects: 2")
-  expect(ok).toContain("all required present")
-  const bad = formatStartupBanner({ guild: "g", projects: 0, dataDir: "./data", missingPermissions: ["Manage Channels"] })
+  expect(ok).toContain("Guild:    Guild One (g1)")
+  expect(ok).toContain("Guild:    Guild Two (g2)")
+  const bad = formatStartupBanner({
+    guilds: [{ id: "g1", name: "Guild One", missingPermissions: ["Manage Channels"] }],
+    projects: 0, dataDir: "./data",
+  })
   expect(bad).toContain("MISSING: Manage Channels")
   expect(bad).toContain("/project add")
 })

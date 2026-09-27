@@ -39,6 +39,36 @@ export function commandData(): any[] {
     { name: "attach", description: "Show the terminal attach command for this thread" } ]
 }
 
+export interface CommandDeployGuild {
+  id: string
+  commands: { set(data: any[]): Promise<unknown> }
+}
+export interface DeployLog {
+  info(message: string, fields?: any): void
+  warn(message: string, fields?: any): void
+}
+/** Token/auth failures fail for every guild; do not mask them as partial outages. */
+const FATAL_DEPLOY_ERROR = /disallowed intents|invalid token|token was provided/i
+
+export async function deployCommandsToGuilds(guilds: CommandDeployGuild[], data: any[], deps: { log: DeployLog }): Promise<string[]> {
+  const deployed: string[] = []
+  const failures: string[] = []
+  for (const guild of guilds) {
+    try {
+      await guild.commands.set(data)
+      deployed.push(guild.id)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (FATAL_DEPLOY_ERROR.test(message)) throw err
+      failures.push(`${guild.id}: ${message}`)
+      deps.log.warn("command deploy failed for guild", { guildId: guild.id, error: message })
+    }
+  }
+  if (deployed.length === 0) throw new Error(`command deploy failed for every guild (${failures.join("; ")})`)
+  deps.log.info("commands deployed", { guilds: deployed })
+  return deployed
+}
+
 export interface CreateThreadInput {
   channelId: string; title: string; sessionId?: string; prompt?: string; authorId?: string
 }

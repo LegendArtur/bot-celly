@@ -95,20 +95,23 @@ export function describeDiscordStartupError(err: unknown): string {
   return raw
 }
 
+export interface StartupBannerGuild {
+  id: string
+  name: string
+  missingPermissions: string[]
+}
 export interface StartupBanner {
-  guild: string
+  guilds: StartupBannerGuild[]
   projects: number
   dataDir: string
   model?: string
-  missingPermissions: string[]
 }
 export function formatStartupBanner(info: StartupBanner): string {
   const lines = [
-    `Guild:    ${info.guild}`,
     `Projects: ${info.projects}`,
     `Data:     ${info.dataDir}`,
     `Model:    ${info.model ?? "(OpenCode default)"}`,
-    `Perms:    ${info.missingPermissions.length === 0 ? "all required present" : `MISSING: ${info.missingPermissions.join(", ")}`}`,
+    ...info.guilds.map((g) => `Guild:    ${g.name} (${g.id})${g.missingPermissions.length === 0 ? "" : ` MISSING: ${g.missingPermissions.join(", ")}`}`),
   ]
   const width = Math.max("Celly is running".length, ...lines.map((l) => l.length))
   const rule = `+${"-".repeat(width + 2)}+`

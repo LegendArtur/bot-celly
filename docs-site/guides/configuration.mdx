@@ -7,12 +7,12 @@ description: The full environment variable reference for Celly. Two values are r
 (`process.loadEnvFile`), is gitignored, and is validated at boot. A missing or
 invalid required value fails fast with an actionable error.
 
-Start from `.env.example` and set the two required values. Everything else has a
+Start from `.env.example` and set the required values. Everything else has a
 working default:
 
 ```dotenv
 DISCORD_TOKEN=your-bot-token
-DISCORD_GUILD_ID=your-guild-id
+DISCORD_GUILD_IDS=111111111111111111,222222222222222222
 ```
 
 ## Variables
@@ -20,7 +20,8 @@ DISCORD_GUILD_ID=your-guild-id
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `DISCORD_TOKEN` | **required** | Bot token. |
-| `DISCORD_GUILD_ID` | **required** | Single guild for v1. |
+| `DISCORD_GUILD_IDS` | **required** | Comma-separated guild IDs. Entries are trimmed, blanks dropped, and duplicates ignored. |
+| `DISCORD_GUILD_ID` | unset | Legacy single-guild form, used only when `DISCORD_GUILD_IDS` is unset. |
 | `PROJECTS_ROOT` | `~/Celly/projects` | Allowed project root; created on boot. |
 | `ACCESS_ROLE_ID` | unset | Role **ID** allowed to use the bot. |
 | `BLOCK_ROLE_ID` | unset | Role **ID** denied access (checked first). |
@@ -53,6 +54,26 @@ DISCORD_GUILD_ID=your-guild-id
 `DEFAULT_MODEL` and `DEFAULT_AGENT` are seeded into the `settings` table on the
 first boot only. Once a value exists there, it is authoritative and re-reading
 `.env` will not overwrite it.
+</Note>
+
+## Multiple guilds
+
+Celly deploys its command set to every guild in `DISCORD_GUILD_IDS` and runs
+boot subscribe and thread reconcile across all of them. At startup each
+configured guild is fetched; a guild the bot cannot see (for example, it was
+never invited) is skipped with a warning. Startup fails only when **no**
+configured guild is reachable, or when the bot token itself is invalid. A
+single guild failing command deployment does not abort startup.
+
+`Config.guildId` remains available as `guildIds[0]` for code paths that still
+expect one guild.
+
+<Note>
+Access control is global: `ACCESS_ROLE_ID`, `BLOCK_ROLE_ID`, and
+`OWNER_ROLE_ID` apply to every configured guild. Role IDs only match in the
+guild that owns them, and each guild's owner (or a member with `Manage Guild` /
+`Administrator`) is always allowed in that guild. Per-guild role configuration
+is not supported in this version.
 </Note>
 
 ## `PROJECTS_ROOT` and path containment

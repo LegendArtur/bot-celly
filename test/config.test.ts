@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
-import { defaultProjectsRoot, ensureDataDir, loadConfig, loadDotEnv, seedSettings } from "../src/config.ts"
+import { defaultProjectsRoot, ensureDataDir, loadConfig, loadDotEnv, parseGuildIds, seedSettings } from "../src/config.ts"
 
 const base = { DISCORD_TOKEN: "t", DISCORD_GUILD_ID: "g", PROJECTS_ROOT: "C:\\projects" }
 
@@ -144,4 +144,30 @@ test("admin port defaults to 4560 and accepts 0 to disable", () => {
   expect(loadConfig(base).adminPort).toBe(4560)
   expect(loadConfig({ ...base, ADMIN_PORT: "0" }).adminPort).toBe(0)
   expect(() => loadConfig({ ...base, ADMIN_PORT: "-1" })).toThrow(/ADMIN_PORT/)
+})
+
+test("parseGuildIds reads the plural list, trims, drops blanks, and dedupes", () => {
+  expect(parseGuildIds({ DISCORD_GUILD_IDS: " g1 , ,g2,g1 " })).toEqual(["g1", "g2"])
+})
+test("parseGuildIds falls back to the singular guild id", () => {
+  expect(parseGuildIds({ DISCORD_GUILD_ID: " g1 " })).toEqual(["g1"])
+})
+test("parseGuildIds returns undefined when neither variable is set", () => {
+  expect(parseGuildIds({})).toBeUndefined()
+})
+test("parseGuildIds rejects an all-blank plural list", () => {
+  expect(() => parseGuildIds({ DISCORD_GUILD_IDS: " , " })).toThrow(/DISCORD_GUILD_IDS/)
+})
+test("loadConfig prefers DISCORD_GUILD_IDS and keeps guildId as the first id", () => {
+  const c = loadConfig({ DISCORD_TOKEN: "t", DISCORD_GUILD_IDS: "g1,g2", DISCORD_GUILD_ID: "legacy" })
+  expect(c.guildIds).toEqual(["g1", "g2"])
+  expect(c.guildId).toBe("g1")
+})
+test("loadConfig falls back to the singular guild id", () => {
+  const c = loadConfig({ ...base })
+  expect(c.guildIds).toEqual(["g"])
+  expect(c.guildId).toBe("g")
+})
+test("loadConfig requires a guild id in either form", () => {
+  expect(() => loadConfig({ DISCORD_TOKEN: "t" })).toThrow(/DISCORD_GUILD_ID/)
 })
