@@ -33,6 +33,7 @@ DISCORD_GUILD_ID=your-guild-id
 | `PORT_RANGE_END` | `4399` | Host loopback port pool end (must exceed the start). |
 | `DEFAULT_MODEL` | unset | Seeded into `settings` on first boot only. |
 | `DEFAULT_AGENT` | unset | Seeded into `settings` on first boot only. |
+| `APPROVAL_MODE` | `buttons` | `auto`, `buttons`, or `plan`. Seeded into `settings.approval_mode` on first boot; `/mode` writes a per-channel `approval_mode:<channelId>` override. |
 | `BOOT_TIMEOUT_MS` | `120000` | Create-saga health wait. |
 | `HEALTH_TIMEOUT_MS` | `30000` | Wake health wait. |
 | `EDIT_INTERVAL_MS` | `1200` | Render throttle floor. |
@@ -43,9 +44,9 @@ DISCORD_GUILD_ID=your-guild-id
 | `LOG_LEVEL` | `info` | One of `debug`, `info`, `warn`, `error`. |
 
 <Note>
-`DEFAULT_MODEL` and `DEFAULT_AGENT` are seeded into the `settings` table on the
-first boot only. Once a value exists there, it is authoritative and re-reading
-`.env` will not overwrite it.
+`DEFAULT_MODEL`, `DEFAULT_AGENT`, and `APPROVAL_MODE` are seeded into the
+`settings` table on the first boot only. Once a value exists there, it is
+authoritative and re-reading `.env` will not overwrite it.
 </Note>
 
 ## `PROJECTS_ROOT` and path containment

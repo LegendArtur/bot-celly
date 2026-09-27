@@ -46,6 +46,9 @@ core idea (channels as projects, threads as sessions) and runs each project in a
 - **Session resume.** `/resume` reopens a past OpenCode session in a new thread.
 - **Model and agent switching.** `/model` and `/agent` pick per-thread settings.
 - **Abort.** `/abort` stops the current run, or every active run in the channel.
+- **Approvals.** `/mode` picks `auto`, `buttons`, or `plan`; `buttons` posts
+  permission requests as Discord buttons and agent questions as
+  buttons/selects/modals. Decisions are written to a best-effort audit log.
 - **Shell.** A message starting with `!` runs `bash -lc <command>` inside the
   project's sandbox.
 - **Text attachments.** Size-capped, written to a validated inbox, referenced in
@@ -143,6 +146,7 @@ is documented in
 | `/abort` | channel or thread | Abort the current run (or all runs). |
 | `/model` | thread | Choose the model for this thread. |
 | `/agent` | thread | Choose the agent for this thread. |
+| `/mode <auto\|buttons\|plan>` | project channel or thread (owner) | Set the channel approval mode. |
 | `!<command>` | channel or thread | Run a shell command in the sandbox. |
 
 Full details and the deferred list are in the
@@ -186,8 +190,7 @@ v1 is the command set above. Deferred to v1.1:
 
 - **Commands:** `/project restart`, `/share`, `/diff`, `/undo`, `/redo`,
   `/context-usage`.
-- **Thread/conversation:** worktree-per-thread, `/btw` forks, queue UI, permission
-  approval buttons, `question` as Discord components.
+- **Thread/conversation:** worktree-per-thread, `/btw` forks, queue UI.
 - **Input:** voice messages and image attachments.
 - **Surfaces:** OpenCode web UI, admin website, diff viewer, tunnels/screenshare,
   forum-channel layout.

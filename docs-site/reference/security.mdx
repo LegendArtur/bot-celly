@@ -70,7 +70,7 @@ cannot weaken it:
       "cat */.config/celly/*": "deny"
     },
     "external_directory": "deny",
-    "question": "deny"
+    "question": "allow"
   }
 }
 ```
@@ -80,10 +80,26 @@ cannot weaken it:
   from reading `opencode.env` or `~/.config/celly/`, plus catch-all patterns for
   both paths.
 - `external_directory: deny` keeps tools inside the mounted project.
-- `question: deny` prevents headless deadlocks; surfacing questions in Discord
-  is deferred.
+- `question: "allow"` lets the agent ask questions; Celly decides per approval
+  mode. `auto` and `plan` reject them immediately, and `buttons` surfaces them
+  to authorized members. There is no headless deadlock either way.
 - Any permission request that still surfaces is answered from the policy — there
   is no catch-all auto-allow.
+
+## Approval decisions
+
+`buttons` mode turns mutating permission requests into Discord messages.
+Decisions are bound to the pending request id and are only accepted while the
+request is live; stale or post-restart clicks answer "this request is no longer
+active". Read-only tools and every pattern already denied by the policy (bash
+deny list, sensitive paths, unknown tools) are decided without asking.
+
+Every permission decision, question answer or rejection, `!shell` command, and
+`/mode` change is appended to `DATA_DIR/audit.jsonl` (mode 0600, one JSON object
+per line) with timestamp, channel, thread, actor, kind, detail, and decision.
+Audit appends are best-effort: a failure logs and never fails the interaction.
+The log stores tool names, patterns, and shell commands verbatim and never
+tokens or passwords.
 
 ## Secrets
 
