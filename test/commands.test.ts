@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs"
 import { expect, test, vi } from "vitest"
 import { ApplicationCommandOptionType, ComponentType } from "discord.js"
-import { ANSWER_MODAL_INPUT, AUTOCOMPLETE_BUDGET_MS, SELECT_OPTION_MAX, SELECT_OPTIONS_MAX, commandData, deployCommandsToGuilds, handleApprovalButton, handleAutocomplete, handleButton, handleCommand, handleModalSubmit, handleRejectQuestionButton, handleSelect, parseCustomIdFull, requiresOwner, sanitizeSelectOptions } from "../src/commands.ts"
+import { ANSWER_MODAL_INPUT, SELECT_OPTION_MAX, SELECT_OPTIONS_MAX, commandData, deployCommandsToGuilds, handleApprovalButton, handleButton, handleCommand, handleModalSubmit, handleRejectQuestionButton, handleSelect, parseCustomIdFull, requiresOwner, sanitizeSelectOptions } from "../src/commands.ts"
 import { isOwner } from "../src/discord.ts"
 import { openDb } from "../src/db.ts"
 
@@ -321,12 +321,38 @@ test("/login tells the user to finish an auto flow in the browser and prompt", a
   expect(editOf(i)).toContain("use `/attach` and run `opencode auth login` in the sandbox")
 })
 
-test("/login without a provider lists the available oauth providers", async () => {
+test("/login without a provider posts a provider select", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
   const i = interaction({ commandName: "login", channelId: "c" })
   await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
     listLogin: async () => ["github", "openai"] })
-  expect(editOf(i)).toBe("OAuth providers: github, openai")
+  const edit = editOf(i)
+  expect(edit.content).toBe("Choose a provider to authorize:")
+  const menu = edit.components[0].components[0]
+  expect(menu.custom_id).toBe("celly:login-provider:c")
+  expect(menu.options).toEqual([
+    { label: "github", value: "github" },
+    { label: "openai", value: "openai" },
+  ])
+})
+
+test("selecting an oauth provider starts the login and edits to the authorization text", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const i = select({ customId: "celly:login-provider:c", values: ["github"] })
+  const started: Array<[string, string]> = []
+  await handleSelect(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    startLogin: async (channelId: string, providerId: string) => { started.push([channelId, providerId]); return { url: "https://example.test/auth", instructions: "Paste the code", flow: "code" } } })
+  expect(started).toEqual([["c", "github"]])
+  expect(i.calls[1].c).toMatchObject({
+    content: "Authorize github:\nhttps://example.test/auth\nPaste the code\nThen run `/login-code github <code>` with the code shown by the provider.",
+    components: [],
+  })
+})
+
+test("selecting for an unknown action still answers unknown selection", async () => {
+  const i = select({ customId: "celly:nope:c", values: ["x"] })
+  await handleSelect(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
+  expect(i.calls[1].c).toMatchObject({ content: "unknown selection", components: [] })
 })
 
 test("/login without a provider reports when none are available", async () => {
@@ -1136,88 +1162,7 @@ test("context-usage renders the usage bar and the no-usage message", async () =>
   expect(editOf(empty)).toBe("no usage recorded for this thread yet")
 })
 
-function autocompleteInteraction(over: any = {}) {
-  const calls: any[] = []
-  const i: any = {
-    commandName: over.commandName ?? "model",
-    channelId: over.channelId ?? "t1",
-    options: { getFocused: () => over.focused ?? "" },
-    user: { id: "u1" },
-    calls,
-    respond: async (choices: any) => { calls.push({ kind: "respond", choices }) },
-    reply: async (c: any) => { calls.push({ kind: "reply", c }) },
-  }
-  return i
-}
-
-test("autocomplete options are declared for resume, model, agent, and login", () => {
-  const commands = commandData()
-  expect(commands.find((c: any) => c.name === "resume").options[0]).toMatchObject({ name: "session", autocomplete: true })
-  expect(commands.find((c: any) => c.name === "model").options[0]).toMatchObject({ name: "model", autocomplete: true })
-  expect(commands.find((c: any) => c.name === "agent").options[0]).toMatchObject({ name: "agent", autocomplete: true })
-  expect(commands.find((c: any) => c.name === "login").options[0]).toMatchObject({ name: "provider", autocomplete: true })
-})
-
-test("autocomplete responds with sanitized choices from suggest", async () => {
-  const i = autocompleteInteraction({ commandName: "model", focused: "anth" })
-  let captured: any
-  await handleAutocomplete(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true,
-    suggest: async (interaction: any, query: string) => { captured = { command: interaction.commandName, query }; return [
-      { name: "anthropic/claude", value: "anthropic/claude" },
-      { name: "", value: "dup" },
-      { name: "dup", value: "dup" },
-      { name: "x".repeat(150), value: "y".repeat(150) },
-    ] } })
-  expect(captured).toEqual({ command: "model", query: "anth" })
-  expect(i.calls[0].choices).toEqual([
-    { name: "anthropic/claude", value: "anthropic/claude" },
-    { name: "dup", value: "dup" },
-    { name: "x".repeat(100), value: "y".repeat(100) },
-  ])
-})
-
-test("login autocomplete routes through suggest and returns its values", async () => {
-  const i = autocompleteInteraction({ commandName: "login", focused: "az" })
-  let captured: any
-  await handleAutocomplete(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true,
-    suggest: async (interaction: any, query: string) => { captured = { command: interaction.commandName, query }; return [
-      { name: "azure", value: "azure" },
-      { name: "cloudflare-workers-ai", value: "cloudflare-workers-ai" },
-    ] } })
-  expect(captured).toEqual({ command: "login", query: "az" })
-  expect(i.calls[0].choices).toEqual([
-    { name: "azure", value: "azure" },
-    { name: "cloudflare-workers-ai", value: "cloudflare-workers-ai" },
-  ])
-})
-
-test("autocomplete responds [] when unauthorized or suggest rejects", async () => {
-  const denied = autocompleteInteraction()
-  await handleAutocomplete(denied, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => false,
-    suggest: async () => { throw new Error("should not run") } })
-  expect(denied.calls[0].choices).toEqual([])
-
-  const failing = autocompleteInteraction()
-  await handleAutocomplete(failing, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true,
-    suggest: async () => { throw new Error("boom") } })
-  expect(failing.calls[0].choices).toEqual([])
-})
-
-test("autocomplete responds within the budget when suggest hangs", async () => {
-  vi.useFakeTimers()
-  try {
-    const i = autocompleteInteraction()
-    const pending = handleAutocomplete(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true,
-      suggest: () => new Promise(() => {}) })
-    await vi.advanceTimersByTimeAsync(AUTOCOMPLETE_BUDGET_MS)
-    await pending
-    expect(i.calls[0].choices).toEqual([])
-  } finally {
-    vi.useRealTimers()
-  }
-})
-
-test("model and agent with a direct autocompleted value set the thread override", async () => {
+test("model and agent with a direct value set the thread override", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
   const calls: any[] = []
   const modelInteraction = interaction({ commandName: "model", channelId: "t1", strings: { model: "anthropic/claude" } })

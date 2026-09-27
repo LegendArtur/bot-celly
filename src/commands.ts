@@ -41,13 +41,10 @@ export function commandData(): any[] {
   ] }
   return [ project, task,
     { name: "new", description: "Start a new session", options: [{ type: ApplicationCommandOptionType.String, name: "prompt", description: "Initial prompt" }] },
-    { name: "resume", description: "Resume a session", options: [
-      { type: ApplicationCommandOptionType.String, name: "session", description: "Session to resume (autocomplete)", autocomplete: true } ] },
+    { name: "resume", description: "Resume a session" },
     { name: "abort", description: "Abort the current run" },
-    { name: "model", description: "Choose the model for this thread", options: [
-      { type: ApplicationCommandOptionType.String, name: "model", description: "provider/model (autocomplete)", autocomplete: true } ] },
-    { name: "agent", description: "Choose the agent for this thread", options: [
-      { type: ApplicationCommandOptionType.String, name: "agent", description: "Agent name (autocomplete)", autocomplete: true } ] },
+    { name: "model", description: "Choose the model for this thread" },
+    { name: "agent", description: "Choose the agent for this thread" },
     { name: "queue", description: "Show and manage this thread's queued prompts" },
     { name: "undo", description: "Revert the session to its last user message" },
     { name: "redo", description: "Restore messages reverted by the last /undo" },
@@ -77,7 +74,7 @@ export function commandData(): any[] {
         { type: ApplicationCommandOptionType.Number, name: "usd", description: "Budget in USD; 0 disables", required: true } ] },
     ] },
     { name: "login", description: "Authorize a provider with OAuth (owner-only)", options: [
-      { type: ApplicationCommandOptionType.String, name: "provider", description: "Provider id (autocomplete)", required: false, autocomplete: true } ] },
+      { type: ApplicationCommandOptionType.String, name: "provider", description: "Provider id (optional; omit to pick from a list)", required: false } ] },
     { name: "login-code", description: "Finish OAuth login with an authorization code (owner-only)", options: [
       { type: ApplicationCommandOptionType.String, name: "provider", description: "Provider id", required: true },
       { type: ApplicationCommandOptionType.String, name: "code", description: "Authorization code", required: true } ] },
@@ -153,7 +150,6 @@ export interface CommandDeps {
   setChannelModel?(channelId: string, model: string | null): void
   setChannelAgent?(channelId: string, agent: string | null): void
   sessions?: SessionOps
-  suggest?(interaction: any, query: string): Promise<AutocompleteChoice[]>
   approvals?: ApprovalManager
   audit?(entry: AuditDraft): void
   worktree?: WorktreeCommands
@@ -163,14 +159,11 @@ export interface CommandDeps {
   listLogin?(channelId: string): Promise<string[]>
 }
 
-export interface AutocompleteChoice { name: string; value: string }
-export const AUTOCOMPLETE_BUDGET_MS = 2500
-export const AUTOCOMPLETE_MAX = 25
-
 export const RESUME_SELECT = "resume"
 export const MODEL_PROVIDER_SELECT = "model-provider"
 export const MODEL_SELECT = "model"
 export const AGENT_SELECT = "agent"
+export const LOGIN_PROVIDER_SELECT = "login-provider"
 export const QUEUE_REMOVE = "queue-remove"
 export const QUEUE_CLEAR = "queue-clear"
 
@@ -281,6 +274,18 @@ export function requiresOwner(commandName: string, sub: string | null | undefine
 function commandProjectChannel(interaction: any, db: Db): string | undefined {
   if (interaction.channel?.isThread?.() === true) return db.threads.get(interaction.channelId)?.channelId
   return db.projects.getByChannel(interaction.channelId) ? interaction.channelId : undefined
+}
+
+function loginInstructions(providerId: string, login: { url: string; instructions: string; flow: "auto" | "code" }): string {
+  const lines = [
+    `Authorize ${providerId}:`,
+    login.url,
+    login.instructions,
+    login.flow === "auto"
+      ? `Finish in the browser, then send a prompt in this thread. If replies still fail, use \`/attach\` and run \`opencode auth login\` in the sandbox.`
+      : `Then run \`/login-code ${providerId} <code>\` with the code shown by the provider.`,
+  ].filter(Boolean)
+  return lines.join("\n")
 }
 
 export async function handleCommand(interaction: any, deps: CommandDeps): Promise<void> {
@@ -593,19 +598,16 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (!providerId) {
         if (!deps.listLogin) return void await interaction.editReply(noMentions("login unavailable"))
         const providers = await deps.listLogin(channelId)
-        return void await interaction.editReply(noMentions(providers.length ? `OAuth providers: ${providers.join(", ")}` : "no OAuth providers available"))
+        if (!providers.length) return void await interaction.editReply(noMentions("no OAuth providers available"))
+        return void await interaction.editReply({
+          content: "Choose a provider to authorize:",
+          components: [selectRow(selectCustomId(LOGIN_PROVIDER_SELECT, channelId), "Select a provider", providers.map((id) => ({ label: id, value: id })))],
+          allowedMentions: { parse: [] },
+        })
       }
       if (!deps.startLogin) return void await interaction.editReply(noMentions("login unavailable"))
       const login = await deps.startLogin(channelId, providerId)
-      const lines = [
-        `Authorize ${providerId}:`,
-        login.url,
-        login.instructions,
-        login.flow === "auto"
-          ? `Finish in the browser, then send a prompt in this thread. If replies still fail, use \`/attach\` and run \`opencode auth login\` in the sandbox.`
-          : `Then run \`/login-code ${providerId} <code>\` with the code shown by the provider.`,
-      ].filter(Boolean)
-      return void await interaction.editReply(noMentions(lines.join("\n")))
+      return void await interaction.editReply(noMentions(loginInstructions(providerId, login)))
     }
     if (interaction.commandName === "login-code") {
       const channelId = commandProjectChannel(interaction, deps.db)
@@ -666,6 +668,12 @@ export async function handleSelect(interaction: any, deps: CommandDeps): Promise
       deps.setChannelAgent?.(scope, value ?? null)
       return void await interaction.editReply({ content: `channel agent set to ${value ?? "default"}`, components: [], allowedMentions: { parse: [] } })
     }
+    if (action === LOGIN_PROVIDER_SELECT) {
+      if (!id || !value) return void await interaction.editReply({ content: "no provider selected", components: [], allowedMentions: { parse: [] } })
+      if (!deps.startLogin) return void await interaction.editReply({ content: "login unavailable", components: [], allowedMentions: { parse: [] } })
+      const login = await deps.startLogin(id, value)
+      return void await interaction.editReply(noMentions(loginInstructions(value, login), { components: [] }))
+    }
     return void await interaction.editReply({ content: "unknown selection", components: [], allowedMentions: { parse: [] } })
   } catch (e) {
     const content = `error: ${(e as Error).message}`
@@ -725,43 +733,6 @@ export async function handleButton(interaction: any, deps: CommandDeps): Promise
   if (action === APPROVAL_ACTION) return handleApprovalButton(interaction, deps)
   if (action === ANSWER_ACTION) return handleAnswerButton(interaction, deps)
   if (action === REJECT_QUESTION_ACTION) return handleRejectQuestionButton(interaction, deps)
-}
-
-export function sanitizeAutocompleteChoices(choices: AutocompleteChoice[]): AutocompleteChoice[] {
-  const seen = new Set<string>()
-  const out: AutocompleteChoice[] = []
-  for (const choice of choices) {
-    const value = choice?.value == null ? "" : String(choice.value).slice(0, SELECT_OPTION_MAX)
-    const rawName = choice?.name == null ? value : String(choice.name).slice(0, SELECT_OPTION_MAX)
-    if (!value || seen.has(value)) continue
-    seen.add(value)
-    out.push({ name: rawName || value, value })
-    if (out.length >= AUTOCOMPLETE_MAX) break
-  }
-  return out
-}
-
-function withBudget<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(undefined), ms)
-    if (typeof (timer as any).unref === "function") (timer as any).unref()
-    promise.then(
-      (value) => { clearTimeout(timer); resolve(value) },
-      () => { clearTimeout(timer); resolve(undefined) },
-    )
-  })
-}
-
-export async function handleAutocomplete(interaction: any, deps: CommandDeps): Promise<void> {
-  let choices: AutocompleteChoice[] = []
-  try {
-    if (deps.authorized(interaction) && deps.suggest) {
-      const focused = interaction.options?.getFocused?.()
-      const query = typeof focused === "string" ? focused : ""
-      choices = sanitizeAutocompleteChoices((await withBudget(deps.suggest(interaction, query), AUTOCOMPLETE_BUDGET_MS)) ?? [])
-    }
-  } catch {}
-  try { await interaction.respond(choices) } catch {}
 }
 
 export async function handleApprovalButton(interaction: any, deps: CommandDeps): Promise<void> {

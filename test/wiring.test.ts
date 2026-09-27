@@ -92,12 +92,6 @@ test("index wires log rotation, backups, tasks, and the admin server into boot",
   expect(source).toContain("admin?.close()")
 })
 
-test("index wires login suggestions and warms caches in the boot subscribe path", () => {
-  const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8")
-  expect(source).toContain("`login:${channelId}`")
-  expect(source).toContain("if (fresh) subscribeProject(fresh)\n      warmSuggestions(project.channelId)")
-})
-
 test("touchAfterWake records activity after ensureReady, and not if the wake fails", async () => {
   const calls: string[] = []
   await touchAfterWake(

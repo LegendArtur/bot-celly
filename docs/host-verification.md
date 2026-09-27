@@ -101,9 +101,7 @@ the repo root unless a step says otherwise.
 
 ## 6. OAuth login (`/login`)
 
-1. `/login` with a provider id you use (e.g. `anthropic`).
-   The `provider` option autocompletes provider ids, so pick from the list
-   instead of typing one from memory.
+1. Run `/login` and pick the provider you use from the select.
    Expected: an ephemeral message with an authorization URL and instructions.
 2. Open the URL in a browser, complete the flow.
    - Code flow: run `/login-code provider:<id> code:<code>`.

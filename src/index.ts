@@ -17,11 +17,9 @@ import { Sbx, SbxRunner } from "./sbx.js"
 import { ProjectService } from "./projects.js"
 import { WorktreeService } from "./worktrees.js"
 import { createDiscordClient, fetchConfiguredGuilds, isAuthorized, isOwner, rolesOf } from "./discord.js"
-import { commandData, deployCommandsToGuilds, handleAutocomplete, handleButton, handleCommand, handleModalSubmit, handleSelect } from "./commands.js"
+import { commandData, deployCommandsToGuilds, handleButton, handleCommand, handleModalSubmit, handleSelect } from "./commands.js"
 import type { CommandDeps, CreateThreadInput } from "./commands.js"
 import { createAutoThreadResolver } from "./attach.js"
-import { createSuggestionCache } from "./autocomplete.js"
-import type { SuggestionCache } from "./autocomplete.js"
 import { APPROVAL_TIMEOUT_MS, ApprovalManager } from "./approvals.js"
 import { approvalModeFor } from "./mode.js"
 import { acquireLock } from "./lock.js"
@@ -175,7 +173,7 @@ async function main(): Promise<void> {
       runner: { handleProjectDown: (channelId) => runnerSvc.handleProjectDown(channelId) },
       client, bucketFor, log,
     }),
-    onProjectReady: (project) => { secrets.push(project.serverPassword); db.projects.touch(project.channelId, Date.now()); subscribeProject(project); warmSuggestions(project.channelId) },
+    onProjectReady: (project) => { secrets.push(project.serverPassword); db.projects.touch(project.channelId, Date.now()); subscribeProject(project) },
     onProjectRemoved: (project) => {
       const index = secrets.indexOf(project.serverPassword)
       if (index >= 0) secrets.splice(index, 1)
@@ -433,7 +431,6 @@ async function main(): Promise<void> {
       }
       const fresh = db.projects.getByChannel(project.channelId)
       if (fresh) subscribeProject(fresh)
-      warmSuggestions(project.channelId)
     }
   }
   const stopSubscription = (channelId: string): void => {
@@ -591,49 +588,6 @@ async function main(): Promise<void> {
     const res: any = await resolveClient(project).provider.auth()
     return listOAuthProviders(res?.data ?? res)
   }
-  const suggestionCaches = new Map<string, SuggestionCache>()
-  const suggestionCacheFor = (key: string, load: () => Promise<string[]>): SuggestionCache => {
-    let cache = suggestionCaches.get(key)
-    if (!cache) {
-      cache = createSuggestionCache({ ttlMs: 60_000, load, now: () => Date.now() })
-      suggestionCaches.set(key, cache)
-    }
-    return cache
-  }
-  const loadModels = async (channelId: string): Promise<string[]> => (await listModels(channelId)).map((model) => model.id)
-  const loadAgents = async (channelId: string): Promise<string[]> => (await listAgents(channelId)).map((agent) => agent.id)
-  // First `suggest("")` on a cold cache kicks off a background load, so a later
-  // autocomplete has data without paying the provider round-trip. Warming must
-  // never block boot or surface an error.
-  const warmSuggestions = (channelId: string): void => {
-    try {
-      void suggestionCacheFor(`models:${channelId}`, () => loadModels(channelId)).suggest("").catch(() => {})
-      void suggestionCacheFor(`agents:${channelId}`, () => loadAgents(channelId)).suggest("").catch(() => {})
-      void suggestionCacheFor(`login:${channelId}`, () => listLogin(channelId)).suggest("").catch(() => {})
-    } catch {}
-  }
-  const suggest = async (interaction: any, query: string): Promise<{ name: string; value: string }[]> => {
-    if (interaction.commandName === "resume") {
-      const channelId = interaction.channelId
-      const cache = suggestionCacheFor(`resume:${channelId}`, async () => (await listSessions(channelId)).map((session) => session.id))
-      return (await cache.suggest(query)).map((value) => ({ name: value, value }))
-    }
-    const thread = db.threads.get(interaction.channelId)
-    const channelId = thread?.channelId ?? interaction.channelId
-    if (interaction.commandName === "model") {
-      const cache = suggestionCacheFor(`models:${channelId}`, () => loadModels(channelId))
-      return (await cache.suggest(query)).map((value) => ({ name: value, value }))
-    }
-    if (interaction.commandName === "agent") {
-      const cache = suggestionCacheFor(`agents:${channelId}`, () => loadAgents(channelId))
-      return (await cache.suggest(query)).map((value) => ({ name: value, value }))
-    }
-    if (interaction.commandName === "login") {
-      const cache = suggestionCacheFor(`login:${channelId}`, () => listLogin(channelId))
-      return (await cache.suggest(query)).map((value) => ({ name: value, value }))
-    }
-    return []
-  }
   const setThreadModel = (threadId: string, model: string | null): void => { if (db.threads.get(threadId)) db.threads.setModel(threadId, model) }
   const setThreadAgent = (threadId: string, agent: string | null): void => { if (db.threads.get(threadId)) db.threads.setAgent(threadId, agent) }
   const setChannelModel = (channelId: string, model: string | null): void => {
@@ -656,7 +610,7 @@ async function main(): Promise<void> {
     forkThread,
     listSessions, listModels, listAgents,
     setThreadModel, setThreadAgent, setChannelModel, setChannelAgent,
-    sessions, suggest,
+    sessions,
     worktree: worktrees,
     sessionBudgetUsd: cfg.sessionBudgetUsd,
     startLogin: async (channelId, providerId) => {
@@ -700,7 +654,6 @@ async function main(): Promise<void> {
       // Buttons and modals are dispatched through the shared handlers owned by
       // this feature; later plans add their own `handle*` branch inside
       // `handleButton` rather than redefining the dispatcher (spec §3.1).
-      if (interaction.isAutocomplete()) { await handleAutocomplete(interaction, commandDeps); return }
       if (interaction.isButton()) { await handleButton(interaction, commandDeps); return }
       if (interaction.isModalSubmit()) { await handleModalSubmit(interaction, commandDeps); return }
       if (interaction.isStringSelectMenu()) { await handleSelect(interaction, commandDeps); return }

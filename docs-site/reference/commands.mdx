@@ -32,8 +32,8 @@ with block checked first.
 | `/new [prompt]` | authorized | Start a new thread/session in this project channel. |
 | `/resume` | authorized | Pick a past session (ephemeral select) and resume it in a new thread. |
 | `/abort` | authorized | Abort the current run in a thread, or every active run in the project channel. |
-| `/model` | authorized | Choose the model for this thread, or the channel default in a project channel (autocomplete or two-step provider → model). |
-| `/agent` | authorized | Choose the agent for this thread, or the channel default in a project channel (autocomplete or select). |
+| `/model` | authorized | Choose the model for this thread, or the channel default in a project channel (two-step provider → model select). |
+| `/agent` | authorized | Choose the agent for this thread, or the channel default in a project channel (select). |
 | `/attach` | thread | Show the exact `sbx exec` + `opencode attach` command for this thread's session (ephemeral). |
 | `/session-id` | thread | Show this thread's session id and the attach command behind a spoiler (ephemeral). |
 | `/queue` | authorized | Show the first 10 queued prompts for this thread with Remove and Clear buttons (ephemeral). |
@@ -97,7 +97,7 @@ longer active"; pending requests are not persisted across restarts.
 | `/cost` | authorized | Show this thread's and channel's accumulated cost, tokens, and the session budget (ephemeral). |
 | `/budget show` | owner | Show this channel's session budget (ephemeral). |
 | `/budget set usd:<usd>` | owner | Set this channel's session budget in USD; `0` disables it (ephemeral). |
-| `/login provider:<id>` | owner | Start a provider OAuth flow and post the authorization URL (ephemeral); `provider` autocompletes the OAuth-capable providers. |
+| `/login [provider:<id>]` | owner | Start a provider OAuth flow and post the authorization URL (ephemeral); omit `provider` to pick from a select of OAuth-capable providers. |
 | `/login-code provider:<id> code:<code>` | owner | Finish an OAuth flow with the provider's authorization code (ephemeral). |
 
 ## Messages and shell
