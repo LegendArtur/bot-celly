@@ -439,6 +439,16 @@ test("deployCommandsToGuilds treats an invalid token as fatal immediately", asyn
   expect(set).not.toHaveBeenCalled()
 })
 
+test("project add forwards the invoking guild id to addProject", async () => {
+  const i = interaction({ sub: "add", strings: { name: "demo", path: "C:\\p" }, guildId: "g2" })
+  const seen: any[] = []
+  await handleCommand(i, {
+    projects: { addProject: async (input: any) => { seen.push(input); return { ...proj, guildId: input.guildId } } } as any,
+    runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => true,
+  })
+  expect(seen).toEqual([{ guildId: "g2", name: "demo", directory: "C:\\p" }])
+})
+
 test("model selection survives malformed and oversized model lists without throwing", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
   db.threads.upsert(threadRow("t1"))

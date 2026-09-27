@@ -14,8 +14,8 @@ import { redact } from "./log.js"
 export interface ProjectDeps {
   sbx: Sbx; runner: SbxRunner; db: Db; config: Config
   log: { info(m: string, f?: any): void; warn(m: string, f?: any): void; error(m: string, f?: any): void; debug(m: string, f?: any): void }
-  createChannel(name: string): Promise<string>
-  deleteChannel(channelId: string): Promise<void>
+  createChannel(guildId: string, name: string): Promise<string>
+  deleteChannel(guildId: string, channelId: string): Promise<void>
   resolveSandboxPath?(name: string): Promise<string>
   isPortFree?(port: number): Promise<boolean>
   forbiddenPaths?: string[]
@@ -151,7 +151,7 @@ export class ProjectService {
     let channelId: string | undefined
     let inserted = false
     try {
-      channelId = input.existingChannelId ?? (await this.deps.createChannel(input.name))
+      channelId = input.existingChannelId ?? (await this.deps.createChannel(input.guildId, input.name))
       db.projects.insertProvisioning({ channelId, guildId: input.guildId, name: input.name, directory: input.directory,
         sandboxPath: null, sandboxName, hostPort, serverPassword, createdAt: Date.now() })
       inserted = true
@@ -174,7 +174,7 @@ export class ProjectService {
       if (channelId) this.killChild(channelId)
       if (inserted) await sbx.remove(sandboxName).catch(() => {})
       if (inserted && channelId) db.projects.remove(channelId)
-      if (!input.existingChannelId && channelId) await this.deps.deleteChannel(channelId).catch(() => {})
+      if (!input.existingChannelId && channelId) await this.deps.deleteChannel(input.guildId, channelId).catch(() => {})
       throw e
     }
   }
@@ -454,7 +454,7 @@ export class ProjectService {
     this.killChild(channelId)
     await this.deps.sbx.remove(p.sandboxName).catch(() => {})
     this.deps.db.projects.remove(channelId)
-    await this.deps.deleteChannel(channelId).catch(() => {})
+    await this.deps.deleteChannel(p.guildId, channelId).catch(() => {})
     this.deps.onProjectRemoved?.(p)
   }
 }

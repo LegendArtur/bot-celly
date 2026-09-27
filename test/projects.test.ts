@@ -172,7 +172,7 @@ test("addProject fails the saga when sandbox bootstrap fails", async () => {
   }
   const deleted: string[] = []
   const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
-    isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (c: string) => { deleted.push(c) } } as any)
+    isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (_guildId: string, c: string) => { deleted.push(c) } } as any)
   await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })).rejects.toThrow(/bootstrap failed/)
   expect(db.projects.list()).toEqual([])
   expect(calls).toContainEqual(["rm", "celly-demo"])
@@ -185,7 +185,7 @@ test("addProject fails the saga closed when the server keeps a weakened policy",
   const deleted: string[] = []
   try {
     const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
-      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (c: string) => { deleted.push(c) } } as any)
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (_guildId: string, c: string) => { deleted.push(c) } } as any)
     await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })).rejects.toThrow(/policy/)
     expect(db.projects.list()).toEqual([])
     expect(children).toHaveLength(1)
@@ -200,8 +200,8 @@ test("addProject rolls back on create failure", async () => {
   sbx.create = async () => { throw new Error("create boom") }
   const created: string[] = [], deleted: string[] = []
   const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
-    isPortFree: async () => true, createChannel: async (n: string) => { created.push(n); return "chan1" },
-    deleteChannel: async (c: string) => { deleted.push(c) } } as any)
+    isPortFree: async () => true, createChannel: async (_guildId: string, n: string) => { created.push(n); return "chan1" },
+    deleteChannel: async (_guildId: string, c: string) => { deleted.push(c) } } as any)
   await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })).rejects.toThrow(/create boom/)
   expect(db.projects.list()).toEqual([])
   expect(created).toEqual(["demo"])
@@ -216,7 +216,7 @@ test("addProject rolls back and kills the drained child when health never passes
   const deleted: string[] = []
   try {
     const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
-      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (c: string) => { deleted.push(c) } } as any)
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (_guildId: string, c: string) => { deleted.push(c) } } as any)
     await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })).rejects.toThrow(/health/)
     expect(children).toHaveLength(1)
     expect(children[0].killed).toBe(1)
@@ -236,7 +236,7 @@ test("a second addProject with the same slug gets a -2 sandbox", async () => {
     const start = Math.min(s1.port, s2.port), end = Math.max(s1.port, s2.port)
     const listening = new Set([s1.port, s2.port])
     const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(start, end), log: logger(),
-      isPortFree: async (p: number) => listening.has(p), createChannel: (n: string) => Promise.resolve("chan-" + n), deleteChannel: async () => {} } as any)
+      isPortFree: async (p: number) => listening.has(p), createChannel: (_guildId: string, n: string) => Promise.resolve("chan-" + n), deleteChannel: async () => {} } as any)
     const a = await svc.addProject({ guildId: "g", name: "Demo", directory: "C:\\projects\\demo" })
     const b = await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo2" })
     expect(a.sandboxName).toBe("celly-demo")
@@ -250,8 +250,8 @@ test("addProject with existingChannelId preserves the channel on rollback", asyn
   sbx.create = async () => { throw new Error("create boom") }
   const created: string[] = [], deleted: string[] = []
   const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
-    isPortFree: async () => true, createChannel: async (n: string) => { created.push(n); return "new" },
-    deleteChannel: async (c: string) => { deleted.push(c) } } as any)
+    isPortFree: async () => true, createChannel: async (_guildId: string, n: string) => { created.push(n); return "new" },
+    deleteChannel: async (_guildId: string, c: string) => { deleted.push(c) } } as any)
   await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo", existingChannelId: "chan-existing" }))
     .rejects.toThrow(/create boom/)
   expect(created).toEqual([])
@@ -541,7 +541,7 @@ test("stop kills the child but does not mark the project degraded", async () => 
   const deleted: string[] = []
   try {
     const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
-      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (c: string) => { deleted.push(c) } } as any)
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (_guildId: string, c: string) => { deleted.push(c) } } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
     await svc.stop("chan-demo")
     expect(children[0].killed).toBe(1)
@@ -560,7 +560,7 @@ test("remove kills the child, deletes the sandbox, row, and channel", async () =
   const deleted: string[] = []
   try {
     const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
-      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (c: string) => { deleted.push(c) } } as any)
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (_guildId: string, c: string) => { deleted.push(c) } } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
     expect(svc.childFor("chan-demo")).toBeDefined()
     await svc.remove("chan-demo")
@@ -676,7 +676,7 @@ test("concurrent addProject calls are serialized so ports do not collide", async
     const start = Math.min(s1.port, s2.port), end = Math.max(s1.port, s2.port)
     const listening = new Set([s1.port, s2.port])
     const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(start, end), log: logger(),
-      isPortFree: async (p: number) => listening.has(p), createChannel: (n: string) => Promise.resolve("chan-" + n), deleteChannel: async () => {} } as any)
+      isPortFree: async (p: number) => listening.has(p), createChannel: (_guildId: string, n: string) => Promise.resolve("chan-" + n), deleteChannel: async () => {} } as any)
     const [a, b] = await Promise.all([
       svc.addProject({ guildId: "g", name: "alpha", directory: "C:\\projects\\alpha" }),
       svc.addProject({ guildId: "g", name: "beta", directory: "C:\\projects\\beta" }),
@@ -686,6 +686,20 @@ test("concurrent addProject calls are serialized so ports do not collide", async
     expect(a.hostPort).not.toBe(b.hostPort)
     expect(new Set([a.hostPort, b.hostPort]).size).toBe(2)
   } finally { await s1.close(); await s2.close() }
+})
+
+test("addProject creates the channel in the project's guild", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
+  sbx.create = async () => { throw new Error("create boom") }
+  const created: Array<[string, string]> = []
+  const deleted: Array<[string, string]> = []
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+    isPortFree: async () => true,
+    createChannel: async (guildId: string, name: string) => { created.push([guildId, name]); return "chan1" },
+    deleteChannel: async (guildId: string, channelId: string) => { deleted.push([guildId, channelId]) } } as any)
+  await expect(svc.addProject({ guildId: "g2", name: "demo", directory: "C:\\projects\\demo" })).rejects.toThrow(/create boom/)
+  expect(created).toEqual([["g2", "demo"]])
+  expect(deleted).toEqual([["g2", "chan1"]])
 })
 
 test("the supervised child's output is written to data/logs/<sandbox>.log", async () => {

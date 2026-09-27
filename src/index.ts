@@ -83,10 +83,13 @@ async function main(): Promise<void> {
     }
   }
   const bucketFor = (channelId: string) => ({ schedule: <T>(fn: () => Promise<T>) => scheduleWithBucket(channelId, fn) })
-  let guild: Guild | undefined
-  const requireGuild = (): Guild => {
-    if (!guild) throw new Error("Discord guild not ready")
-    return guild
+  const guildsById = new Map<string, Guild>()
+  const resolveGuild = async (guildId: string): Promise<Guild> => {
+    const cached = guildsById.get(guildId)
+    if (cached) return cached
+    const fetched = await client.guilds.fetch(guildId)
+    guildsById.set(guildId, fetched)
+    return fetched
   }
 
   const sessionRoutes = new SessionRoutes()
@@ -101,8 +104,8 @@ async function main(): Promise<void> {
 
   const projects = new ProjectService({
     sbx, runner: sbxRunner, db, config: cfg, log,
-    createChannel: async (name) => {
-      const activeGuild = requireGuild()
+    createChannel: async (guildId, name) => {
+      const activeGuild = await resolveGuild(guildId)
       const categoryId = findCategoryId(activeGuild, cfg.categoryId)
         ?? (await activeGuild.channels.create({ name: "Forge", type: ChannelType.GuildCategory })).id
       const taken = new Set([...activeGuild.channels.cache.values()].map((c) => c.name))
@@ -110,9 +113,9 @@ async function main(): Promise<void> {
       const channel = await activeGuild.channels.create({ name: channelName, parent: categoryId, type: ChannelType.GuildText })
       return channel.id
     },
-    deleteChannel: async (id) => {
-      const activeGuild = requireGuild()
-      const channel = activeGuild.channels.cache.get(id) ?? (await activeGuild.channels.fetch(id).catch(() => null))
+    deleteChannel: async (guildId, id) => {
+      const activeGuild = await resolveGuild(guildId).catch(() => undefined)
+      const channel = activeGuild?.channels.cache.get(id) ?? (activeGuild ? await activeGuild.channels.fetch(id).catch(() => null) : null)
       if (channel) await channel.delete().catch(() => {})
     },
     resolveSandboxPath: async (name) => {
@@ -459,9 +462,7 @@ async function main(): Promise<void> {
     return
   }
   const fetchedGuilds = await fetchConfiguredGuilds(cfg.guildIds, (id) => client.guilds.fetch(id), log)
-  const firstGuild = fetchedGuilds[0]
-  if (!firstGuild) throw new Error("no configured guild was reachable")
-  guild = firstGuild
+  for (const g of fetchedGuilds) guildsById.set(g.id, g)
   await deployCommandsToGuilds(fetchedGuilds, commandData(), { log })
   // Boot subscribe + thread reconcile are driven by the Events.ClientReady
   // handler registered above; running them again here would double-wake every

@@ -35,6 +35,7 @@ function fakeMessage(over: any = {}) {
     content: over.content ?? "hello",
     channel,
     channelId: channel.id,
+    guildId: over.guildId ?? "g",
     webhookId: null,
     system: false,
     attachments: { values: () => attachments[Symbol.iterator](), first: () => attachments[0] },
@@ -161,6 +162,17 @@ test("a run notice is replied to the message", async () => {
   const { message, replies } = fakeMessage({ channelId: "t1", parentId: "c", isThread: () => true })
   await createMessageHandler(deps)(message)
   expect(replies.map((r) => r.content)).toEqual(["queued (1)"])
+})
+
+test("a message in a thread resolves its owning project across guilds", async () => {
+  const db = fresh()
+  db.projects.insertProvisioning(project({ channelId: "c1", guildId: "g1", name: "one", sandboxName: "celly-one", hostPort: 4300 })); db.projects.setReady("c1", "C:\\p1")
+  db.projects.insertProvisioning(project({ channelId: "c2", guildId: "g2", name: "two", sandboxName: "celly-two", hostPort: 4301 })); db.projects.setReady("c2", "C:\\p2")
+  db.threads.upsert(thread({ threadId: "t2", channelId: "c2", sessionId: "s2" }))
+  const deps = baseDeps(db)
+  const { message } = fakeMessage({ channelId: "t2", parentId: null, isThread: () => true, guildId: "g2", content: "hello" })
+  await createMessageHandler(deps)(message)
+  expect(deps.runner.prompt).toHaveBeenCalledWith("t2", "hello", "u1")
 })
 
 test("project-down handler fans out to the runner and notifies the channel once", async () => {
