@@ -254,6 +254,8 @@ export class Runner {
   }
   async prompt(threadId: string, text: string, actor: string): Promise<string | undefined> {
     const db = this.deps.db
+    const projectThread = db.threads.get(threadId)
+    if (projectThread) db.projects.touch(projectThread.channelId, Date.now())
     if (this.active.has(threadId)) return this.enqueue(threadId, { text, actor })
     if (this.active.size >= this.deps.maxConcurrentRuns) return this.enqueue(threadId, { text, actor })
     const epoch = this.nextEpoch(threadId)

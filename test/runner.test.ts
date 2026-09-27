@@ -141,6 +141,7 @@ function makeDb(state = "running", threads: any[] = [], liveMessageId: string | 
       setLiveMessages() {},
       byChannel() { return threads },
     },
+    projects: { touch() {} },
   } as any
   return { db, states }
 }
@@ -385,6 +386,25 @@ test("drain re-queues a message when prompt throws", async () => {
   expect(sent).toEqual(["first"])
   await runner.onEvent("t1", { kind: "idle", sessionId: "s1" })
   expect(sent).toEqual(["first", "second"])
+})
+
+test("prompt touches the owning project's activity clock", async () => {
+  const touched: Array<[string, number]> = []
+  const db = {
+    threads: { get: () => ({ renderState: "idle", channelId: "c1" }), setRenderState() {}, touch() {} },
+    projects: { touch: (channelId: string, at: number) => { touched.push([channelId, at]) } },
+  } as any
+  vi.useFakeTimers()
+  try {
+    vi.setSystemTime(5000)
+    const runner = new Runner({ db, clientFor: () => ({ session: { promptAsync: async () => {} } }) as any,
+      createRenderer: async () => makeRenderer() as any,
+      sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+    await runner.prompt("t1", "a", "u")
+    expect(touched).toEqual([["c1", 5000]])
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 test("isActive and activeThreadsFor reflect the real activity signal", async () => {

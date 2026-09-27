@@ -286,6 +286,43 @@ test("project-down handler swallows a rejected runner reset", async () => {
   expect(send).toHaveBeenCalledTimes(1)
 })
 
+test("an authorized message touches the project's activity clock", async () => {
+  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  const deps = baseDeps(db)
+  vi.useFakeTimers()
+  try {
+    vi.setSystemTime(5000)
+    const { message } = fakeMessage({ content: "hello" })
+    await createMessageHandler(deps)(message)
+    expect(db.projects.getByChannel("c")?.lastActiveAt).toBe(5000)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test("a !shell command touches the project's activity clock", async () => {
+  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  const deps = baseDeps(db, { runShell: vi.fn(async () => ["out"]) })
+  vi.useFakeTimers()
+  try {
+    vi.setSystemTime(7000)
+    const { message } = fakeMessage({ content: "!echo hi" })
+    await createMessageHandler(deps)(message)
+    expect(deps.runShell).toHaveBeenCalledWith("c", "echo hi")
+    expect(db.projects.getByChannel("c")?.lastActiveAt).toBe(7000)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test("an unauthorized message does not touch project activity", async () => {
+  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  const deps = baseDeps(db, { isAuthorized: () => false })
+  const { message } = fakeMessage()
+  await createMessageHandler(deps)(message)
+  expect(db.projects.getByChannel("c")?.lastActiveAt).toBe(0)
+})
+
 test("describeDiscordStartupError explains the Message Content intent", () => {
   const message = describeDiscordStartupError(new Error("Used disallowed intents"))
   expect(message).toMatch(/Message Content Intent/)

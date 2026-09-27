@@ -129,7 +129,7 @@ async function main(): Promise<void> {
       runner: { handleProjectDown: (channelId) => runnerSvc.handleProjectDown(channelId) },
       client, bucketFor, log,
     }),
-    onProjectReady: (project) => { secrets.push(project.serverPassword); subscribeProject(project) },
+    onProjectReady: (project) => { secrets.push(project.serverPassword); db.projects.touch(project.channelId, Date.now()); subscribeProject(project) },
     onProjectRemoved: (project) => {
       const index = secrets.indexOf(project.serverPassword)
       if (index >= 0) secrets.splice(index, 1)

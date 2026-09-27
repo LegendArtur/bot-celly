@@ -45,6 +45,7 @@ export function createMessageHandler(deps: MessageHandlerDeps): (message: any) =
       if (!project) return
       if (!shouldHandleMessage(message, project.channelId, !!knownThread)) return
       if (!deps.isAuthorized(message)) return
+      deps.db.projects.touch(project.channelId, Date.now())
 
       const text = message.content ?? ""
       if (text.startsWith("!")) {
