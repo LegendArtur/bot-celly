@@ -1150,11 +1150,12 @@ function autocompleteInteraction(over: any = {}) {
   return i
 }
 
-test("autocomplete options are declared for resume, model, and agent", () => {
+test("autocomplete options are declared for resume, model, agent, and login", () => {
   const commands = commandData()
   expect(commands.find((c: any) => c.name === "resume").options[0]).toMatchObject({ name: "session", autocomplete: true })
   expect(commands.find((c: any) => c.name === "model").options[0]).toMatchObject({ name: "model", autocomplete: true })
   expect(commands.find((c: any) => c.name === "agent").options[0]).toMatchObject({ name: "agent", autocomplete: true })
+  expect(commands.find((c: any) => c.name === "login").options[0]).toMatchObject({ name: "provider", autocomplete: true })
 })
 
 test("autocomplete responds with sanitized choices from suggest", async () => {
@@ -1172,6 +1173,21 @@ test("autocomplete responds with sanitized choices from suggest", async () => {
     { name: "anthropic/claude", value: "anthropic/claude" },
     { name: "dup", value: "dup" },
     { name: "x".repeat(100), value: "y".repeat(100) },
+  ])
+})
+
+test("login autocomplete routes through suggest and returns its values", async () => {
+  const i = autocompleteInteraction({ commandName: "login", focused: "az" })
+  let captured: any
+  await handleAutocomplete(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true,
+    suggest: async (interaction: any, query: string) => { captured = { command: interaction.commandName, query }; return [
+      { name: "azure", value: "azure" },
+      { name: "cloudflare-workers-ai", value: "cloudflare-workers-ai" },
+    ] } })
+  expect(captured).toEqual({ command: "login", query: "az" })
+  expect(i.calls[0].choices).toEqual([
+    { name: "azure", value: "azure" },
+    { name: "cloudflare-workers-ai", value: "cloudflare-workers-ai" },
   ])
 })
 

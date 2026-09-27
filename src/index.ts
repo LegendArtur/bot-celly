@@ -175,7 +175,7 @@ async function main(): Promise<void> {
       runner: { handleProjectDown: (channelId) => runnerSvc.handleProjectDown(channelId) },
       client, bucketFor, log,
     }),
-    onProjectReady: (project) => { secrets.push(project.serverPassword); db.projects.touch(project.channelId, Date.now()); subscribeProject(project) },
+    onProjectReady: (project) => { secrets.push(project.serverPassword); db.projects.touch(project.channelId, Date.now()); subscribeProject(project); warmSuggestions(project.channelId) },
     onProjectRemoved: (project) => {
       const index = secrets.indexOf(project.serverPassword)
       if (index >= 0) secrets.splice(index, 1)
@@ -433,6 +433,7 @@ async function main(): Promise<void> {
       }
       const fresh = db.projects.getByChannel(project.channelId)
       if (fresh) subscribeProject(fresh)
+      warmSuggestions(project.channelId)
     }
   }
   const stopSubscription = (channelId: string): void => {
@@ -583,6 +584,13 @@ async function main(): Promise<void> {
       return list.filter((a: any) => a?.mode !== "subagent").map((a: any) => ({ id: String(a.name), name: a.description ? `${a.name} — ${a.description}` : String(a.name) }))
     } catch { return [] }
   }
+  const listLogin = async (channelId: string): Promise<string[]> => {
+    const project = db.projects.getByChannel(channelId)
+    if (!project) throw new Error(`unknown project channel ${channelId}`)
+    await projects.ensureReady(channelId)
+    const res: any = await resolveClient(project).provider.auth()
+    return listOAuthProviders(res?.data ?? res)
+  }
   const suggestionCaches = new Map<string, SuggestionCache>()
   const suggestionCacheFor = (key: string, load: () => Promise<string[]>): SuggestionCache => {
     let cache = suggestionCaches.get(key)
@@ -591,6 +599,18 @@ async function main(): Promise<void> {
       suggestionCaches.set(key, cache)
     }
     return cache
+  }
+  const loadModels = async (channelId: string): Promise<string[]> => (await listModels(channelId)).map((model) => model.id)
+  const loadAgents = async (channelId: string): Promise<string[]> => (await listAgents(channelId)).map((agent) => agent.id)
+  // First `suggest("")` on a cold cache kicks off a background load, so a later
+  // autocomplete has data without paying the provider round-trip. Warming must
+  // never block boot or surface an error.
+  const warmSuggestions = (channelId: string): void => {
+    try {
+      void suggestionCacheFor(`models:${channelId}`, () => loadModels(channelId)).suggest("").catch(() => {})
+      void suggestionCacheFor(`agents:${channelId}`, () => loadAgents(channelId)).suggest("").catch(() => {})
+      void suggestionCacheFor(`login:${channelId}`, () => listLogin(channelId)).suggest("").catch(() => {})
+    } catch {}
   }
   const suggest = async (interaction: any, query: string): Promise<{ name: string; value: string }[]> => {
     if (interaction.commandName === "resume") {
@@ -601,11 +621,15 @@ async function main(): Promise<void> {
     const thread = db.threads.get(interaction.channelId)
     const channelId = thread?.channelId ?? interaction.channelId
     if (interaction.commandName === "model") {
-      const cache = suggestionCacheFor(`models:${channelId}`, async () => (await listModels(channelId)).map((model) => model.id))
+      const cache = suggestionCacheFor(`models:${channelId}`, () => loadModels(channelId))
       return (await cache.suggest(query)).map((value) => ({ name: value, value }))
     }
     if (interaction.commandName === "agent") {
-      const cache = suggestionCacheFor(`agents:${channelId}`, async () => (await listAgents(channelId)).map((agent) => agent.id))
+      const cache = suggestionCacheFor(`agents:${channelId}`, () => loadAgents(channelId))
+      return (await cache.suggest(query)).map((value) => ({ name: value, value }))
+    }
+    if (interaction.commandName === "login") {
+      const cache = suggestionCacheFor(`login:${channelId}`, () => listLogin(channelId))
       return (await cache.suggest(query)).map((value) => ({ name: value, value }))
     }
     return []
@@ -647,13 +671,7 @@ async function main(): Promise<void> {
       await projects.ensureReady(channelId)
       await finishProviderLogin({ client: resolveClient(project), log: (msg, fields) => log.info(msg, fields) }, providerId, code)
     },
-    listLogin: async (channelId) => {
-      const project = db.projects.getByChannel(channelId)
-      if (!project) throw new Error(`unknown project channel ${channelId}`)
-      await projects.ensureReady(channelId)
-      const res: any = await resolveClient(project).provider.auth()
-      return listOAuthProviders(res?.data ?? res)
-    },
+    listLogin,
     postConnected: async (channelId, projectName) => {
       const channel = await client.channels.fetch(channelId).catch(() => null)
       if (channel && "send" in channel) {

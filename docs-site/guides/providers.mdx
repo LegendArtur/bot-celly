@@ -81,7 +81,11 @@ seeded at first boot.
 
 Owner-only `/login <provider>` asks the sandbox's OpenCode server for that
 provider's auth methods, starts the **oauth** method, and posts the
-authorization URL. Run `/login` with no provider to list the providers that
+authorization URL. The `provider` option is a picker: it autocompletes the
+OAuth-capable providers, so start typing and choose from the list. The provider
+list is cached per project channel and refreshed after a 60s TTL, and it is
+warmed at startup so the first autocomplete is fast. Run `/login` with no
+provider to list the providers that
 expose OAuth; on opencode 1.18.32 that is `azure`, `cloudflare-ai-gateway`,
 `cloudflare-workers-ai`, `digitalocean`, `github-copilot`, `gitlab`, `openai`,
 `poe`, `snowflake-cortex`, and `xai`. Complete the browser step, then:

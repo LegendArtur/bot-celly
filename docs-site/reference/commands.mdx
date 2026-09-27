@@ -97,7 +97,7 @@ longer active"; pending requests are not persisted across restarts.
 | `/cost` | authorized | Show this thread's and channel's accumulated cost, tokens, and the session budget (ephemeral). |
 | `/budget show` | owner | Show this channel's session budget (ephemeral). |
 | `/budget set usd:<usd>` | owner | Set this channel's session budget in USD; `0` disables it (ephemeral). |
-| `/login provider:<id>` | owner | Start a provider OAuth flow and post the authorization URL (ephemeral). |
+| `/login provider:<id>` | owner | Start a provider OAuth flow and post the authorization URL (ephemeral); `provider` autocompletes the OAuth-capable providers. |
 | `/login-code provider:<id> code:<code>` | owner | Finish an OAuth flow with the provider's authorization code (ephemeral). |
 
 ## Messages and shell
