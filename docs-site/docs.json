@@ -1,9 +1,9 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "name": "Celly Bot",
-  "theme": "maple",
+  "theme": "almond",
   "colors": {
-    "primary": "#65ED3A"
+    "primary": "#3D0076"
   },
   "navigation": {
     "global": {
