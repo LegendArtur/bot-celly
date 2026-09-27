@@ -10,6 +10,7 @@ export interface Config {
   defaultModel?: string; defaultAgent?: string
   bootTimeoutMs: number; healthTimeoutMs: number; editIntervalMs: number
   attachmentMaxBytes: number; maxQueue: number; maxConcurrentRuns: number
+  attachAutoThread: boolean
   dataDir: string; logLevel: "debug" | "info" | "warn" | "error"
 }
 /** Create DATA_DIR (and parents) before the logger or SQLite file is opened. */
@@ -49,6 +50,13 @@ const int = (e: NodeJS.ProcessEnv, k: string, d: number, min = 1) => {
   if (!Number.isInteger(n) || n < min) throw new Error(`${k} must be an integer >= ${min}, got "${e[k]}"`)
   return n
 }
+const bool = (e: NodeJS.ProcessEnv, k: string, d: boolean): boolean => {
+  const raw = e[k]?.trim().toLowerCase()
+  if (raw === undefined || raw === "") return d
+  if (raw === "true" || raw === "1") return true
+  if (raw === "false" || raw === "0") return false
+  throw new Error(`${k} must be a boolean, got "${e[k]}"`)
+}
 export function defaultProjectsRoot(): string {
   return join(homedir(), "Celly", "projects")
 }
@@ -75,6 +83,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     editIntervalMs: int(env, "EDIT_INTERVAL_MS", 1200, 1),
     attachmentMaxBytes: int(env, "ATTACHMENT_MAX_BYTES", 102400, 1),
     maxQueue: int(env, "MAX_QUEUE", 20, 1), maxConcurrentRuns: int(env, "MAX_CONCURRENT_RUNS", 4, 1),
+    attachAutoThread: bool(env, "ATTACH_AUTO_THREAD", false),
     dataDir: str(env, "DATA_DIR") ?? "./data",
     logLevel: level as Config["logLevel"],
   }

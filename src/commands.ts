@@ -2,6 +2,7 @@ import { ApplicationCommandOptionType, ComponentType } from "discord.js"
 import type { Db } from "./db.ts"
 import type { ProjectService } from "./projects.ts"
 import type { Runner } from "./runner.ts"
+import { attachReply, sessionIdReply } from "./attach.js"
 
 export function commandData(): any[] {
   const project = { name: "project", description: "Manage Celly projects", options: [
@@ -24,7 +25,9 @@ export function commandData(): any[] {
     { name: "resume", description: "Resume a session" },
     { name: "abort", description: "Abort the current run" },
     { name: "model", description: "Choose the model for this thread" },
-    { name: "agent", description: "Choose the agent for this thread" } ]
+    { name: "agent", description: "Choose the agent for this thread" },
+    { name: "session-id", description: "Show this thread's OpenCode session id" },
+    { name: "attach", description: "Show the terminal attach command for this thread" } ]
 }
 
 export interface CreateThreadInput {
@@ -219,9 +222,21 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       for (const threadId of threadIds) await deps.runner.abort(threadId)
       return void await interaction.editReply(noMentions("aborted"))
     }
+    if (interaction.commandName === "attach" || interaction.commandName === "session-id") {
+      const thread = deps.db.threads.get(interaction.channelId)
+      if (!thread) return void await interaction.editReply(noMentions(`use /${interaction.commandName} inside a thread`))
+      const project = deps.db.projects.getByChannel(thread.channelId)
+      if (!project) return void await interaction.editReply(noMentions("project not found"))
+      const content = interaction.commandName === "attach"
+        ? attachReply(project, thread.sessionId)
+        : sessionIdReply(project, thread.sessionId)
+      return void await interaction.editReply(noMentions(content))
+    }
     await interaction.editReply(noMentions("not implemented in this build"))
   } catch (e) {
-    await interaction.editReply(noMentions(`error: ${(e as Error).message}`))
+    const content = `error: ${(e as Error).message}`
+    if (interaction.deferred || interaction.replied) return void await interaction.editReply(noMentions(content))
+    await interaction.reply(noMentions(content, { flags: 64 }))
   }
 }
 

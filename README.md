@@ -144,6 +144,8 @@ is documented in
 | `/abort` | channel or thread | Abort the current run (or all runs). |
 | `/model` | thread | Choose the model for this thread. |
 | `/agent` | thread | Choose the agent for this thread. |
+| `/attach` | thread | Show the terminal attach command for this thread. |
+| `/session-id` | thread | Show this thread's session id and attach command. |
 | `!<command>` | channel or thread | Run a shell command in the sandbox. |
 
 Full details and the deferred list are in the

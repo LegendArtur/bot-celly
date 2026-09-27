@@ -34,6 +34,8 @@ with block checked first.
 | `/abort` | authorized | Abort the current run in a thread, or every active run in the project channel. |
 | `/model` | authorized | Choose the model for this thread (two-step provider → model). |
 | `/agent` | authorized | Choose the agent for this thread. |
+| `/attach` | thread | Show the exact `sbx exec` + `opencode attach` command for this thread's session (ephemeral). |
+| `/session-id` | thread | Show this thread's session id and the attach command behind a spoiler (ephemeral). |
 
 ## Messages and shell
 
@@ -60,9 +62,13 @@ Commands: `/project restart`, `/share`, `/diff`, `/undo`, `/redo`,
 
 Features: worktree-per-thread, `/btw` forks, queue UI (`. queue`),
 permission-approval buttons, `question` rendered as Discord components, voice
-messages, image attachments, OpenCode web UI, tunnels/screenshare, multi-guild,
+messages, image attachments, tunnels/screenshare, multi-guild,
 cloud sandboxes, `--clone` sandbox mode, OAuth subscription login, and
 Linux/macOS deployment docs.
+
+The OpenCode web UI is intentionally not published (the sandbox server stays
+loopback-only); attach from a terminal instead — see the
+[terminal attach guide](/guides/terminal-attach).
 
 See the [architecture reference](/reference/architecture) for what happens under
 the hood when you run these.
