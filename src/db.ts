@@ -25,6 +25,7 @@ export interface Db {
     liveMessageIds(threadId: string): string[]
     setModel(threadId: string, model: string | null): void
     setAgent(threadId: string, agent: string | null): void
+    setWorktree(threadId: string, path: string | null): void
     touch(threadId: string): void
     byChannel(channelId: string): Thread[]
     recent(limit: number): Thread[]
@@ -138,6 +139,7 @@ export function openDb(path: string): Db {
       },
       setModel(threadId, model) { raw.prepare(`UPDATE threads SET model=? WHERE thread_id=?`).run(model, threadId) },
       setAgent(threadId, agent) { raw.prepare(`UPDATE threads SET agent=? WHERE thread_id=?`).run(agent, threadId) },
+      setWorktree(threadId, path) { raw.prepare(`UPDATE threads SET worktree_path=? WHERE thread_id=?`).run(path, threadId) },
       touch(threadId) { raw.prepare(`UPDATE threads SET last_active_at=? WHERE thread_id=?`).run(Date.now(), threadId) },
       byChannel(channelId) { return raw.prepare(`SELECT * FROM threads WHERE channel_id=? ORDER BY last_active_at DESC`).all(channelId).map(rowToThread) },
       recent(limit) { return raw.prepare(`SELECT * FROM threads ORDER BY last_active_at DESC LIMIT ?`).all(limit).map(rowToThread) },
