@@ -7,3 +7,7 @@ data/
 !.env.example
 *.log
 .DS_Store
+
+# Worktrees and SDD scratch
+.worktrees/
+.superpowers/
