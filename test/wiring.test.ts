@@ -86,6 +86,7 @@ test("index wires log rotation, backups, tasks, and the admin server into boot",
   expect(source).toContain("createBackupScheduler({")
   expect(source).toContain("createTaskRunner({")
   expect(source).toContain("createAdminServer({")
+  expect(source).toContain("auditTail: (limit) => auditLog.tail(limit)")
   expect(source).toContain("taskRunner.stop()")
   expect(source).toContain("backups?.stop()")
   expect(source).toContain("admin?.close()")

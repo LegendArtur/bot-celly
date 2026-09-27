@@ -477,12 +477,13 @@ async function main(): Promise<void> {
           const project = db.projects.getByChannel(channelId)
           return project ? join(cfg.dataDir, "logs", `${project.sandboxName}.log`) : undefined
         },
-        start: async (channelId) => { startSubscription(channelId); await projects.start(channelId) },
+        start: async (channelId) => { await projects.start(channelId); startSubscription(channelId) },
         stop: async (channelId) => {
           await runnerSvc.resetChannel(channelId, { notify: true })
           stopSubscription(channelId)
           await projects.stop(channelId)
         },
+        auditTail: (limit) => auditLog.tail(limit),
       })
       log.info("admin server listening", { port: admin.port })
     } catch (e) {
