@@ -1,6 +1,7 @@
 import type { Db } from "./db.ts"
 import type { Logger } from "./log.ts"
 import type { Project } from "./types.ts"
+import type { AuditDraft } from "./audit.ts"
 import { buildPromptText, projectForChannel } from "./helpers.js"
 import { shouldHandleMessage } from "./discord.js"
 import { renderPayload, sanitizeThreadName } from "./render.js"
@@ -22,6 +23,7 @@ export interface MessageHandlerDeps {
   startTyping(threadId: string): void
   createThread(input: CreateThreadInput): Promise<{ threadId: string; sessionId: string; notice?: string }>
   registerSession(threadId: string, sessionId: string): void
+  audit?(entry: AuditDraft): void
 }
 
 /**
@@ -51,6 +53,7 @@ export function createMessageHandler(deps: MessageHandlerDeps): (message: any) =
       if (text.startsWith("!")) {
         const command = text.slice(1).trim()
         if (!command) return
+        deps.audit?.({ kind: "shell", channelId: project.channelId, threadId: message.channelId, actorId: message.author.id, detail: command, decision: "run" })
         await deps.projects.ensureReady(project.channelId)
         deps.subscribeProject(project)
         for (const chunk of await deps.runShell(project.channelId, command)) {

@@ -88,6 +88,16 @@ test("seedSettings writes defaults only when a key is unset", () => {
   seedSettings(db, { defaultModel: "openai/gpt", defaultAgent: "plan" })
   expect(store.get("default_model")).toBe("anthropic/claude")
   expect(store.get("default_agent")).toBe("build")
+  seedSettings(db, { approvalMode: "plan" })
+  expect(store.get("approval_mode")).toBe("plan")
+  seedSettings(db, { approvalMode: "auto" })
+  expect(store.get("approval_mode")).toBe("plan")
+})
+
+test("APPROVAL_MODE defaults to buttons and rejects unknown modes", () => {
+  expect(loadConfig(base).approvalMode).toBe("buttons")
+  expect(loadConfig({ ...base, APPROVAL_MODE: "plan" }).approvalMode).toBe("plan")
+  expect(() => loadConfig({ ...base, APPROVAL_MODE: "yolo" })).toThrow(/APPROVAL_MODE/)
 })
 
 test("loadDotEnv reports success and failure without throwing", () => {

@@ -2,6 +2,7 @@
 import { createServer } from "node:http"
 import { readFileSync } from "node:fs"
 import { expect, test, vi } from "vitest"
+import type { QuestionInfo } from "@opencode-ai/sdk/v2"
 import { EventRouter, INITIAL_BACKOFF, MAX_BACKOFF, nextBackoff, normalizeEvent, partToEvent, trimSseBuffer } from "../src/events.ts"
 
 test("normalizes a text part", () => {
@@ -18,7 +19,7 @@ test("normalizes idle and error", () => {
 })
 test("normalizes a permission request", () => {
   expect(normalizeEvent({ type: "permission.updated", properties: { sessionID: "s1", id: "perm1", tool: "bash", patterns: ["git push *"] } }))
-    .toEqual({ kind: "permission", sessionId: "s1", permissionId: "perm1", tool: "bash", patterns: ["git push *"] })
+    .toEqual({ kind: "permission", sessionId: "s1", permissionId: "perm1", source: "v1", tool: "bash", patterns: ["git push *"] })
 })
 test("ignores unknown events", () => {
   expect(normalizeEvent({ type: "server.connected", properties: {} })).toBeNull()
@@ -31,7 +32,7 @@ test("unwraps the global event envelope", () => {
 
 test("normalizes the SDK permission shape (type/pattern)", () => {
   expect(normalizeEvent({ type: "permission.updated", properties: { id: "perm1", sessionID: "s1", type: "bash", pattern: ["git push *"] } }))
-    .toEqual({ kind: "permission", sessionId: "s1", permissionId: "perm1", tool: "bash", patterns: ["git push *"] })
+    .toEqual({ kind: "permission", sessionId: "s1", permissionId: "perm1", source: "v1", tool: "bash", patterns: ["git push *"] })
 })
 
 test("extracts the message from an SDK error object", () => {
@@ -396,4 +397,38 @@ test("dispatches the recorded opencode event fixture over SSE", async () => {
     server.close()
     server.closeAllConnections()
   }
+})
+
+test("normalizes v2 permission asks from both event spellings", () => {
+  expect(normalizeEvent({ type: "permission.asked", properties: { id: "req1", sessionID: "s1", permission: "bash", patterns: ["npm test"] } }))
+    .toEqual({ kind: "permission", sessionId: "s1", permissionId: "req1", source: "v2", tool: "bash", patterns: ["npm test"] })
+  expect(normalizeEvent({ type: "permission.v2.asked", properties: { id: "req2", sessionID: "s1", action: "edit", resources: ["src/a.ts"] } }))
+    .toEqual({ kind: "permission", sessionId: "s1", permissionId: "req2", source: "v2", tool: "edit", patterns: ["src/a.ts"] })
+})
+
+test("normalizes question.asked and question.v2.asked into question info", () => {
+  const questions = [{ question: "Which database?", header: "Database", options: [{ label: "sqlite", description: "single file" }], custom: true }]
+  expect(normalizeEvent({ type: "question.asked", properties: { id: "q1", sessionID: "s1", questions } })).toEqual({
+    kind: "question", sessionId: "s1", requestId: "q1",
+    questions: [{ question: "Which database?", header: "Database", options: [{ label: "sqlite", description: "single file" }], custom: true }],
+  })
+  expect(normalizeEvent({ type: "question.v2.asked", properties: { id: "q2", sessionID: "s1", questions } }))
+    .toMatchObject({ kind: "question", sessionId: "s1", requestId: "q2" })
+})
+
+test("drops malformed questions and options and keeps flags", () => {
+  const e = normalizeEvent({ type: "question.asked", properties: { id: "q1", sessionID: "s1", questions: [
+    null,
+    { header: "no question" },
+    { question: "ok", options: [{ label: 7 }, { description: "no label" }, { label: "yes" }], multiple: true, custom: false },
+  ] } })
+  const expected: QuestionInfo = { question: "ok", header: "", options: [{ label: "yes", description: "" }], multiple: true, custom: false }
+  expect(e).toEqual({ kind: "question", sessionId: "s1", requestId: "q1", questions: [expected] })
+})
+
+test("normalizes permission.replied from both protocol versions", () => {
+  expect(normalizeEvent({ type: "permission.replied", properties: { sessionID: "s1", requestID: "r2", reply: "once" } }))
+    .toEqual({ kind: "permission-replied", sessionId: "s1", requestId: "r2" })
+  expect(normalizeEvent({ type: "permission.replied", properties: { sessionID: "s1", permissionID: "p1", response: "reject" } }))
+    .toEqual({ kind: "permission-replied", sessionId: "s1", requestId: "p1" })
 })

@@ -9,19 +9,23 @@ import { ChannelType, Events, PermissionFlagsBits } from "discord.js"
 import type { Guild, Interaction, Message } from "discord.js"
 import type { Project, Thread } from "./types.ts"
 import { ensureDataDir, loadConfig, loadDotEnv, seedSettings } from "./config.js"
+import { createAuditLog } from "./audit.js"
+import type { AuditDraft } from "./audit.ts"
 import { createLogger } from "./log.js"
 import { openDb } from "./db.js"
 import { Sbx, SbxRunner } from "./sbx.js"
 import { ProjectService } from "./projects.js"
 import { createDiscordClient, fetchConfiguredGuilds, isAuthorized, isOwner, rolesOf } from "./discord.js"
-import { commandData, deployCommandsToGuilds, handleCommand, handleSelect } from "./commands.js"
+import { commandData, deployCommandsToGuilds, handleButton, handleCommand, handleModalSubmit, handleSelect } from "./commands.js"
 import type { CommandDeps, CreateThreadInput } from "./commands.js"
 import { createAutoThreadResolver } from "./attach.js"
+import { APPROVAL_TIMEOUT_MS, ApprovalManager } from "./approvals.js"
+import { approvalModeFor } from "./mode.js"
 import { acquireLock } from "./lock.js"
 import { Runner } from "./runner.js"
 import { EventRouter } from "./events.js"
 import { Renderer, renderPayload, sanitizeThreadName } from "./render.js"
-import { resolveBaseUrl, resolveClient } from "./opencode.js"
+import { resolveBaseUrl, resolveClient, resolveV2Client } from "./opencode.js"
 import { runShell } from "./shell.js"
 import { ingestAttachments } from "./attachments.js"
 import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
@@ -44,6 +48,11 @@ async function main(): Promise<void> {
   db.migrate()
   for (const project of db.projects.list()) secrets.push(project.serverPassword)
   seedSettings(db, cfg)
+  const auditLog = createAuditLog({ file: `${cfg.dataDir}/audit.jsonl` })
+  const audit = (entry: AuditDraft): void => auditLog.append({
+    ...entry,
+    channelId: entry.channelId ?? db.threads.get(entry.threadId)?.channelId ?? entry.threadId,
+  })
 
   const backups = cfg.backupIntervalHours > 0
     ? createBackupScheduler({
@@ -163,6 +172,14 @@ async function main(): Promise<void> {
     return resolveClient(project)
   }
 
+  const projectForThread = (threadId: string): Project => {
+    const thread = db.threads.get(threadId)
+    const project = thread ? db.projects.getByChannel(thread.channelId) : undefined
+    if (!project) throw new Error(`unknown project for thread ${threadId}`)
+    return project
+  }
+  const v2ClientFor = (threadId: string) => resolveV2Client(projectForThread(threadId))
+
   const createSessionFor = async (project: Project, title: string): Promise<string> => {
     const sdk = resolveClient(project)
     const created = await sdk.session.create({ body: { title } })
@@ -214,6 +231,47 @@ async function main(): Promise<void> {
     typingTimers.set(threadId, timer)
   }
 
+  const threadChannel = async (threadId: string): Promise<any> => {
+    const channel = await client.channels.fetch(threadId)
+    if (!channel) throw new Error(`thread channel ${threadId} unavailable`)
+    return channel
+  }
+  const threadBucket = (threadId: string): string => {
+    const thread = db.threads.get(threadId)
+    return thread ? channelIdForBucket(thread) : threadId
+  }
+  const approvals = new ApprovalManager({
+    send: async (threadId, content, components) => {
+      const channel = await threadChannel(threadId)
+      const sent = await scheduleWithBucket<{ id: string }>(threadBucket(threadId), () => (channel as any).send({ ...renderPayload(content), components }))
+      return sent.id
+    },
+    edit: async (threadId, messageId, content, components) => {
+      const channel = await threadChannel(threadId)
+      const message = await (channel as any).messages.fetch(messageId)
+      await scheduleWithBucket(threadBucket(threadId), () => message.edit({ ...renderPayload(content), components }))
+    },
+    replyPermission: async ({ threadId, sessionId, requestId, reply, source }) => {
+      if (source === "v2") {
+        await v2ClientFor(threadId).v2.session.permission.reply({ sessionID: sessionId, requestID: requestId, reply })
+        return
+      }
+      const sdk = resolveClient(projectForThread(threadId))
+      await sdk.postSessionIdPermissionsPermissionId({ path: { id: sessionId, permissionID: requestId }, body: { response: reply } } as any)
+    },
+    replyQuestion: async ({ threadId, sessionId, requestId, answers }) => {
+      await v2ClientFor(threadId).v2.session.question.reply({ sessionID: sessionId, requestID: requestId, questionV2Reply: { answers } })
+    },
+    rejectQuestion: async ({ threadId, sessionId, requestId }) => {
+      await v2ClientFor(threadId).v2.session.question.reject({ sessionID: sessionId, requestID: requestId })
+    },
+    modeFor: (threadId) => approvalModeFor(db.settings, db.threads.get(threadId)?.channelId ?? threadId),
+    now: () => Date.now(),
+    timeoutMs: APPROVAL_TIMEOUT_MS,
+    audit,
+    log: (message, fields) => log.warn(message, fields),
+  })
+
   runnerSvc = new Runner({
     db, clientFor,
     createRenderer: async (threadId, liveMessageId, liveMessageIds) => {
@@ -262,6 +320,17 @@ async function main(): Promise<void> {
     log: (message, fields) => log.info(message, fields),
     maxQueue: cfg.maxQueue,
     maxConcurrentRuns: cfg.maxConcurrentRuns,
+    approvalModeFor: (channelId) => approvalModeFor(db.settings, channelId),
+    respondPermission: async ({ source, threadId, sessionId, requestId, reply }) => {
+      if (source === "v2") {
+        await v2ClientFor(threadId).v2.session.permission.reply({ sessionID: sessionId, requestID: requestId, reply })
+        return
+      }
+      const sdk = resolveClient(projectForThread(threadId))
+      await sdk.postSessionIdPermissionsPermissionId({ path: { id: sessionId, permissionID: requestId }, body: { response: reply } } as any)
+    },
+    approvals,
+    audit,
     onThreadIdle: (threadId) => stopTyping(threadId),
   })
 
@@ -452,6 +521,8 @@ async function main(): Promise<void> {
 
   const commandDeps: CommandDeps = {
     projects, runner: runnerSvc, db,
+    approvals,
+    audit,
     authorized: authorize,
     isOwner: authorizeOwner,
     stopSubscription, startSubscription,
@@ -478,10 +549,16 @@ async function main(): Promise<void> {
     startTyping,
     createThread: createThreadForProject,
     registerSession,
+    audit,
   })
 
   const onInteraction = async (interaction: Interaction): Promise<void> => {
     try {
+      // Buttons and modals are dispatched through the shared handlers owned by
+      // this feature; later plans add their own `handle*` branch inside
+      // `handleButton` rather than redefining the dispatcher (spec §3.1).
+      if (interaction.isButton()) { await handleButton(interaction, commandDeps); return }
+      if (interaction.isModalSubmit()) { await handleModalSubmit(interaction, commandDeps); return }
       if (interaction.isStringSelectMenu()) { await handleSelect(interaction, commandDeps); return }
       if (!interaction.isChatInputCommand()) return
       await handleCommand(interaction, commandDeps)

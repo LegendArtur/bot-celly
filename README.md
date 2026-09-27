@@ -46,6 +46,9 @@ core idea (channels as projects, threads as sessions) and runs each project in a
 - **Session resume.** `/resume` reopens a past OpenCode session in a new thread.
 - **Model and agent switching.** `/model` and `/agent` pick per-thread settings.
 - **Abort.** `/abort` stops the current run, or every active run in the channel.
+- **Approvals.** `/mode` picks `auto`, `buttons`, or `plan`; `buttons` posts
+  permission requests as Discord buttons and agent questions as
+  buttons/selects/modals. Decisions are written to a best-effort audit log.
 - **Shell.** A message starting with `!` runs `bash -lc <command>` inside the
   project's sandbox.
 - **Text attachments.** Size-capped, written to a validated inbox, referenced in
@@ -147,6 +150,7 @@ is documented in
 | `/agent` | thread | Choose the agent for this thread. |
 | `/attach` | thread | Show the terminal attach command for this thread. |
 | `/session-id` | thread | Show this thread's session id and attach command. |
+| `/mode <auto\|buttons\|plan>` | project channel or thread (owner) | Set the channel approval mode. |
 | `/task add <channel> <prompt> <every_minutes>` | guild (owner) | Schedule a recurring prompt in a project channel. |
 | `/task list` | guild | List scheduled tasks. |
 | `/task remove <id>` | guild (owner) | Remove a scheduled task. |
@@ -193,8 +197,7 @@ v1 is the command set above. Deferred to v1.1:
 
 - **Commands:** `/project restart`, `/share`, `/diff`, `/undo`, `/redo`,
   `/context-usage`.
-- **Thread/conversation:** worktree-per-thread, `/btw` forks, queue UI, permission
-  approval buttons, `question` as Discord components.
+- **Thread/conversation:** worktree-per-thread, `/btw` forks, queue UI.
 - **Input:** voice messages and image attachments.
 - **Surfaces:** OpenCode web UI, admin website, diff viewer, tunnels/screenshare,
   forum-channel layout.

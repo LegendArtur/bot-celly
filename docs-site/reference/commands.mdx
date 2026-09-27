@@ -36,6 +36,7 @@ with block checked first.
 | `/agent` | authorized | Choose the agent for this thread. |
 | `/attach` | thread | Show the exact `sbx exec` + `opencode attach` command for this thread's session (ephemeral). |
 | `/session-id` | thread | Show this thread's session id and the attach command behind a spoiler (ephemeral). |
+| `/mode mode:<auto\|buttons\|plan>` | owner | Set the approval mode for this project channel (stored as `approval_mode:<channelId>`). |
 
 ## Scheduled tasks
 
@@ -44,6 +45,30 @@ with block checked first.
 | `/task add channel:<#channel> prompt:<text> every_minutes:<n>` | owner | Schedule a recurring prompt in a project channel (minimum 1 minute). |
 | `/task list` | authorized | List scheduled tasks with their next run. |
 | `/task remove id:<n>` | owner | Remove a scheduled task by id. |
+
+## Approvals and questions
+
+Approval mode is per project channel. `/mode` writes the override; the
+`APPROVAL_MODE` environment value seeds the global default on first boot.
+
+- `auto` — the bot answers every permission request from the enforced policy
+  immediately, exactly like previous releases.
+- `plan` — a dry run. Read-only tools (`read`, `glob`, `grep`, `list`, `find`)
+  run; `bash`, `edit`, `write`, `patch`, `external_directory`, `webfetch`,
+  unknown tools, and sensitive-path reads are rejected.
+- `buttons` — read-only tools run; every other non-denied request posts an
+  **Approve once / Always allow / Reject** message in the thread. Requests time
+  out after 5 minutes and are rejected. Deny-listed commands, sensitive paths,
+  and unknown tools are rejected without asking.
+
+In `buttons` mode an agent question renders as buttons (one to five options), a
+string select (six to twenty-five options), a **Custom answer** button that
+opens a modal, and a **Reject** button. Multi-question requests collect answers
+in order. Questions time out after 5 minutes and are rejected. `auto` and
+`plan` modes reject questions rather than interrupting the run.
+
+Clicking a button from a previous bot process answers "this request is no
+longer active"; pending requests are not persisted across restarts.
 
 ## Messages and shell
 
@@ -68,9 +93,8 @@ running code.
 Commands: `/project restart`, `/share`, `/diff`, `/undo`, `/redo`,
 `/context-usage`.
 
-Features: worktree-per-thread, `/btw` forks, queue UI (`. queue`),
-permission-approval buttons, `question` rendered as Discord components, voice
-messages, image attachments, tunnels/screenshare, multi-guild,
+Features: worktree-per-thread, `/btw` forks, queue UI (`. queue`), voice
+messages, image attachments, tunnels/screenshare,
 cloud sandboxes, `--clone` sandbox mode, OAuth subscription login, and
 Linux/macOS deployment docs.
 

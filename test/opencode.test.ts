@@ -1,7 +1,7 @@
 // test/opencode.test.ts
 import { createServer } from "node:http"
 import { expect, test } from "vitest"
-import { applyAndAssertCellyPolicy, BASH_DENY, basicAuth, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, resolveBaseUrl, resolveClient, waitForHealth } from "../src/opencode.ts"
+import { applyAndAssertCellyPolicy, BASH_DENY, basicAuth, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, createV2Client, resolveBaseUrl, resolveClient, resolveV2Client, waitForHealth } from "../src/opencode.ts"
 
 test("basicAuth encodes the opencode user and password", () => {
   expect(basicAuth("pw")).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
@@ -17,7 +17,7 @@ test("the celly policy matches spec section 8 and disables share", () => {
   expect(cellyPolicy().permission).toEqual({
     "*": "allow",
     bash: { ...BASH_DENY },
-    external_directory: "deny", question: "deny",
+    external_directory: "deny", question: "allow",
   })
   expect(cellyPolicy().permission.bash).toMatchObject({
     "*": "allow", "git push*": "deny", "git clean -fdx*": "deny", "npm publish*": "deny",
@@ -185,4 +185,31 @@ test("waitForHealth bounds each attempt so a hung connection cannot exhaust the 
     server.close()
     server.closeAllConnections()
   }
+})
+
+test("createV2Client attaches basic auth and calls the v2 API", async () => {
+  let auth: string | undefined
+  let url: string | undefined
+  const server = createServer((req, res) => {
+    auth = req.headers.authorization
+    url = req.url
+    res.writeHead(200, { "content-type": "application/json" }).end("{}")
+  })
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    const client = createV2Client(`http://127.0.0.1:${port}`, "s3cret")
+    await client.v2.session.permission.reply({ sessionID: "s1", requestID: "r1", reply: "once" })
+    expect(auth).toBe("Basic " + Buffer.from("opencode:s3cret").toString("base64"))
+    expect(url).toBe("/api/session/s1/permission/r1/reply")
+  } finally {
+    server.close()
+    server.closeAllConnections()
+  }
+})
+
+test("resolveV2Client builds the loopback baseUrl from the project", () => {
+  const client = resolveV2Client({ hostPort: 4321, serverPassword: "pw" } as any)
+  expect(client.baseUrl).toBe("http://127.0.0.1:4321")
+  expect(client.auth).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
 })

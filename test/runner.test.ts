@@ -1,6 +1,6 @@
 // test/runner.test.ts
 import { expect, test, vi } from "vitest"
-import { evaluatePermission, normalizeCommand, Runner } from "../src/runner.ts"
+import { decidePermission, evaluatePermission, normalizeCommand, Runner } from "../src/runner.ts"
 import { Renderer } from "../src/render.ts"
 
 test("rejects deny-listed bash patterns", () => {
@@ -258,7 +258,7 @@ test("permission event responds with the evaluated decision", async () => {
     clientFor: () => ({ session: {}, postSessionIdPermissionsPermissionId: async (a: any) => { responses.push(a) } }) as any,
     createRenderer: async () => makeRenderer() as any,
     sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
-  await runner.onEvent("t1", { kind: "permission", sessionId: "s1", permissionId: "p1", tool: "bash", patterns: ["git push origin main"] })
+  await runner.onEvent("t1", { kind: "permission", sessionId: "s1", permissionId: "p1", source: "v1", tool: "bash", patterns: ["git push origin main"] })
   expect(responses).toEqual([{ path: { id: "s1", permissionID: "p1" }, body: { response: "reject" } }])
 })
 
@@ -731,4 +731,137 @@ test("handleProjectDown finalizes and idles active threads, freeing the concurre
   expect(states).toContain("idle")
   expect(pushed.some((p) => p.finalize)).toBe(true)
   expect(pushed.some((p) => p.kind === "text" && /stopped/.test(p.text))).toBe(true)
+})
+
+test("decidePermission keeps today's policy under auto", () => {
+  expect(decidePermission("auto", { tool: "bash", patterns: ["npm test"] })).toBe("once")
+  expect(decidePermission("auto", { tool: "bash", patterns: ["git push origin main"] })).toBe("reject")
+})
+
+test("decidePermission plan allows only read-only tools", () => {
+  for (const tool of ["read", "glob", "grep", "list", "find"]) {
+    expect(decidePermission("plan", { tool, patterns: [] }), tool).toBe("once")
+  }
+  for (const tool of ["bash", "edit", "write", "patch", "external_directory", "webfetch", "task", "totally_unknown_tool"]) {
+    expect(decidePermission("plan", { tool, patterns: [] }), tool).toBe("reject")
+  }
+  expect(decidePermission("plan", { tool: "read", patterns: ["/root/.config/celly/opencode.env"] })).toBe("reject")
+})
+
+test("decidePermission buttons auto-allows read-only tools, asks for mutations, and still rejects deny-listed or unknown tools", () => {
+  expect(decidePermission("buttons", { tool: "read", patterns: [] })).toBe("once")
+  expect(decidePermission("buttons", { tool: "bash", patterns: ["npm test"] })).toBe("ask")
+  expect(decidePermission("buttons", { tool: "edit", patterns: ["src/a.ts"] })).toBe("ask")
+  expect(decidePermission("buttons", { tool: "bash", patterns: ["git push origin main"] })).toBe("reject")
+  expect(decidePermission("buttons", { tool: "totally_unknown_tool", patterns: [] })).toBe("reject")
+})
+
+test("v1 and v2 permission replies go through the injected responder", async () => {
+  const replies: any[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: {} }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4,
+    approvalModeFor: () => "auto",
+    respondPermission: async (input: any) => { replies.push(input) },
+  })
+  await runner.onEvent("t1", { kind: "permission", sessionId: "s1", permissionId: "p1", source: "v1", tool: "bash", patterns: ["npm test"] })
+  await runner.onEvent("t1", { kind: "permission", sessionId: "s1", permissionId: "p2", source: "v2", tool: "bash", patterns: ["npm test"] })
+  expect(replies).toEqual([
+    { source: "v1", threadId: "t1", sessionId: "s1", requestId: "p1", reply: "once" },
+    { source: "v2", threadId: "t1", sessionId: "s1", requestId: "p2", reply: "once" },
+  ])
+})
+
+test("buttons mode delegates non-read-only permissions to the approval manager", async () => {
+  const asked: any[] = []
+  const replies: any[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: {} }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4,
+    approvalModeFor: () => "buttons",
+    respondPermission: async (input: any) => { replies.push(input) },
+    approvals: {
+      requestPermission: async (input: any) => { asked.push(input); return "once" },
+      askQuestion: async () => null,
+      cancel: () => {},
+    },
+  })
+  await runner.onEvent("t1", { kind: "permission", sessionId: "s1", permissionId: "r1", source: "v2", tool: "bash", patterns: ["npm test"] })
+  expect(asked).toEqual([{ threadId: "t1", sessionId: "s1", requestId: "r1", source: "v2", tool: "bash", patterns: ["npm test"], exact: true }])
+  expect(replies).toEqual([])
+})
+
+test("plan mode replies directly without asking", async () => {
+  const asked: any[] = []
+  const replies: any[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: {} }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4,
+    approvalModeFor: () => "plan",
+    respondPermission: async (input: any) => { replies.push(input) },
+    approvals: { requestPermission: async (input: any) => { asked.push(input); return "once" }, askQuestion: async () => null, cancel: () => {} },
+  })
+  await runner.onEvent("t1", { kind: "permission", sessionId: "s1", permissionId: "r1", source: "v1", tool: "read", patterns: ["src/a.ts"] })
+  await runner.onEvent("t1", { kind: "permission", sessionId: "s1", permissionId: "r2", source: "v1", tool: "write", patterns: ["src/a.ts"] })
+  expect(replies).toEqual([
+    { source: "v1", threadId: "t1", sessionId: "s1", requestId: "r1", reply: "once" },
+    { source: "v1", threadId: "t1", sessionId: "s1", requestId: "r2", reply: "reject" },
+  ])
+  expect(asked).toEqual([])
+})
+
+test("policy decisions append an audit entry", async () => {
+  const audits: any[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: {} }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4,
+    approvalModeFor: () => "auto",
+    respondPermission: async () => {},
+    audit: (entry: any) => { audits.push(entry) },
+  })
+  await runner.onEvent("t1", { kind: "permission", sessionId: "s1", permissionId: "p1", source: "v1", tool: "bash", patterns: ["git push origin main"] })
+  expect(audits).toEqual([{ kind: "permission", threadId: "t1", actorId: "policy", detail: "bash git push origin main", decision: "reject" }])
+})
+
+test("question events are routed to the approval manager", async () => {
+  const asked: any[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: {} }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4,
+    approvals: {
+      requestPermission: async () => "reject",
+      askQuestion: async (input: any) => { asked.push(input); return null },
+      cancel: () => {},
+    },
+  })
+  const questions = [{ question: "Which DB?", header: "DB", options: [{ label: "sqlite", description: "" }] }]
+  await runner.onEvent("t1", { kind: "question", sessionId: "s1", requestId: "q1", questions })
+  expect(asked).toEqual([{ threadId: "t1", sessionId: "s1", requestId: "q1", questions }])
+})
+
+test("permission.replied cancels a pending approval", async () => {
+  const cancelled: any[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: {} }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4,
+    approvals: {
+      requestPermission: async () => "reject",
+      askQuestion: async () => null,
+      cancel: (sessionId: string, requestId: string) => { cancelled.push([sessionId, requestId]) },
+    },
+  })
+  await runner.onEvent("t1", { kind: "permission-replied", sessionId: "s1", requestId: "r9" })
+  expect(cancelled).toEqual([["s1", "r9"]])
 })
