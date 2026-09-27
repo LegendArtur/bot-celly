@@ -21,7 +21,7 @@ import { runShell } from "./shell.js"
 import { ingestAttachments } from "./attachments.js"
 import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
 import { SessionRoutes } from "./routing.js"
-import { createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "./handlers.js"
+import { createForkThread, createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "./handlers.js"
 import { buildPromptText, channelIdForBucket, createSubscriptionGate, describeDiscordStartupError, findCategoryId, formatStartupBanner, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
 export { buildPromptText, createSubscriptionGate, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
@@ -250,6 +250,15 @@ async function main(): Promise<void> {
 
   const worktrees = new WorktreeService({ sbx, db, log })
 
+  const forkThread = createForkThread({
+    db, client, runner: runnerSvc,
+    ensureReady: (channelId) => projects.ensureReady(channelId),
+    resolveClient,
+    registerSession,
+    startTyping,
+    log,
+  })
+
   const subscribeProject = (project: Project): void => {
     if (!subscriptionGate.claim(project.channelId)) return
     for (const thread of db.threads.byChannel(project.channelId)) if (thread.sessionId) registerSession(thread.threadId, thread.sessionId)
@@ -393,6 +402,7 @@ async function main(): Promise<void> {
     isOwner: authorizeOwner,
     stopSubscription, startSubscription,
     createThread: createThreadForProject,
+    forkThread,
     listSessions, listModels, listAgents,
     setThreadModel, setThreadAgent,
     worktree: worktrees,

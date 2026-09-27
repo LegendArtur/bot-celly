@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest"
 import { openDb } from "../src/db.ts"
-import { createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "../src/handlers.ts"
+import { createForkThread, createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "../src/handlers.ts"
 import { describeDiscordStartupError, formatStartupBanner } from "../src/helpers.ts"
 import type { Project, Thread } from "../src/types.ts"
 
@@ -306,4 +306,33 @@ test("formatStartupBanner summarizes the run and flags missing permissions", () 
   const bad = formatStartupBanner({ guild: "g", projects: 0, dataDir: "./data", missingPermissions: ["Manage Channels"] })
   expect(bad).toContain("MISSING: Manage Channels")
   expect(bad).toContain("/project add")
+})
+
+test("createForkThread forks the session and copies model, agent, and worktree", async () => {
+  const db = openDb(":memory:"); db.migrate()
+  db.projects.insertProvisioning({ channelId: "c", guildId: "g", name: "demo", directory: "C:\\p",
+    sandboxPath: null, sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 })
+  db.threads.upsert({ threadId: "t1", channelId: "c", sessionId: "s1", title: "source", model: "anthropic/claude",
+    agent: "build", worktreePath: "/sandbox/celly-demo/workspace/.celly/worktrees/t1",
+    liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 1 })
+  const forkCalls: any[] = []
+  const created: any[] = []
+  const prompted: string[] = []
+  const fork = createForkThread({
+    db,
+    client: { channels: { fetch: async () => ({ threads: { create: async (o: any) => { created.push(o); return { id: "t9", members: { add: async () => {} } } } } }) } },
+    runner: { prompt: async (threadId: string) => { prompted.push(threadId); return undefined } },
+    ensureReady: async () => {},
+    resolveClient: () => ({ session: { fork: async (a: any) => { forkCalls.push(a); return { data: { id: "s9" } } } } }),
+    registerSession: () => {},
+    startTyping: () => {},
+    log: { info() {}, warn() {}, error() {}, debug() {} } as any,
+  })
+  const result = await fork({ sourceThreadId: "t1", title: "btw · hi", prompt: "hi", authorId: "u1" })
+  expect(forkCalls).toEqual([{ path: { id: "s1" }, query: { directory: "/sandbox/celly-demo/workspace/.celly/worktrees/t1" } }])
+  expect(created).toEqual([{ name: "btw · hi" }])
+  expect(db.threads.get("t9")).toMatchObject({ sessionId: "s9", model: "anthropic/claude", agent: "build",
+    worktreePath: "/sandbox/celly-demo/workspace/.celly/worktrees/t1", channelId: "c" })
+  expect(result).toEqual({ threadId: "t9", sessionId: "s9", notice: undefined })
+  expect(prompted).toEqual(["t9"])
 })

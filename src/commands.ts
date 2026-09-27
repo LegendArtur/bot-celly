@@ -32,12 +32,21 @@ export function commandData(): any[] {
       { type: ApplicationCommandOptionType.Subcommand, name: "merge", description: "Merge the worktree branch into the project (owner-only)" },
       { type: ApplicationCommandOptionType.Subcommand, name: "remove", description: "Remove this thread's worktree", options: [
         { type: ApplicationCommandOptionType.Boolean, name: "force", description: "Discard uncommitted changes", required: false } ] },
-    ] } ]
+    ] },
+    { name: "fork", description: "Fork this thread's session into a new thread", options: [
+      { type: ApplicationCommandOptionType.String, name: "prompt", description: "Initial prompt for the fork" } ] },
+    { name: "btw", description: "Fork this thread with a quick side-question", options: [
+      { type: ApplicationCommandOptionType.String, name: "prompt", description: "The side-question", required: true } ] } ]
 }
 
 export interface CreateThreadInput {
   channelId: string; title: string; sessionId?: string; prompt?: string; authorId?: string
 }
+
+export interface ForkThreadInput {
+  sourceThreadId: string; title: string; prompt?: string; authorId?: string
+}
+export interface ForkedThread { threadId: string; sessionId: string; notice?: string }
 
 export interface WorktreeCommands {
   status(threadId: string): Promise<string>
@@ -56,6 +65,7 @@ export interface CommandDeps {
   startSubscription?(channelId: string): void
   postConnected?(channelId: string, projectName: string): Promise<void> | void
   createThread?(input: CreateThreadInput): Promise<{ threadId: string; sessionId: string; notice?: string }>
+  forkThread?(input: ForkThreadInput): Promise<ForkedThread>
   listSessions?(channelId: string): Promise<{ id: string; title: string }[]>
   listModels?(channelId: string): Promise<{ id: string; name: string }[]>
   listAgents?(channelId: string): Promise<{ id: string; name: string }[]>
@@ -230,6 +240,17 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (!agents.length) return void await interaction.editReply(noMentions("no agents available"))
       const options = agents.slice(0, 25).map((a) => ({ label: (a.name || a.id).slice(0, 100), value: a.id }))
       return void await interaction.editReply({ content: "Choose an agent for this thread:", components: [selectRow(selectCustomId(AGENT_SELECT, thread.threadId), "Select an agent", options)], allowedMentions: { parse: [] } })
+    }
+    if (interaction.commandName === "fork" || interaction.commandName === "btw") {
+      const source = deps.db.threads.get(interaction.channelId)
+      if (!source) return void await interaction.editReply(noMentions(`use /${interaction.commandName} inside a thread`))
+      if (!deps.forkThread) return void await interaction.editReply(noMentions("fork support unavailable"))
+      const prompt = interaction.options.getString("prompt", false) ?? undefined
+      if (interaction.commandName === "btw" && !prompt) return void await interaction.editReply(noMentions("usage: /btw <prompt>"))
+      const title = interaction.commandName === "btw" ? `btw · ${prompt}` : (prompt ?? `fork of ${source.title ?? source.threadId}`)
+      const forked = await deps.forkThread({ sourceThreadId: source.threadId, title, prompt, authorId: interaction.user?.id })
+      const note = forked.notice ? ` (${forked.notice})` : ""
+      return void await interaction.editReply(noMentions(`forked into <#${forked.threadId}>${note}`))
     }
     if (interaction.commandName === "abort") {
       const isThread = interaction.channel?.isThread?.() === true

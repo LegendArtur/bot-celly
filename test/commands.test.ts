@@ -58,7 +58,7 @@ const editOf = (i: any) => {
 
 test("declares the v1 command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "model", "new", "project", "resume", "worktree"])
+  expect(names).toEqual(["abort", "agent", "btw", "fork", "model", "new", "project", "resume", "worktree"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -502,4 +502,55 @@ test("worktree remove forwards the force flag", async () => {
       remove: async (threadId: string, force: boolean) => { seen.push([threadId, force]); return "removed" } } })
   expect(seen).toEqual([["t1", true]])
   expect(editOf(i)).toBe("removed")
+})
+
+test("fork outside a thread is rejected", async () => {
+  const i = interaction({ commandName: "fork", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true,
+    forkThread: async () => { throw new Error("should not run") } })
+  expect(editOf(i)).toBe("use /fork inside a thread")
+})
+
+test("fork forwards the source thread, title, and prompt", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1", "c", { title: "source" }))
+  const i = interaction({ commandName: "fork", channelId: "t1", strings: { prompt: "try this" } })
+  let captured: any
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    forkThread: async (input: any) => { captured = input; return { threadId: "t9", sessionId: "s9" } } })
+  expect(captured).toEqual({ sourceThreadId: "t1", title: "try this", prompt: "try this", authorId: "u1" })
+  expect(editOf(i)).toBe("forked into <#t9>")
+})
+
+test("fork without a prompt titles the new thread after the source", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1", "c", { title: "source" }))
+  const i = interaction({ commandName: "fork", channelId: "t1" })
+  let captured: any
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    forkThread: async (input: any) => { captured = input; return { threadId: "t9", sessionId: "s9" } } })
+  expect(captured.title).toBe("fork of source")
+  expect(captured.prompt).toBeUndefined()
+})
+
+test("btw prefixes the title and requires a prompt", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1", "c", { title: "source" }))
+  const i = interaction({ commandName: "btw", channelId: "t1", strings: { prompt: "be quick" } })
+  let captured: any
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    forkThread: async (input: any) => { captured = input; return { threadId: "t9", sessionId: "s9" } } })
+  expect(captured.title).toBe("btw · be quick")
+  expect(captured.prompt).toBe("be quick")
+  expect(editOf(i)).toBe("forked into <#t9>")
+
+  const missing = interaction({ commandName: "btw", channelId: "t1" })
+  await handleCommand(missing, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    forkThread: async () => { throw new Error("should not run") } })
+  expect(editOf(missing)).toBe("usage: /btw <prompt>")
+})
+
+test("fork surfaces the run notice when the forked prompt is queued", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1", "c", { title: "source" }))
+  const i = interaction({ commandName: "fork", channelId: "t1", strings: { prompt: "hi" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    forkThread: async () => ({ threadId: "t9", sessionId: "s9", notice: "queued (1)" }) })
+  expect(editOf(i)).toBe("forked into <#t9> (queued (1))")
 })
