@@ -1,0 +1,116 @@
+---
+title: Security
+description: The enforced security invariants in Celly and an honest account of what the sandbox boundary does and does not protect.
+---
+
+Trust boundary: the sandbox is the boundary. The bot and the host are trusted.
+The mounted project directory and everything inside it are untrusted.
+
+Celly favors invariants that are enforced in code and asserted at runtime over
+documentation that relies on good behavior.
+
+## argv-only spawns
+
+Every `sbx` invocation uses `spawn(bin, args, { shell: false })`. No command is
+ever passed through a host shell:
+
+- Sandbox names are validated by regex.
+- Project paths and `!cmd` are passed as single argv elements.
+- Unit tests include adversarial names and paths.
+
+Only `src/sbx.ts` spawns processes; a test guards that against regressions.
+
+## Per-project microVM
+
+Each project runs in its own `sbx` sandbox with only its project directory
+mounted. The host filesystem outside that directory is unreachable by the agent.
+
+## Path containment and denylist
+
+- A project's directory must resolve (realpath, case-insensitive) **inside**
+  `PROJECTS_ROOT`. Ancestors and descendants of denied paths are rejected too.
+- The denylist covers the bot repo, `DATA_DIR`, sensitive profile subtrees
+  (`.ssh`, `.aws`, `.gnupg`, `.config`, `.docker`, `.kube`, `.azure`, `.npmrc`,
+  `.netrc`, `.celly`, `AppData`), and system directories.
+- Text attachments are sanitized (basename only, no `..`, no reserved Windows
+  device names, no control characters) and written under `.celly/inbox` with a
+  containment check after resolution.
+- A single helper owns path logic; call sites do not hand-roll it.
+
+## Loopback and password
+
+The generated sandbox config enables password auth
+(`OPENCODE_SERVER_PASSWORD`), and the server is published only on loopback. The
+per-project password is written to `~/.config/celly/opencode.env` (mode `0600`)
+inside the sandbox and stored in the bot database. It rotates when a sandbox is
+recreated.
+
+## Bot-enforced permission policy
+
+The sandbox config sets a default-deny policy, and the bot re-asserts it at the
+API layer after every wake and health check so a project-level `opencode.json`
+cannot weaken it:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "share": "disabled",
+  "permission": {
+    "*": "allow",
+    "bash": {
+      "*": "allow",
+      "git push*": "deny",
+      "git clean -fdx*": "deny",
+      "npm publish*": "deny",
+      "pnpm publish*": "deny",
+      "yarn publish*": "deny",
+      "printenv*": "deny",
+      "env": "deny",
+      "cat *opencode.env*": "deny",
+      "cat */.config/celly/*": "deny"
+    },
+    "external_directory": "deny",
+    "question": "deny"
+  }
+}
+```
+
+- The `bash` deny list also blocks common inspection utilities (`awk`, `base64`,
+  `cat`, `cp`, `grep`, `head`, `less`, `od`, `sed`, `strings`, `tail`, `xxd`)
+  from reading `opencode.env` or `~/.config/celly/`, plus catch-all patterns for
+  both paths.
+- `external_directory: deny` keeps tools inside the mounted project.
+- `question: deny` prevents headless deadlocks; surfacing questions in Discord
+  is deferred.
+- Any permission request that still surfaces is answered from the policy — there
+  is no catch-all auto-allow.
+
+## Secrets
+
+- `DISCORD_TOKEN` lives only in `.env` (gitignored).
+- Provider credentials live in `sbx secret` and are injected by the proxy, never
+  stored in the bot or the repository.
+- The per-project server password is never placed on a host command line, is
+  never logged, and is masked in `/project status`.
+- Log redaction covers tokens, passwords, and Authorization headers.
+
+## Honest caveat
+
+The deny list is **defense-in-depth, not a hard isolation boundary**. An agent
+allowed to run bash can still run arbitrary *allowed* commands. The blast radius
+is contained by the microVM:
+
+- `OPENCODE_SERVER_PASSWORD` only guards a loopback-published port reachable
+  from inside the sandbox and from the host's `127.0.0.1`.
+- Provider credentials are injected by the `sbx` proxy rather than stored in the
+  sandbox.
+- A mounted project is untrusted; never keep secrets in it.
+
+The sandbox is the real boundary. Treat the policy as reducing accidental
+damage, not as preventing a determined agent from doing anything its allowed
+commands can do.
+
+## Related
+
+- [Architecture](/reference/architecture) — where these controls live.
+- [Configuration](/guides/configuration) — the path denylist and `DATA_DIR`.

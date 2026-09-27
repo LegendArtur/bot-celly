@@ -1,0 +1,95 @@
+---
+title: Quickstart
+description: Bootstrap the host, install Celly, and run your first prompt inside an isolated sandbox.
+---
+
+This walks through a first working setup on a Windows 11 host. The bot must run
+on the host itself: `sbx` is per-user and only the host can execute the `sbx`
+binary.
+
+## Prerequisites
+
+- **Windows 11 host** (or macOS/Linux where `sbx` runs).
+- **Node 24.x** exactly (pinned by `engines` and `.nvmrc`).
+- **Docker Sandboxes `sbx` >= 0.45** installed and logged in.
+- A Docker login and an initialized network policy.
+- A Discord application with a bot token, the **Message Content** intent
+  enabled, and a single guild.
+- An OpenCode provider credential registered through `sbx secret`.
+
+## Setup
+
+<Steps>
+  <Step title="Bootstrap the host (once)">
+    Run these once, in order, as the user who will own the bot.
+
+    ```powershell
+    winget install -h Docker.sbx     # install sbx
+    sbx setup                        # host prep
+    sbx login                        # log in to Docker
+    sbx policy init balanced         # required before the first sandbox
+    sbx secret set <provider>        # repeat per provider
+    ```
+
+    `sbx` injects provider credentials at the proxy. Pin and record the version
+    with `sbx version`. See [Providers](/guides/providers) for built-in and
+    custom secret setup.
+  </Step>
+
+  <Step title="Clone and install">
+    ```powershell
+    git clone https://github.com/LegendArtur/bot-celly.git
+    cd bot-celly
+    npm ci
+    npm run build
+    ```
+  </Step>
+
+  <Step title="Configure `.env`">
+    Set **only** `DISCORD_TOKEN` and `DISCORD_GUILD_ID`. Every other setting has
+    a working default.
+
+    ```dotenv
+    DISCORD_TOKEN=your-bot-token
+    DISCORD_GUILD_ID=your-guild-id
+    ```
+
+    `PROJECTS_ROOT` defaults to `~/Celly/projects`
+    (`%USERPROFILE%\Celly\projects` on Windows) and is created on boot. The full
+    variable list is in [Configuration](/guides/configuration).
+  </Step>
+
+  <Step title="Run the bot">
+    ```powershell
+    node dist/index.js
+    ```
+
+    On boot the bot performs a preflight (`sbx version`, policy check,
+    single-instance lock) and fails fast with an actionable message. Logs are
+    written to `data/bot.log`.
+  </Step>
+
+  <Step title="Add a project and send a message">
+    In your Discord guild, create a project from a directory under
+    `PROJECTS_ROOT`:
+
+    ```text
+    /project add name:my-app path:my-app
+    ```
+
+    The bot runs the create saga (sandbox, bootstrap, serve child, health,
+    policy) and creates a `#my-app` channel under the **Forge** category.
+
+    Then post a plain message in that channel. Celly opens a thread, creates an
+    OpenCode session, and streams the reply. Reply in the thread to continue the
+    same session.
+  </Step>
+</Steps>
+
+## Next steps
+
+- [Configuration](/guides/configuration) — every environment variable and its
+  default.
+- [Terminal attach](/guides/terminal-attach) — drive the same sessions from a
+  shell.
+- [Deployment](/guides/deployment) — run Celly at logon with Task Scheduler.

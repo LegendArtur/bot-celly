@@ -12,7 +12,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "docs:dev": "cd docs-site && npx -y mint@latest dev",
+    "docs:validate": "cd docs-site && npx -y mint@latest validate",
+    "docs:links": "cd docs-site && npx -y mint@latest broken-links"
   },
   "dependencies": {
     "@opencode-ai/sdk": "1.18.32",

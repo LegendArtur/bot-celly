@@ -1,0 +1,84 @@
+---
+title: Providers
+description: Configure OpenCode provider credentials with sbx secret, built-in or custom, and pick a model per thread.
+---
+
+Provider credentials are never stored in Celly or the repository. They are
+registered with `sbx` and injected by the sandbox's forward proxy, so the agent
+uses them without ever seeing them in a config file or a command line.
+
+## Built-in providers
+
+For providers `sbx` knows about, register the credential interactively:
+
+```powershell
+sbx secret set <provider>
+```
+
+For example, to add an Anthropic key:
+
+```powershell
+sbx secret set anthropic
+```
+
+`sbx` stores the secret and exposes it to sandboxes through the proxy. Repeat
+per provider.
+
+## Custom providers
+
+For a provider that is not built in, register the host and the environment
+variable name that should carry the secret:
+
+```powershell
+sbx secret set-custom --host api.deepseek.com --env DEEPSEEK_API_KEY
+```
+
+This tells the proxy to inject `DEEPSEEK_API_KEY` for requests to
+`api.deepseek.com`. Use the provider's API host and the exact environment
+variable name OpenCode expects.
+
+<Note>
+`sbx secret set-custom` is **global by default**, so the credential applies to
+every sandbox on the host. Sandboxes that already exist must be recreated
+(`/project remove` then `/project add <name> <path>`, or stop and recreate) to
+pick up a newly added secret.
+</Note>
+
+## Network policy
+
+The sandbox egress policy is the `balanced` preset (initialized with
+`sbx policy init balanced`), which is the floor for every sandbox. A provider's
+API host must be reachable under that policy.
+
+- Built-in providers are covered by the preset.
+- A **custom** provider host may need to be allowed explicitly for the sandbox
+  to reach it. Verify with `sbx policy ls` and adjust per sandbox where useful.
+
+See the [security reference](/reference/security) for how egress and credentials
+fit into the threat model.
+
+## Selecting a model per thread
+
+Models are chosen inside a thread with `/model`. Because a flattened list across
+all providers can overflow Discord's 25-option select menu, `/model` is a
+**two-step** flow:
+
+1. `/model` shows a provider picker (for example `anthropic (12)`).
+2. Picking a provider shows that provider's models; choosing one sets it for the
+   thread.
+
+`/agent` works the same way but in a single step, since the agent list is not
+paginated by provider.
+
+<Note>
+Both commands wake the project's sandbox before asking it for models or agents,
+and they only work inside a thread. Model and agent overrides are stored per
+thread; a thread with neither set uses the `DEFAULT_MODEL` / `DEFAULT_AGENT`
+seeded at first boot.
+</Note>
+
+## Verify
+
+After configuring a provider, ask the agent something in a thread. If replies
+fail, check that the provider host is reachable under the network policy and
+that the sandbox was created (or recreated) after the secret was registered.

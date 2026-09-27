@@ -1,0 +1,56 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "Celly",
+  "theme": "mint",
+  "colors": {
+    "primary": "#7C3AED"
+  },
+  "navigation": {
+    "global": {
+      "anchors": [
+        {
+          "anchor": "GitHub",
+          "href": "https://github.com/LegendArtur/bot-celly",
+          "icon": "github"
+        },
+        {
+          "anchor": "Kimaki inspiration",
+          "href": "https://github.com/remorses/kimaki",
+          "icon": "lightbulb"
+        }
+      ]
+    },
+    "groups": [
+      {
+        "group": "Get started",
+        "pages": ["index", "quickstart"]
+      },
+      {
+        "group": "Guides",
+        "pages": [
+          "guides/configuration",
+          "guides/providers",
+          "guides/terminal-attach",
+          "guides/deployment"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "reference/commands",
+          "reference/architecture",
+          "reference/security"
+        ]
+      },
+      {
+        "group": "Project",
+        "pages": ["changelog", "contributing"]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/LegendArtur/bot-celly"
+    }
+  }
+}

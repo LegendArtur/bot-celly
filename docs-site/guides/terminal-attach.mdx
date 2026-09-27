@@ -1,0 +1,66 @@
+---
+title: Terminal attach
+description: Drive the same OpenCode sessions from a shell inside the sandbox, alongside Discord.
+---
+
+Sessions live in the sandbox's OpenCode storage, so Discord threads and a
+terminal attached to the same sandbox share the same conversations. This is
+useful for hands-on work while Celly keeps the sandbox awake and streams to
+Discord.
+
+## Attach
+
+Open a shell in the project's sandbox, load the generated server environment,
+then attach to the running server:
+
+```bash
+sbx exec -it <sandbox> bash
+```
+
+Inside the sandbox:
+
+```bash
+set -a; . ~/.config/celly/opencode.env; set +a
+opencode attach http://127.0.0.1:4096
+```
+
+<Note>
+Replace `<sandbox>` with the project's sandbox name (`celly-<slug>`). You can
+find it with `/project status <name>`, which reports the host port, or from
+`sbx ls`.
+</Note>
+
+`opencode attach` accepts `-s`, `-p`, and `-c` flags for selecting what to
+attach to. Run `opencode attach --help` in the sandbox for the exact semantics
+of your installed OpenCode version.
+
+## What is shared
+
+- The `opencode serve` process is the same one Celly supervises, so sessions
+  created in Discord appear in the terminal and vice versa.
+- The server password lives in `~/.config/celly/opencode.env` inside the
+  sandbox (mode `0600`) and in the bot database. Sourcing it is what lets
+  `opencode attach` authenticate to the loopback server.
+- `/project status` shows the sandbox state, host port, and session count. Any
+  reply that would contain the server password is ephemeral and masked.
+
+## Caveat: terminal-started sessions
+
+A session you start **only** from the terminal, with no Discord thread behind
+it, is not routed to Discord. The event router only renders turns into a thread
+that owns the session; terminal-originated turns are rendered into the owning
+session's most recent thread **if one exists**, otherwise they are ignored.
+
+To keep a conversation on both surfaces, start it from Discord (or `/resume` it
+into a thread) and then attach from the terminal.
+
+<Warning>
+An active `sbx exec` session holds the sandbox awake. Stopping the serve child
+or the sandbox from the terminal will mark the project degraded in Discord; the
+next prompt or `/project start` re-establishes it.
+</Warning>
+
+## Related
+
+- [Commands](/reference/commands) — `/project status`, `/resume`, and the rest.
+- [Deployment](/guides/deployment) — running Celly as a service.

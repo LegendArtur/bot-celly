@@ -1,0 +1,68 @@
+---
+title: Commands
+description: The full v1 command surface, access rules, and what is deferred to v1.1.
+---
+
+Celly registers guild-scoped slash commands (instant updates) plus a `!` shell
+prefix. `/project` uses subcommands.
+
+## Project management
+
+| Command | Access | Behavior |
+| --- | --- | --- |
+| `/project add name:<name> path:<path>` | owner | Register an existing directory under `PROJECTS_ROOT`; runs the create saga. |
+| `/project create name:<name>` | owner | Create a directory under `PROJECTS_ROOT`, then add it. |
+| `/project list` | authorized | List projects with sandbox status and health. |
+| `/project status name:<name>` | authorized | Status, port, health, and session count (ephemeral; password masked). |
+| `/project start name:<name>` | owner | Wake the sandbox and supervised server (recreates it if missing). |
+| `/project stop name:<name>` | owner | Stop the supervised server, then the sandbox. |
+| `/project remove name:<name> confirm:<name>` | owner | Typed confirmation; remove sandbox, rows, and channel. |
+
+<Note>
+Owner-only means the guild owner, or a member with `OWNER_ROLE_ID` (or
+`Administrator`/`Manage Server`). `list` and `status` are available to any
+authorized member. Access is decided by `ACCESS_ROLE_ID` / `BLOCK_ROLE_ID`,
+with block checked first.
+</Note>
+
+## Sessions
+
+| Command | Access | Behavior |
+| --- | --- | --- |
+| `/new [prompt]` | authorized | Start a new thread/session in this project channel. |
+| `/resume` | authorized | Pick a past session (ephemeral select) and resume it in a new thread. |
+| `/abort` | authorized | Abort the current run in a thread, or every active run in the project channel. |
+| `/model` | authorized | Choose the model for this thread (two-step provider → model). |
+| `/agent` | authorized | Choose the agent for this thread. |
+
+## Messages and shell
+
+| Input | Where | Behavior |
+| --- | --- | --- |
+| Plain message | project channel | Creates a thread, a session, and sends the prompt. |
+| Plain message | thread | Continues that session (queued if a run is active). |
+| `!<command>` | channel or thread | Runs `bash -lc <command>` inside the project's sandbox and posts the output. |
+
+Text-like attachments on a message are size-capped, written to a validated
+`.celly/inbox`, and referenced in the prompt. Shell output is truncated and
+chunked across up to three messages with a total-length footer.
+
+<Warning>
+`!<command>` runs with the same privilege as the agent inside the microVM. It
+cannot run host commands, but it can do anything the sandbox allows. Treat it as
+running code.
+</Warning>
+
+## Deferred to v1.1
+
+Commands: `/project restart`, `/share`, `/diff`, `/undo`, `/redo`,
+`/context-usage`.
+
+Features: worktree-per-thread, `/btw` forks, queue UI (`. queue`),
+permission-approval buttons, `question` rendered as Discord components, voice
+messages, image attachments, OpenCode web UI, tunnels/screenshare, multi-guild,
+cloud sandboxes, `--clone` sandbox mode, OAuth subscription login, and
+Linux/macOS deployment docs.
+
+See the [architecture reference](/reference/architecture) for what happens under
+the hood when you run these.

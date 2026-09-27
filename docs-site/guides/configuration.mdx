@@ -1,0 +1,88 @@
+---
+title: Configuration
+description: The full environment variable reference for Celly. Two values are required, everything else has a default.
+---
+
+`.env` is the single source of truth. It is loaded automatically at startup
+(`process.loadEnvFile`), is gitignored, and is validated at boot. A missing or
+invalid required value fails fast with an actionable error.
+
+Start from `.env.example` and set the two required values. Everything else has a
+working default:
+
+```dotenv
+DISCORD_TOKEN=your-bot-token
+DISCORD_GUILD_ID=your-guild-id
+```
+
+## Variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DISCORD_TOKEN` | **required** | Bot token. |
+| `DISCORD_GUILD_ID` | **required** | Single guild for v1. |
+| `PROJECTS_ROOT` | `~/Celly/projects` | Allowed project root; created on boot. |
+| `ACCESS_ROLE_ID` | unset | Role **ID** allowed to use the bot. |
+| `BLOCK_ROLE_ID` | unset | Role **ID** denied access (checked first). |
+| `OWNER_ROLE_ID` | unset | Role **ID** allowed to run owner-only `/project` mutations. The guild owner is always allowed. |
+| `CATEGORY_ID` | auto-create `Forge` | Discord category for project channels. |
+| `SANDBOX_TEMPLATE` | `opencode` | `sbx create` agent/template. |
+| `SANDBOX_CPUS` | `2` | Sandbox CPU limit. |
+| `SANDBOX_MEMORY` | `4g` | Sandbox memory limit. |
+| `PORT_RANGE_START` | `4300` | Host loopback port pool start. |
+| `PORT_RANGE_END` | `4399` | Host loopback port pool end (must exceed the start). |
+| `DEFAULT_MODEL` | unset | Seeded into `settings` on first boot only. |
+| `DEFAULT_AGENT` | unset | Seeded into `settings` on first boot only. |
+| `BOOT_TIMEOUT_MS` | `120000` | Create-saga health wait. |
+| `HEALTH_TIMEOUT_MS` | `30000` | Wake health wait. |
+| `EDIT_INTERVAL_MS` | `1200` | Render throttle floor. |
+| `ATTACHMENT_MAX_BYTES` | `102400` | Text-attachment cap (100 KB). |
+| `MAX_QUEUE` | `20` | Per-thread prompt queue bound. |
+| `MAX_CONCURRENT_RUNS` | `4` | Global concurrent run cap. |
+| `DATA_DIR` | `./data` | SQLite database, logs, and lock file. |
+| `LOG_LEVEL` | `info` | One of `debug`, `info`, `warn`, `error`. |
+
+<Note>
+`DEFAULT_MODEL` and `DEFAULT_AGENT` are seeded into the `settings` table on the
+first boot only. Once a value exists there, it is authoritative and re-reading
+`.env` will not overwrite it.
+</Note>
+
+## `PROJECTS_ROOT` and path containment
+
+`PROJECTS_ROOT` is the only directory Celly will mount. A project's host
+directory must resolve (realpath, case-insensitive) to a path **inside**
+`PROJECTS_ROOT`. Anything outside is rejected before a sandbox is created.
+
+On top of containment, a sensitive-path denylist rejects any project directory
+that overlaps:
+
+- The bot repository itself (`process.cwd()`).
+- `DATA_DIR`.
+- Under the user profile: `.ssh`, `.aws`, `.gnupg`, `.config`, `.docker`,
+  `.kube`, `.azure`, `.npmrc`, `.netrc`, `.celly`, and `AppData`.
+- System directories (`C:\Windows`, `System32`, `Program Files`,
+  `ProgramData`, or `/etc`, `/usr`, `/bin`, `/sbin`, `/var`, `/opt`, `/System`,
+  `/Library` on POSIX).
+
+Because containment is checked both ways, you also cannot register a parent of
+`PROJECTS_ROOT` or of any denied path. `PROJECTS_ROOT` is intentionally **not**
+runtime-editable; changing it means editing `.env` and restarting.
+
+<Warning>
+Keep secrets out of project directories. A mounted project is treated as
+untrusted content, and the agent can read anything inside it (`git` remotes,
+`.env` files, tokens). Use the sandbox credential proxy instead of committing
+credentials.
+</Warning>
+
+## `DATA_DIR`
+
+`DATA_DIR` holds the SQLite database (`bot.db`), the rotating log
+(`bot.log`), per-project server logs (`logs/<sandbox>.log`), and the
+single-instance lock. It is gitignored and created on boot.
+
+<Warning>
+Keep `DATA_DIR` outside OneDrive/Dropbox-style synced folders. Cloud-sync
+detection is not implemented in v1, so this is on you.
+</Warning>

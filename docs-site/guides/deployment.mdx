@@ -1,7 +1,10 @@
-# Deploying Celly on Windows 11
+---
+title: Deployment on Windows
+description: Run Celly as a long-lived service on a Windows 11 host, with Task Scheduler at logon and the PAT headless re-login flow.
+---
 
 This guide covers running Celly as a long-lived service on a Windows 11 host,
-including the Task Scheduler setup and the personal-access-token (PAT) flow for
+including Task Scheduler setup and the personal-access-token (PAT) flow for
 re-authenticating `sbx` without an interactive browser.
 
 The bot **must** run as the logged-in user on the host: the `sbx` daemon and its
@@ -10,7 +13,7 @@ LocalSystem service will not work.
 
 ## 1. One-time host bootstrap
 
-Run these steps once, in order, as the user who will own the bot. Steps 1-2 need
+Run these steps once, in order, as the user who will own the bot. Steps 1–2 need
 an elevated PowerShell prompt; the rest run as the normal user.
 
 1. Enable the Windows Hypervisor Platform:
@@ -29,12 +32,13 @@ an elevated PowerShell prompt; the rest run as the normal user.
    ```powershell
    sbx login
    ```
-5. Initialize the network policy preset. The preset is required before the
-   first sandbox, otherwise `sbx create` blocks on an interactive prompt:
+5. Initialize the network policy preset. It is required before the first
+   sandbox, otherwise `sbx create` blocks on an interactive prompt:
    ```powershell
    sbx policy init balanced
    ```
-6. Register provider credentials used by the sandboxed agent:
+6. Register provider credentials used by the sandboxed agent (see
+   [Providers](/guides/providers)):
    ```powershell
    sbx secret set <provider>
    ```
@@ -46,9 +50,9 @@ an elevated PowerShell prompt; the rest run as the normal user.
 ## 2. Build and configure the bot
 
 1. Install the pinned Node version (24.x) and clone the repository.
-2. Copy `.env.example` to `.env` and fill in `DISCORD_TOKEN`,
-   `DISCORD_GUILD_ID`, `PROJECTS_ROOT`, and any optional values. See the
-   `.env` table in the [README](../README.md).
+2. Copy `.env.example` to `.env` and fill in `DISCORD_TOKEN` and
+   `DISCORD_GUILD_ID`. See [Configuration](/guides/configuration) for the full
+   variable list.
 3. Install dependencies and build:
    ```powershell
    npm ci
@@ -104,7 +108,7 @@ Unregister-ScheduledTask -TaskName Celly -Confirm:$false
 2. **General:** name it `Celly`; select **Run only when user is logged on**.
 3. **Triggers:** add **At log on**, scoped to the user who owns `sbx`.
 4. **Actions:** **Start a program** with:
-   - Program/script: the full path to `node.exe` (e.g.
+   - Program/script: the full path to `node.exe` (for example
      `C:\Program Files\nodejs\node.exe`).
    - Add arguments: `dist\index.js`.
    - Start in: the repository root.
@@ -122,9 +126,9 @@ without a browser, or the stored credential expires), the at-logon task starts
 but `sbx` is not authenticated. Re-authenticate non-interactively with a Docker
 **personal access token** (PAT).
 
-1. Create a Docker PAT: sign in at https://hub.docker.com, open **Account
-   settings → Personal access tokens**, and create a token with at least
-   read access.
+1. Create a Docker PAT: sign in at [https://hub.docker.com](https://hub.docker.com),
+   open **Account settings → Personal access tokens**, and create a token with
+   at least read access.
 2. Feed the token to `sbx` over stdin with `--password-stdin`. Never pass the
    token as a command-line argument, where it would be visible in the process
    list and PowerShell history:
@@ -162,7 +166,7 @@ it in `.env`.
 ## 6. Troubleshooting
 
 | Symptom | Cause | Fix |
-|---|---|---|
+| --- | --- | --- |
 | Boot fails: `sbx CLI not found` | `sbx` not on the user's PATH | Reinstall with `winget install -h Docker.sbx`; open a new shell. |
 | Boot fails: `run sbx login` | Expired/unauthenticated session | Run the PAT flow in section 4. |
 | `sbx create` hangs | Policy preset not initialized | Run `sbx policy init balanced`. |
@@ -176,18 +180,10 @@ it in `.env`.
 `%USERPROFILE%\Celly\projects`). The sensitive-path denylist rejects specific
 sensitive subtrees (`.ssh`, `.aws`, `.gnupg`, `.config`, `.docker`, `.kube`,
 `.azure`, `.npmrc`, `.netrc`, `.celly`, `AppData`), `DATA_DIR`, the bot
-repository, and system directories, so keep projects out of those.
+repository, and system directories, so keep projects out of those. See
+[Configuration](/guides/configuration) for the complete list.
 
-## 8. Deferred (v1.1) and limitations
-
-The v1 command surface is intentionally trimmed. Deferred commands:
-`/project restart`, `/share`, `/diff`, `/undo`, `/redo`, `/context-usage`.
-Deferred features: worktree-per-thread, `/btw` forks, queue UI, permission
-approval buttons, `question` components, voice/image input, OpenCode web UI,
-tunnels/screenshare, multi-guild, cloud sandboxes, OAuth subscription login,
-and Linux/macOS deployment docs.
-
-Limitations to plan around on the host:
+## 8. Limitations to plan around
 
 - **The in-memory message queue is lost on bot restart.** Active runs are
   re-attached from session history, but queued-but-unsent prompts are dropped.
@@ -196,5 +192,9 @@ Limitations to plan around on the host:
 - **Per-user command rate limiting, sandbox disk-usage warnings, and the
   `DATA_DIR` cloud-sync warning are backlog.** Keep `DATA_DIR` outside any
   OneDrive/Dropbox-synced folder yourself.
-- The smoke script (`node scripts/smoke.mjs`) and live Discord interactions
-  are host-only and are not exercised by the Linux test suite.
+- The smoke script (`node scripts/smoke.mjs`) and live Discord interactions are
+  host-only and are not exercised by the Linux test suite.
+
+Deferred commands and features are listed in the
+[commands reference](/reference/commands) and the
+[changelog](/changelog).

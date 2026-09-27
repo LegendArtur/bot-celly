@@ -1,0 +1,58 @@
+---
+title: Contributing
+description: How to work on Celly — tests, the argv-only invariant, and keeping secrets out.
+---
+
+Issues and pull requests are welcome. Before opening a PR, run the full local
+checks.
+
+## Local checks
+
+```bash
+npm test          # full vitest suite
+npm run typecheck # tsc --noEmit
+npm run build     # tsc -p tsconfig.json
+```
+
+The test suite is the contract. Add or update tests for any behavior change.
+
+## Invariants to keep
+
+- **argv-only.** Never pass user input through a host shell. Every `sbx`
+  invocation goes through `src/sbx.ts` with `spawn(bin, args, { shell: false })`;
+  only that module may import `child_process` (a test guards this).
+- **Containment.** All path checks go through the shared helper. Do not
+  hand-roll containment or sanitization at call sites.
+- **Policy.** Do not weaken the bot-enforced permission policy or the
+  re-assert-after-wake behavior.
+- **No secrets.** Never commit tokens, passwords, or `.env` files. Provider
+  credentials belong in `sbx secret`, not in code or test fixtures.
+
+## Host-only checks
+
+Two host-only scripts exercise the real `sbx` chain. They are not run by the
+Linux test suite:
+
+```bash
+node scripts/spike-full-chain.mjs            # sbx + serve + health spike
+node scripts/smoke.mjs C:\path\to\project    # create → prompt → abort → remove
+```
+
+Run `npm run build` first; the scripts import from `dist/`. See the spike notes
+in the repository for recorded results and open items.
+
+## Docs
+
+The documentation site lives in `docs-site/`. Preview and validate it locally:
+
+```bash
+npm run docs:dev        # preview at http://localhost:3000
+npm run docs:validate   # validate docs.json and pages
+npm run docs:links      # check for broken internal links
+```
+
+## Related
+
+- [Security](/reference/security) — the invariants in detail.
+- [Architecture](/reference/architecture) — where each concern lives.
+- [Changelog](/changelog) — what has shipped.

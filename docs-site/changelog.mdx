@@ -1,0 +1,51 @@
+---
+title: What's New
+description: Release notes for Celly. New entries are added as versions ship.
+---
+
+<Update label="0.1.0" description="Initial v1 release">
+  The first release of Celly: a Discord control surface for OpenCode agents,
+  with one isolated `sbx` sandbox per project.
+
+  **Core model**
+
+  - Channel = project (one sandbox, one host directory); thread = session (one
+    OpenCode conversation).
+  - The bot runs natively on the `sbx` host and supervises a long-lived
+    `sbx exec ... opencode serve` child per project.
+
+  **Commands**
+
+  - Project lifecycle: `/project add`, `create`, `list`, `status`, `start`,
+    `stop`, `remove`.
+  - Sessions: `/new`, `/resume`, `/abort`, `/model`, `/agent`.
+  - `!<command>` runs a shell command inside the sandbox.
+
+  **Features**
+
+  - Streaming replies throttled into a single live message, with fence-aware
+    chunking.
+  - Session resume and per-thread model/agent overrides.
+  - Text attachments written to a validated `.celly/inbox`.
+  - Shell-output truncation and chunking.
+  - Access control via guild owner, `Manage Guild`/`Administrator`, an access
+    role, and a block role.
+  - Terminal coexistence: the same sessions are reachable from an attached
+    terminal.
+
+  **Security**
+
+  - argv-only `sbx` spawns, per-project microVM isolation, path containment, and
+    a sensitive-path denylist.
+  - Loopback-only server with a generated password.
+  - Bot-enforced permission policy (default-deny bash patterns,
+    `external_directory`/`question` denied) re-asserted after every wake.
+
+  **Known limitations**
+
+  - The in-memory message queue is lost on restart.
+  - Role configuration accepts role IDs only.
+  - The finalization token/duration footer is descoped.
+  - Per-user command rate limiting, sandbox disk-usage warnings, and `DATA_DIR`
+    cloud-sync detection are backlog.
+</Update>
