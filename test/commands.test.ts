@@ -56,7 +56,7 @@ const editOf = (i: any) => {
 
 test("declares the v1 command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "mode", "model", "new", "project", "queue", "redo", "resume", "undo"])
+  expect(names).toEqual(["abort", "agent", "diff", "mode", "model", "new", "project", "queue", "redo", "resume", "undo"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -705,4 +705,30 @@ test("redo unreverts the thread", async () => {
     sessions: { redo: async (threadId: string) => { calls.push(threadId); return "redone" } } as any })
   expect(calls).toEqual(["t1"])
   expect(editOf(i)).toBe("redone")
+})
+
+test("diff formats the file list", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const files = [
+    { file: "src/a.ts", before: "a", after: "b", additions: 2, deletions: 1 },
+    { file: "src/b.ts", before: "", after: "x", additions: 3, deletions: 0 },
+  ]
+  const i = interaction({ commandName: "diff", channelId: "t1" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { diff: async () => files } as any })
+  expect(editOf(i)).toBe("M src/a.ts (+2/-1)\nA src/b.ts (+3/-0)\ntotal: +5/-1 across 2 files")
+})
+
+test("diff chunks long file lists into a follow-up", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const files = Array.from({ length: 10 }, (_, i) => ({ file: `src/${"x".repeat(200)}${i}.ts`, before: "a", after: "b", additions: 1, deletions: 1 }))
+  const i = interaction({ commandName: "diff", channelId: "t1" })
+  i.followUp = async (c: any) => { i.calls.push({ kind: "followUp", c }) }
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { diff: async () => files } as any })
+  expect(i.calls.filter((c: any) => c.kind === "edit")).toHaveLength(1)
+  expect(i.calls.filter((c: any) => c.kind === "followUp")).toHaveLength(1)
+  for (const call of i.calls) {
+    if (call.kind === "followUp") expect(call.c.flags).toBe(64)
+  }
 })

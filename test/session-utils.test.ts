@@ -1,6 +1,6 @@
 // test/session-utils.test.ts
 import { expect, test } from "vitest"
-import { createSessionOps } from "../src/session-utils.ts"
+import { createSessionOps, formatDiff } from "../src/session-utils.ts"
 
 function fakeClient(over: any = {}) {
   return {
@@ -57,4 +57,39 @@ test("redo unreverts with the exact payload", async () => {
   const ops = createSessionOps({ targetFor: () => ({ sessionId: "s1" }), clientFor: () => client })
   expect(await ops.redo("t1")).toBe("redone")
   expect(calls).toEqual([{ path: { id: "s1" } }])
+})
+
+const FIXTURE_DIFF = [
+  { file: "src/a.ts", before: "a", after: "b", additions: 2, deletions: 1 },
+  { file: "src/new.ts", before: "", after: "b", additions: 5, deletions: 0 },
+  { file: "src/gone.ts", before: "a", after: "", additions: 0, deletions: 9 },
+]
+
+test("formatDiff renders status, adds, deletes, and totals", () => {
+  expect(formatDiff(FIXTURE_DIFF)).toBe([
+    "M src/a.ts (+2/-1)",
+    "A src/new.ts (+5/-0)",
+    "D src/gone.ts (+0/-9)",
+    "total: +7/-10 across 3 files",
+  ].join("\n"))
+})
+
+test("formatDiff caps at 10 files and keeps whole-list totals", () => {
+  const files = Array.from({ length: 12 }, (_, i) => ({ file: `src/f${i}.ts`, before: "a", after: "b", additions: 1, deletions: 1 }))
+  const lines = formatDiff(files).split("\n")
+  expect(lines).toHaveLength(12)
+  expect(lines[10]).toBe("… and 2 more")
+  expect(lines[11]).toBe("total: +12/-12 across 12 files")
+})
+
+test("formatDiff reports no changes for an empty list", () => {
+  expect(formatDiff([])).toBe("no changes")
+})
+
+test("diff calls the session diff endpoint and returns the files", async () => {
+  const calls: any[] = []
+  const client = fakeClient({ session: { diff: async (args: any) => { calls.push(args); return { data: FIXTURE_DIFF } } } })
+  const ops = createSessionOps({ targetFor: () => ({ sessionId: "s1", directory: "/w" }), clientFor: () => client })
+  expect(await ops.diff("t1")).toEqual(FIXTURE_DIFF)
+  expect(calls).toEqual([{ path: { id: "s1" }, query: { directory: "/w" } }])
 })

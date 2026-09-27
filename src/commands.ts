@@ -6,7 +6,9 @@ import type { AuditDraft } from "./audit.ts"
 import type { Db } from "./db.ts"
 import type { ProjectService } from "./projects.ts"
 import type { QueuedPrompt, Runner } from "./runner.ts"
+import { formatDiff } from "./session-utils.js"
 import type { SessionOps } from "./session-utils.ts"
+import { chunkMessage } from "./render.js"
 
 export function commandData(): any[] {
   const project = { name: "project", description: "Manage Celly projects", options: [
@@ -33,6 +35,7 @@ export function commandData(): any[] {
     { name: "queue", description: "Show and manage this thread's queued prompts" },
     { name: "undo", description: "Revert the session to its last user message" },
     { name: "redo", description: "Restore messages reverted by the last /undo" },
+    { name: "diff", description: "List changed files in this session" },
     { name: "mode", description: "Set the approval mode for this session's project channel", options: [
       { type: ApplicationCommandOptionType.String, name: "mode", description: "How permission requests are handled", required: true,
         choices: APPROVAL_MODES.map((mode) => ({ name: mode, value: mode })) } ] } ]
@@ -131,6 +134,13 @@ export function sanitizeSelectOptions(options: { label?: unknown; value?: unknow
 
 function selectRow(customId: string, placeholder: string, options: { label: string; value: string }[]): any {
   return { type: ComponentType.ActionRow, components: [{ type: ComponentType.StringSelect, custom_id: customId, placeholder, min_values: 1, max_values: 1, options: sanitizeSelectOptions(options) }] }
+}
+
+async function replyChunks(interaction: any, content: string): Promise<void> {
+  const chunks = chunkMessage(content, 1900)
+  const [first = "no changes", ...rest] = chunks
+  await interaction.editReply(noMentions(first))
+  for (const chunk of rest) await interaction.followUp(noMentions(chunk, { flags: 64 }))
 }
 
 function queueMessage(threadId: string, entries: QueuedPrompt[]): any {
@@ -292,6 +302,13 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       }
       await deps.sessions.redo(thread.threadId)
       return void await interaction.editReply(noMentions("redone"))
+    }
+    if (interaction.commandName === "diff") {
+      const thread = deps.db.threads.get(interaction.channelId)
+      if (!thread) return void await interaction.editReply(noMentions("use /diff inside a thread"))
+      if (!deps.sessions) return void await interaction.editReply(noMentions("session utilities unavailable"))
+      const files = await deps.sessions.diff(thread.threadId)
+      return void await replyChunks(interaction, formatDiff(files))
     }
     if (interaction.commandName === "mode") {
       const requested = interaction.options.getString("mode", true)
