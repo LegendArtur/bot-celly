@@ -58,7 +58,7 @@ const editOf = (i: any) => {
 
 test("declares the v1 command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "btw", "fork", "model", "new", "project", "resume", "worktree"])
+  expect(names).toEqual(["abort", "agent", "btw", "fork", "last-sessions", "model", "new", "project", "resume", "worktree"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -553,4 +553,48 @@ test("fork surfaces the run notice when the forked prompt is queued", async () =
   await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
     forkThread: async () => ({ threadId: "t9", sessionId: "s9", notice: "queued (1)" }) })
   expect(editOf(i)).toBe("forked into <#t9> (queued (1))")
+})
+
+test("last-sessions lists recent threads, default 5, newest first", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  for (let i = 1; i <= 7; i++) db.threads.upsert(threadRow(`t${i}`, "c", { title: `Session ${i}`, lastActiveAt: i }))
+  const i = interaction({ commandName: "last-sessions", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true })
+  const out = editOf(i)
+  expect(out.split("\n")).toHaveLength(5)
+  expect(out).toContain("<#t7> — Session 7")
+  expect(out).not.toContain("<#t2>")
+})
+
+test("last-sessions honours a requested count and caps it at 10", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  for (let i = 1; i <= 12; i++) db.threads.upsert(threadRow(`t${i}`, "c", { title: `Session ${i}`, lastActiveAt: i }))
+  const three = interaction({ commandName: "last-sessions", channelId: "c", integers: { count: 3 } })
+  await handleCommand(three, { projects: {} as any, runner: {} as any, db, authorized: () => true })
+  expect(editOf(three).split("\n")).toHaveLength(3)
+
+  const forty = interaction({ commandName: "last-sessions", channelId: "c", integers: { count: 40 } })
+  await handleCommand(forty, { projects: {} as any, runner: {} as any, db, authorized: () => true })
+  expect(editOf(forty).split("\n")).toHaveLength(10)
+})
+
+test("last-sessions inside a thread uses the parent project channel", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  db.threads.upsert(threadRow("t1", "c", { title: "First" }))
+  const i = interaction({ commandName: "last-sessions", channelId: "t1", channel: { isThread: () => true, parentId: "c" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true })
+  expect(editOf(i)).toContain("<#t1> — First")
+})
+
+test("last-sessions outside a project is rejected", async () => {
+  const i = interaction({ commandName: "last-sessions", channelId: "other" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
+  expect(editOf(i)).toBe("this channel is not a project")
+})
+
+test("last-sessions with no threads says so", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  const i = interaction({ commandName: "last-sessions", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true })
+  expect(editOf(i)).toBe("no sessions yet")
 })

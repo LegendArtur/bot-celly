@@ -36,7 +36,9 @@ export function commandData(): any[] {
     { name: "fork", description: "Fork this thread's session into a new thread", options: [
       { type: ApplicationCommandOptionType.String, name: "prompt", description: "Initial prompt for the fork" } ] },
     { name: "btw", description: "Fork this thread with a quick side-question", options: [
-      { type: ApplicationCommandOptionType.String, name: "prompt", description: "The side-question", required: true } ] } ]
+      { type: ApplicationCommandOptionType.String, name: "prompt", description: "The side-question", required: true } ] },
+    { name: "last-sessions", description: "List recent threads in this channel (ephemeral)", options: [
+      { type: ApplicationCommandOptionType.Integer, name: "count", description: "How many to show (default 5, max 10)", required: false } ] } ]
 }
 
 export interface CreateThreadInput {
@@ -260,6 +262,17 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (!threadIds.length) return void await interaction.editReply(noMentions("nothing to abort"))
       for (const threadId of threadIds) await deps.runner.abort(threadId)
       return void await interaction.editReply(noMentions("aborted"))
+    }
+    if (interaction.commandName === "last-sessions") {
+      const parentId = interaction.channel?.isThread?.() ? interaction.channel.parentId : interaction.channelId
+      const project = parentId ? deps.db.projects.getByChannel(parentId) : undefined
+      if (!project) return void await interaction.editReply(noMentions("this channel is not a project"))
+      const requested = interaction.options.getInteger("count", false) ?? 5
+      const count = Math.min(Math.max(requested, 1), 10)
+      const threads = deps.db.threads.byChannel(project.channelId).slice(0, count)
+      if (threads.length === 0) return void await interaction.editReply(noMentions("no sessions yet"))
+      const lines = threads.map((t) => `<#${t.threadId}> — ${t.title ?? t.sessionId}`)
+      return void await interaction.editReply(noMentions(lines.join("\n")))
     }
     if (interaction.commandName === "worktree") {
       const thread = deps.db.threads.get(interaction.channelId)
