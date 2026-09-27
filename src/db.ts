@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite"
-import type { Project, ProjectStatus, RenderState, Thread } from "./types.ts"
+import type { Project, ProjectStatus, RenderState, Thread, UsageTotals } from "./types.ts"
 
 export interface Db {
   migrate(): void
@@ -28,6 +28,12 @@ export interface Db {
     touch(threadId: string): void
     byChannel(channelId: string): Thread[]
     recent(limit: number): Thread[]
+    addUsage(threadId: string, delta: UsageTotals): void
+  }
+  usage: {
+    thread(threadId: string): UsageTotals
+    channel(channelId: string): UsageTotals
+    totals(): UsageTotals
   }
   settings: { get(key: string): string | undefined; set(key: string, value: string): void }
 }
@@ -58,11 +64,19 @@ DROP TABLE threads;
 ALTER TABLE threads_new RENAME TO threads;
 CREATE INDEX IF NOT EXISTS idx_threads_session ON threads(session_id);
 `
+const SCHEMA_V7 = `
+ALTER TABLE threads ADD COLUMN cost REAL NOT NULL DEFAULT 0;
+ALTER TABLE threads ADD COLUMN tokens_in INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE threads ADD COLUMN tokens_out INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE threads ADD COLUMN tokens_cache_read INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE threads ADD COLUMN tokens_cache_write INTEGER NOT NULL DEFAULT 0;
+`
 const MIGRATIONS: { version: number; up(raw: DatabaseSync): void }[] = [
   { version: 1, up: (raw) => raw.exec(SCHEMA_V1) },
   { version: 2, up: (raw) => raw.exec(SCHEMA_V2) },
   { version: 3, up: (raw) => raw.exec("ALTER TABLE threads ADD COLUMN live_message_ids TEXT") },
   { version: 4, up: (raw) => raw.exec("CREATE INDEX IF NOT EXISTS idx_threads_channel ON threads(channel_id)") },
+  { version: 7, up: (raw) => raw.exec(SCHEMA_V7) },
 ]
 function userVersion(raw: DatabaseSync): number {
   const row = raw.prepare("PRAGMA user_version").get() as { user_version?: number } | undefined
@@ -78,6 +92,11 @@ const rowToThread = (r: any): Thread => ({
   model: r.model, agent: r.agent, worktreePath: r.worktree_path ?? null,
   liveMessageId: r.live_message_id ?? null, renderState: r.render_state,
   createdAt: r.created_at, lastActiveAt: r.last_active_at,
+})
+const ZERO_USAGE = (): UsageTotals => ({ cost: 0, tokensIn: 0, tokensOut: 0, cacheRead: 0, cacheWrite: 0 })
+const rowToUsage = (r: any): UsageTotals => ({
+  cost: Number(r?.cost ?? 0), tokensIn: Number(r?.tokens_in ?? 0), tokensOut: Number(r?.tokens_out ?? 0),
+  cacheRead: Number(r?.tokens_cache_read ?? 0), cacheWrite: Number(r?.tokens_cache_write ?? 0),
 })
 
 export function openDb(path: string): Db {
@@ -141,6 +160,28 @@ export function openDb(path: string): Db {
       touch(threadId) { raw.prepare(`UPDATE threads SET last_active_at=? WHERE thread_id=?`).run(Date.now(), threadId) },
       byChannel(channelId) { return raw.prepare(`SELECT * FROM threads WHERE channel_id=? ORDER BY last_active_at DESC`).all(channelId).map(rowToThread) },
       recent(limit) { return raw.prepare(`SELECT * FROM threads ORDER BY last_active_at DESC LIMIT ?`).all(limit).map(rowToThread) },
+      addUsage(threadId, delta) {
+        raw.prepare(`UPDATE threads SET cost=cost+?, tokens_in=tokens_in+?, tokens_out=tokens_out+?, tokens_cache_read=tokens_cache_read+?, tokens_cache_write=tokens_cache_write+? WHERE thread_id=?`)
+          .run(delta.cost, delta.tokensIn, delta.tokensOut, delta.cacheRead, delta.cacheWrite, threadId)
+      },
+    },
+    usage: {
+      thread(threadId) {
+        const r = raw.prepare(`SELECT cost, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write FROM threads WHERE thread_id=?`).get(threadId)
+        return r ? rowToUsage(r) : ZERO_USAGE()
+      },
+      channel(channelId) {
+        const r = raw.prepare(`SELECT COALESCE(SUM(cost),0) AS cost, COALESCE(SUM(tokens_in),0) AS tokens_in,
+          COALESCE(SUM(tokens_out),0) AS tokens_out, COALESCE(SUM(tokens_cache_read),0) AS tokens_cache_read,
+          COALESCE(SUM(tokens_cache_write),0) AS tokens_cache_write FROM threads WHERE channel_id=?`).get(channelId)
+        return rowToUsage(r)
+      },
+      totals() {
+        const r = raw.prepare(`SELECT COALESCE(SUM(cost),0) AS cost, COALESCE(SUM(tokens_in),0) AS tokens_in,
+          COALESCE(SUM(tokens_out),0) AS tokens_out, COALESCE(SUM(tokens_cache_read),0) AS tokens_cache_read,
+          COALESCE(SUM(tokens_cache_write),0) AS tokens_cache_write FROM threads`).get()
+        return rowToUsage(r)
+      },
     },
     settings: {
       get(key) { const r = raw.prepare(`SELECT value FROM settings WHERE key=?`).get(key); return r ? (r as any).value : undefined },
