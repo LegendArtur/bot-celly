@@ -1,4 +1,6 @@
-import { ApplicationCommandOptionType, ComponentType } from "discord.js"
+import { ActionRowBuilder, ApplicationCommandOptionType, ComponentType, ModalBuilder, TextInputBuilder, TextInputStyle } from "discord.js"
+import { ANSWER_ACTION, APPROVAL_ACTION, REJECT_QUESTION_ACTION, answerCustomId } from "./approvals.js"
+import type { ApprovalManager } from "./approvals.ts"
 import type { Db } from "./db.ts"
 import type { ProjectService } from "./projects.ts"
 import type { Runner } from "./runner.ts"
@@ -46,6 +48,7 @@ export interface CommandDeps {
   listAgents?(channelId: string): Promise<{ id: string; name: string }[]>
   setThreadModel?(threadId: string, model: string | null): void
   setThreadAgent?(threadId: string, agent: string | null): void
+  approvals?: ApprovalManager
 }
 
 export const RESUME_SELECT = "resume"
@@ -55,9 +58,25 @@ export const AGENT_SELECT = "agent"
 
 export function selectCustomId(action: string, id: string): string { return `celly:${action}:${id}` }
 export function parseCustomId(customId: string): { action: string; id?: string } {
-  const [, action = "", id] = customId.split(":")
+  const { action, id } = parseCustomIdFull(customId)
   return { action, id }
 }
+
+/**
+ * Canonical custom-id parser (spec §3.1). Wire format is
+ * `celly:<action>:<id>[:<extra>]`; malformed ids (missing the `celly` prefix or
+ * a second segment) return `{ action: "" }`. `extra` is everything after the
+ * third segment joined back with `:`, so values containing colons survive.
+ * Later plans extend button handling by adding a dedicated `handle*` branch to
+ * `handleButton` rather than redefining these helpers.
+ */
+export interface ParsedCustomId { action: string; id?: string; extra?: string }
+export function parseCustomIdFull(customId: string): ParsedCustomId {
+  const parts = customId.split(":")
+  if (parts[0] !== "celly" || parts.length < 2) return { action: "" }
+  return { action: parts[1] ?? "", id: parts[2], extra: parts.length > 3 ? parts.slice(3).join(":") : undefined }
+}
+export const ANSWER_MODAL_INPUT = "answer"
 
 /**
  * Spec §9: every interaction reply/edit suppresses mentions. Some prompts and
@@ -227,10 +246,11 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
 
 export async function handleSelect(interaction: any, deps: CommandDeps): Promise<void> {
   if (!deps.authorized(interaction)) { await interaction.reply(noMentions("You are not authorized.", { flags: 64 })); return }
-  const { action, id } = parseCustomId(interaction.customId ?? "")
+  const { action, id } = parseCustomIdFull(interaction.customId ?? "")
   try {
     await interaction.deferUpdate()
     const value: string | undefined = interaction.values?.[0]
+    if (action === ANSWER_ACTION) return handleAnswerSelect(interaction, deps)
     if (action === RESUME_SELECT) {
       if (!id || !value) return void await interaction.editReply({ content: "no session selected", components: [], allowedMentions: { parse: [] } })
       const project = deps.db.projects.getByChannel(id)
@@ -262,4 +282,91 @@ export async function handleSelect(interaction: any, deps: CommandDeps): Promise
     if (interaction.deferred || interaction.replied) return void await interaction.editReply(noMentions(content))
     await interaction.reply(noMentions(content, { flags: 64 }))
   }
+}
+
+function stale(interaction: any): Promise<void> {
+  return interaction.reply(noMentions("this request is no longer active", { flags: 64 }))
+}
+
+export function customAnswerModal(requestId: string, questionIndex: number): any {
+  const input = new TextInputBuilder()
+    .setCustomId(ANSWER_MODAL_INPUT)
+    .setLabel("Your answer")
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(true)
+    .setMaxLength(1000)
+  return new ModalBuilder()
+    .setCustomId(answerCustomId(requestId, questionIndex))
+    .setTitle("Custom answer")
+    .addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input))
+}
+
+export async function handleButton(interaction: any, deps: CommandDeps): Promise<void> {
+  if (!deps.authorized(interaction)) { await interaction.reply(noMentions("You are not authorized.", { flags: 64 })); return }
+  const { action } = parseCustomIdFull(interaction.customId ?? "")
+  if (action === APPROVAL_ACTION) return handleApprovalButton(interaction, deps)
+  if (action === ANSWER_ACTION) return handleAnswerButton(interaction, deps)
+  if (action === REJECT_QUESTION_ACTION) return handleRejectQuestionButton(interaction, deps)
+}
+
+export async function handleApprovalButton(interaction: any, deps: CommandDeps): Promise<void> {
+  const { id, extra } = parseCustomIdFull(interaction.customId ?? "")
+  const decision = extra === "once" || extra === "always" || extra === "reject" ? extra : undefined
+  if (!id || !decision || !deps.approvals?.resolvePermission(id, decision, interaction.user?.id ?? "unknown")) {
+    await stale(interaction)
+    return
+  }
+  await interaction.deferUpdate()
+}
+
+export async function handleAnswerButton(interaction: any, deps: CommandDeps): Promise<void> {
+  const { id, extra } = parseCustomIdFull(interaction.customId ?? "")
+  if (!id || !extra || !deps.approvals?.hasPending(id)) { await stale(interaction); return }
+  const [indexPart, optionPart] = extra.split(".")
+  const questionIndex = Number(indexPart)
+  if (!Number.isInteger(questionIndex) || questionIndex < 0) { await stale(interaction); return }
+  if (optionPart !== undefined) {
+    const optionIndex = Number(optionPart)
+    if (!Number.isInteger(optionIndex) || optionIndex < 0
+      || !deps.approvals.answerOption(id, questionIndex, optionIndex, interaction.user?.id ?? "unknown")) {
+      await stale(interaction)
+      return
+    }
+    await interaction.deferUpdate()
+    return
+  }
+  await interaction.showModal(customAnswerModal(id, questionIndex))
+}
+
+export async function handleAnswerSelect(interaction: any, deps: CommandDeps): Promise<void> {
+  const { id, extra } = parseCustomIdFull(interaction.customId ?? "")
+  const questionIndex = Number(extra)
+  const values: string[] = Array.isArray(interaction.values)
+    ? interaction.values.slice(0, 25).filter((value: unknown): value is string => typeof value === "string" && !!value)
+    : []
+  const known = deps.approvals?.answerQuestion(id ?? "", questionIndex, values, interaction.user?.id ?? "unknown")
+  if (!id || !Number.isInteger(questionIndex) || !values.length || !known) {
+    return void await interaction.editReply({ content: "this request is no longer active", components: [], allowedMentions: { parse: [] } })
+  }
+}
+
+export async function handleRejectQuestionButton(interaction: any, deps: CommandDeps): Promise<void> {
+  const { id } = parseCustomIdFull(interaction.customId ?? "")
+  if (!id || !deps.approvals?.rejectQuestion(id, interaction.user?.id ?? "unknown")) { await stale(interaction); return }
+  await interaction.deferUpdate()
+}
+
+export async function handleModalSubmit(interaction: any, deps: CommandDeps): Promise<void> {
+  if (!deps.authorized(interaction)) { await interaction.reply(noMentions("You are not authorized.", { flags: 64 })); return }
+  const { action, id, extra } = parseCustomIdFull(interaction.customId ?? "")
+  if (action !== ANSWER_ACTION) return
+  const questionIndex = Number(extra)
+  const value = String(interaction.fields?.getTextInputValue?.(ANSWER_MODAL_INPUT) ?? "").trim()
+  if (!value) { await interaction.reply(noMentions("answer cannot be empty", { flags: 64 })); return }
+  if (!id || !Number.isInteger(questionIndex)
+    || !deps.approvals?.answerQuestion(id, questionIndex, [value], interaction.user?.id ?? "unknown")) {
+    await stale(interaction)
+    return
+  }
+  await interaction.deferUpdate()
 }

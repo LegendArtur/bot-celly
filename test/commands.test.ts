@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs"
 import { expect, test } from "vitest"
 import { ApplicationCommandOptionType, ComponentType } from "discord.js"
-import { SELECT_OPTION_MAX, SELECT_OPTIONS_MAX, commandData, handleCommand, handleSelect, requiresOwner, sanitizeSelectOptions } from "../src/commands.ts"
+import { ANSWER_MODAL_INPUT, SELECT_OPTION_MAX, SELECT_OPTIONS_MAX, commandData, handleApprovalButton, handleButton, handleCommand, handleModalSubmit, handleRejectQuestionButton, handleSelect, parseCustomIdFull, requiresOwner, sanitizeSelectOptions } from "../src/commands.ts"
 import { isOwner } from "../src/discord.ts"
 import { openDb } from "../src/db.ts"
 
@@ -441,4 +441,130 @@ test("model selection survives malformed and oversized model lists without throw
     expect(option.value.length).toBeGreaterThan(0)
     expect(option.value.length).toBeLessThanOrEqual(SELECT_OPTION_MAX)
   }
+})
+
+test("parseCustomIdFull reads action, id, and extra", () => {
+  expect(parseCustomIdFull("celly:resume:c1")).toEqual({ action: "resume", id: "c1", extra: undefined })
+  expect(parseCustomIdFull("celly:approval:r1:once")).toEqual({ action: "approval", id: "r1", extra: "once" })
+  expect(parseCustomIdFull("celly:answer:r1:2.3")).toEqual({ action: "answer", id: "r1", extra: "2.3" })
+  expect(parseCustomIdFull("nope")).toEqual({ action: "" })
+})
+
+function fakeApprovals(over: any = {}) {
+  const calls: any[] = []
+  const manager = {
+    calls,
+    resolvePermission: (id: string, decision: string, actor: string) => { calls.push(["resolvePermission", id, decision, actor]); return over.permissionKnown ?? true },
+    answerOption: (id: string, q: number, o: number, actor: string) => { calls.push(["answerOption", id, q, o, actor]); return over.optionKnown ?? true },
+    answerQuestion: (id: string, q: number, answers: string[], actor: string) => { calls.push(["answerQuestion", id, q, answers, actor]); return over.questionKnown ?? true },
+    rejectQuestion: (id: string, actor: string) => { calls.push(["rejectQuestion", id, actor]); return over.questionKnown ?? true },
+    hasPending: () => over.pending ?? true,
+    requestPermission: async () => "reject" as const,
+    askQuestion: async () => null,
+    cancel: () => {},
+  }
+  return { manager: manager as any, calls }
+}
+
+function button(over: any = {}) {
+  const calls: any[] = []
+  const i: any = {
+    customId: over.customId,
+    channelId: over.channelId ?? "c",
+    user: over.user ?? { id: "u1" },
+    inGuild: () => true, member: {}, memberPermissions: {},
+    calls,
+    deferUpdate: async () => { calls.push({ kind: "deferUpdate" }) },
+    showModal: async (m: any) => { calls.push({ kind: "showModal", m: m?.toJSON ? m.toJSON() : m }) },
+    reply: async (c: any) => { calls.push({ kind: "reply", c }) },
+    editReply: async (c: any) => { calls.push({ kind: "edit", c }) },
+  }
+  return i
+}
+
+function modal(over: any = {}) {
+  const calls: any[] = []
+  const i: any = {
+    customId: over.customId,
+    user: over.user ?? { id: "u1" },
+    inGuild: () => true, member: {}, memberPermissions: {},
+    fields: { getTextInputValue: (_id: string) => over.value },
+    calls,
+    deferUpdate: async () => { calls.push({ kind: "deferUpdate" }) },
+    reply: async (c: any) => { calls.push({ kind: "reply", c }) },
+  }
+  return i
+}
+
+test("approval buttons resolve the decision and acknowledge the interaction", async () => {
+  const { manager, calls } = fakeApprovals()
+  const i = button({ customId: "celly:approval:r1:once" })
+  await handleApprovalButton(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, approvals: manager })
+  expect(calls).toEqual([["resolvePermission", "r1", "once", "u1"]])
+  expect(i.calls).toEqual([{ kind: "deferUpdate" }])
+})
+
+test("stale approval buttons answer that the request is no longer active", async () => {
+  const { manager } = fakeApprovals({ permissionKnown: false })
+  const i = button({ customId: "celly:approval:r1:reject" })
+  await handleApprovalButton(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, approvals: manager })
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "this request is no longer active", flags: 64 } })
+})
+
+test("option buttons map through the manager and custom buttons open a modal", async () => {
+  const { manager, calls } = fakeApprovals()
+  const option = button({ customId: "celly:answer:r1:0.2" })
+  await handleButton(option, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, approvals: manager })
+  expect(calls).toEqual([["answerOption", "r1", 0, 2, "u1"]])
+  expect(option.calls).toEqual([{ kind: "deferUpdate" }])
+
+  const custom = button({ customId: "celly:answer:r1:1" })
+  await handleButton(custom, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, approvals: manager })
+  const shown = custom.calls[0]
+  expect(shown.kind).toBe("showModal")
+  expect(shown.m.custom_id).toBe("celly:answer:r1:1")
+  expect(shown.m.components[0].components[0].custom_id).toBe(ANSWER_MODAL_INPUT)
+})
+
+test("answer selects submit the selected values to the manager", async () => {
+  const { manager, calls } = fakeApprovals()
+  const i = select({ customId: "celly:answer:r1:1", values: ["b", "c"] })
+  await handleSelect(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, approvals: manager })
+  expect(i.calls[0]).toEqual({ kind: "deferUpdate" })
+  expect(calls).toEqual([["answerQuestion", "r1", 1, ["b", "c"], "u1"]])
+})
+
+test("modal submits route the text input to the manager", async () => {
+  const { manager, calls } = fakeApprovals()
+  const i = modal({ customId: "celly:answer:r1:1", value: "  custom text  " })
+  await handleModalSubmit(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, approvals: manager })
+  expect(calls).toEqual([["answerQuestion", "r1", 1, ["custom text"], "u1"]])
+  expect(i.calls).toEqual([{ kind: "deferUpdate" }])
+})
+
+test("modal submits reject empty answers and stale requests", async () => {
+  const { manager } = fakeApprovals({ questionKnown: false })
+  const empty = modal({ customId: "celly:answer:r1:1", value: "   " })
+  await handleModalSubmit(empty, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, approvals: manager })
+  expect(empty.calls[0]).toMatchObject({ kind: "reply", c: { content: "answer cannot be empty", flags: 64 } })
+
+  const staleButton = modal({ customId: "celly:answer:r1:1", value: "x" })
+  await handleModalSubmit(staleButton, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, approvals: manager })
+  expect(staleButton.calls[0]).toMatchObject({ kind: "reply", c: { content: "this request is no longer active", flags: 64 } })
+})
+
+test("question rejection resolves through the manager", async () => {
+  const { manager, calls } = fakeApprovals()
+  const i = button({ customId: "celly:reject-question:r1" })
+  await handleRejectQuestionButton(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, approvals: manager })
+  expect(calls).toEqual([["rejectQuestion", "r1", "u1"]])
+  expect(i.calls).toEqual([{ kind: "deferUpdate" }])
+})
+
+test("unauthorized button interactions are rejected before any manager call", async () => {
+  const { manager, calls } = fakeApprovals()
+  const i = button({ customId: "celly:approval:r1:once" })
+  await handleButton(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => false, approvals: manager })
+  expect(calls).toEqual([])
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "You are not authorized.", flags: 64 } })
 })
