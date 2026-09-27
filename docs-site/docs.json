@@ -1,6 +1,6 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "name": "Celly",
+  "name": "Celly Bot",
   "theme": "luma",
   "colors": {
     "primary": "#65ED3A"
@@ -52,9 +52,5 @@
     "socials": {
       "github": "https://github.com/LegendArtur/bot-celly"
     }
-  },
-  "logo": {
-    "light": "/docs-site/images/Gemini_Generated_Image_mr6onpmr6onpmr6o(1).jpg",
-    "dark": "/docs-site/images/Gemini_Generated_Image_mr6onpmr6onpmr6o(1).jpg"
   }
 }
