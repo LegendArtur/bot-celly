@@ -53,7 +53,9 @@
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/LegendArtur/bot-celly"
+      "github": "https://github.com/LegendArtur/bot-celly",
+      "linkedin": "https://www.linkedin.com/in/arturgub",
+      "website": "https://www.arturgub.com/"
     }
   },
   "icons": {
