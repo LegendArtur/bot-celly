@@ -116,8 +116,43 @@ test("v4 adds an index on threads.channel_id", () => {
     const raw = new DatabaseSync(file)
     const names = (raw.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='threads'").all() as any[]).map((r) => r.name)
     expect(names).toContain("idx_threads_channel")
-    expect(Number((raw.prepare("PRAGMA user_version").get() as any).user_version)).toBe(4)
+    expect(Number((raw.prepare("PRAGMA user_version").get() as any).user_version)).toBe(6)
     raw.close()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("scheduled_tasks CRUD round-trips and filters due tasks", () => {
+  const db = fresh()
+  const id = db.tasks.add({ channelId: "c1", prompt: "standup", everyMinutes: 60, nextRunAt: 1000, createdAt: 1 })
+  expect(id).toBeGreaterThan(0)
+  expect(db.tasks.list()).toMatchObject([{ id, channelId: "c1", prompt: "standup", everyMinutes: 60, nextRunAt: 1000, enabled: true, createdAt: 1 }])
+  expect(db.tasks.due(999)).toEqual([])
+  expect(db.tasks.due(1000).map((t) => t.id)).toEqual([id])
+  db.tasks.setEnabled(id, false)
+  expect(db.tasks.due(2000)).toEqual([])
+  db.tasks.setEnabled(id, true)
+  db.tasks.markRun(id, 5000)
+  expect(db.tasks.due(4000)).toEqual([])
+  expect(db.tasks.due(5000).map((t) => t.id)).toEqual([id])
+  expect(db.tasks.remove(id)).toBe(true)
+  expect(db.tasks.remove(id)).toBe(false)
+  expect(db.tasks.list()).toEqual([])
+})
+
+test("the appended migration adds scheduled_tasks to an older database", () => {
+  const dir = mkdtempSync(join(tmpdir(), "celly-db-tasks-"))
+  const file = join(dir, "bot.db")
+  try {
+    const legacy = new DatabaseSync(file)
+    legacy.exec("PRAGMA user_version = 4")
+    legacy.close()
+    const db = openDb(file)
+    db.migrate()
+    const id = db.tasks.add({ channelId: "c1", prompt: "p", everyMinutes: 1, nextRunAt: 0, createdAt: 0 })
+    expect(db.tasks.list().map((t) => t.id)).toEqual([id])
+    db.close()
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

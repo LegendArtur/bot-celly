@@ -12,3 +12,7 @@ export interface Thread {
   worktreePath: string | null; liveMessageId: string | null
   renderState: RenderState; createdAt: number; lastActiveAt: number
 }
+export interface ScheduledTask {
+  id: number; channelId: string; prompt: string; everyMinutes: number
+  nextRunAt: number; enabled: boolean; createdAt: number
+}

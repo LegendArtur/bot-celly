@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite"
-import type { Project, ProjectStatus, RenderState, Thread } from "./types.ts"
+import type { Project, ProjectStatus, RenderState, ScheduledTask, Thread } from "./types.ts"
 
 export interface Db {
   migrate(): void
@@ -30,6 +30,14 @@ export interface Db {
     byChannel(channelId: string): Thread[]
     recent(limit: number): Thread[]
   }
+  tasks: {
+    add(input: { channelId: string; prompt: string; everyMinutes: number; nextRunAt: number; createdAt: number }): number
+    list(): ScheduledTask[]
+    remove(id: number): boolean
+    due(now: number): ScheduledTask[]
+    markRun(id: number, nextRunAt: number): void
+    setEnabled(id: number, enabled: boolean): void
+  }
   settings: { get(key: string): string | undefined; set(key: string, value: string): void }
 }
 
@@ -59,11 +67,19 @@ DROP TABLE threads;
 ALTER TABLE threads_new RENAME TO threads;
 CREATE INDEX IF NOT EXISTS idx_threads_session ON threads(session_id);
 `
+const SCHEMA_V6 = `
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id TEXT NOT NULL, prompt TEXT NOT NULL,
+  every_minutes INTEGER NOT NULL, next_run_at INTEGER NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_due ON scheduled_tasks(enabled, next_run_at);
+`
 const MIGRATIONS: { version: number; up(raw: DatabaseSync): void }[] = [
   { version: 1, up: (raw) => raw.exec(SCHEMA_V1) },
   { version: 2, up: (raw) => raw.exec(SCHEMA_V2) },
   { version: 3, up: (raw) => raw.exec("ALTER TABLE threads ADD COLUMN live_message_ids TEXT") },
   { version: 4, up: (raw) => raw.exec("CREATE INDEX IF NOT EXISTS idx_threads_channel ON threads(channel_id)") },
+  { version: 6, up: (raw) => raw.exec(SCHEMA_V6) },
 ]
 function userVersion(raw: DatabaseSync): number {
   const row = raw.prepare("PRAGMA user_version").get() as { user_version?: number } | undefined
@@ -79,6 +95,10 @@ const rowToThread = (r: any): Thread => ({
   model: r.model, agent: r.agent, worktreePath: r.worktree_path ?? null,
   liveMessageId: r.live_message_id ?? null, renderState: r.render_state,
   createdAt: r.created_at, lastActiveAt: r.last_active_at,
+})
+const rowToTask = (r: any): ScheduledTask => ({
+  id: Number(r.id), channelId: r.channel_id, prompt: r.prompt, everyMinutes: r.every_minutes,
+  nextRunAt: r.next_run_at, enabled: Number(r.enabled) === 1, createdAt: r.created_at,
 })
 
 export function openDb(path: string): Db {
@@ -146,6 +166,18 @@ export function openDb(path: string): Db {
       touch(threadId) { raw.prepare(`UPDATE threads SET last_active_at=? WHERE thread_id=?`).run(Date.now(), threadId) },
       byChannel(channelId) { return raw.prepare(`SELECT * FROM threads WHERE channel_id=? ORDER BY last_active_at DESC`).all(channelId).map(rowToThread) },
       recent(limit) { return raw.prepare(`SELECT * FROM threads ORDER BY last_active_at DESC LIMIT ?`).all(limit).map(rowToThread) },
+    },
+    tasks: {
+      add(input) {
+        const info = raw.prepare(`INSERT INTO scheduled_tasks (channel_id,prompt,every_minutes,next_run_at,enabled,created_at)
+          VALUES (?,?,?,?,1,?)`).run(input.channelId, input.prompt, input.everyMinutes, input.nextRunAt, input.createdAt)
+        return Number(info.lastInsertRowid)
+      },
+      list() { return raw.prepare(`SELECT * FROM scheduled_tasks ORDER BY id`).all().map(rowToTask) },
+      remove(id) { return Number(raw.prepare(`DELETE FROM scheduled_tasks WHERE id=?`).run(id).changes) > 0 },
+      due(now) { return raw.prepare(`SELECT * FROM scheduled_tasks WHERE enabled=1 AND next_run_at<=? ORDER BY next_run_at`).all(now).map(rowToTask) },
+      markRun(id, nextRunAt) { raw.prepare(`UPDATE scheduled_tasks SET next_run_at=? WHERE id=?`).run(nextRunAt, id) },
+      setEnabled(id, enabled) { raw.prepare(`UPDATE scheduled_tasks SET enabled=? WHERE id=?`).run(enabled ? 1 : 0, id) },
     },
     settings: {
       get(key) { const r = raw.prepare(`SELECT value FROM settings WHERE key=?`).get(key); return r ? (r as any).value : undefined },
