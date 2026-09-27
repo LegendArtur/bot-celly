@@ -5,6 +5,9 @@
 [![Docs](https://img.shields.io/badge/docs-celly.agub.dev-7C3AED)](https://celly.agub.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D24%20%3C25-brightgreen)](package.json)
+[![CI](https://github.com/LegendArtur/bot-celly/actions/workflows/ci.yml/badge.svg)](https://github.com/LegendArtur/bot-celly/actions/workflows/ci.yml)
+[![Changelog](https://img.shields.io/badge/changelog-celly.agub.dev%2Fchangelog-7C3AED)](https://celly.agub.dev/changelog)
+[![Inspired by Kimaki](https://img.shields.io/badge/inspired%20by-kimaki-7C3AED)](https://github.com/remorses/kimaki)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](#contributing)
 
 Celly turns [Discord](https://discord.com) into a control surface for
@@ -12,6 +15,10 @@ Celly turns [Discord](https://discord.com) into a control surface for
 isolated `sbx` (Docker Sandboxes) microVM on your host, and you drive it from a
 Discord channel and thread. Start a session from your phone, watch it work, and
 pick it back up later.
+
+Inspired by [Kimaki](https://github.com/remorses/kimaki) — Celly reimplements its
+core idea (channels as projects, threads as sessions) and runs each project in a
+`sbx` sandbox instead of a local process.
 
 **Documentation:** https://celly.agub.dev
 
@@ -203,7 +210,9 @@ v1 is the command set above. Deferred to v1.1:
 
 Issues and pull requests are welcome. Before opening a PR, run `npm test`,
 `npm run typecheck`, and `npm run build`. Keep the **argv-only invariant**, add
-tests for behavior changes, and never commit secrets. See
+tests for behavior changes, add a changeset for behavior changes, and never
+commit secrets. This project follows the [Code of Conduct](CODE_OF_CONDUCT.md);
+report vulnerabilities via [SECURITY.md](SECURITY.md), not a public issue. See
 [Contributing](https://celly.agub.dev/contributing) for details.
 
 ## License

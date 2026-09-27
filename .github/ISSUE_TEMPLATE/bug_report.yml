@@ -1,0 +1,54 @@
+name: Bug report
+description: Something isn't working as expected
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please do not include secrets (tokens, passwords, `.env`).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. `/project add ...`
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Celly version / commit
+      placeholder: "e.g. 0.1.0 or a commit SHA"
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Host OS and `sbx` version
+      placeholder: "e.g. Windows 11, sbx 0.45.1"
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      placeholder: "e.g. v24.21.0"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: From `data/bot.log` or `data/logs/<sandbox>.log`. Redact secrets.
+      render: shell
+    validations:
+      required: false
