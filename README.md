@@ -56,6 +56,10 @@ core idea (channels as projects, threads as sessions) and runs each project in a
   role, and a block role.
 - **Hardened permission policy.** A bot-enforced deny list blocks publish, push,
   and env-file inspection, and is re-asserted after every wake.
+- **Cost tracking and budgets.** `/cost` reports per-thread and per-channel
+  usage, and a session budget (env or `/budget`) stops a run that exceeds it.
+- **Provider OAuth login.** Owner-only `/login` and `/login-code` complete
+  provider authorization without leaving Discord.
 
 ## Architecture
 
@@ -143,6 +147,10 @@ is documented in
 | `/abort` | channel or thread | Abort the current run (or all runs). |
 | `/model` | thread | Choose the model for this thread. |
 | `/agent` | thread | Choose the agent for this thread. |
+| `/cost` | thread or channel | Show accumulated cost, tokens, and the session budget. |
+| `/budget show\|set <usd>` | channel (owner) | Show or set the per-channel session budget. |
+| `/login <provider>` | channel or thread (owner) | Start a provider OAuth flow. |
+| `/login-code <provider> <code>` | channel or thread (owner) | Finish a provider OAuth flow. |
 | `!<command>` | channel or thread | Run a shell command in the sandbox. |
 
 Full details and the deferred list are in the
@@ -191,15 +199,16 @@ v1 is the command set above. Deferred to v1.1:
 - **Input:** voice messages and image attachments.
 - **Surfaces:** OpenCode web UI, admin website, diff viewer, tunnels/screenshare,
   forum-channel layout.
-- **Scale/deploy:** multi-guild, cloud sandboxes, `--clone` sandbox mode, OAuth
-  subscription login, Linux/macOS deployment docs.
+- **Scale/deploy:** multi-guild, cloud sandboxes, `--clone` sandbox mode,
+  Linux/macOS deployment docs.
 
 ## Limitations
 
 - **The message queue is lost on restart.** Queued-but-unsent prompts are
   dropped; active runs re-attach from session history.
 - **Role names are not accepted** for role configuration; use role IDs.
-- **The finalization token/duration footer is descoped.**
+- **The finalization footer shows cost and in/out tokens.** Cache reads/writes
+  are tracked in `/cost` but not rendered in the footer.
 - **Per-user command rate limiting, sandbox disk-usage warnings, and `DATA_DIR`
   cloud-sync detection are backlog.** Keep `DATA_DIR` out of synced folders.
 - **Host-only items** (the spike, `sbx policy ls` semantics, Windows path

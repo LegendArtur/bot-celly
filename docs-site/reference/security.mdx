@@ -90,6 +90,11 @@ cannot weaken it:
 - `DISCORD_TOKEN` lives only in `.env` (gitignored).
 - Provider credentials live in `sbx secret` and are injected by the proxy, never
   stored in the bot or the repository.
+- OAuth credentials from `/login` / `/login-code` are sent only to the sandbox's
+  loopback OpenCode server; the bot never logs, audits, or echoes the
+  authorization code or the returned tokens.
+- Managing `sbx secret` from Discord is deferred; credentials for non-OAuth
+  providers stay host-only.
 - The per-project server password is never placed on a host command line, is
   never logged, and is masked in `/project status`.
 - Log redaction covers tokens, passwords, and Authorization headers.

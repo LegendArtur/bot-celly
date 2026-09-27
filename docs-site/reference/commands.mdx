@@ -35,6 +35,16 @@ with block checked first.
 | `/model` | authorized | Choose the model for this thread (two-step provider → model). |
 | `/agent` | authorized | Choose the agent for this thread. |
 
+## Cost and providers
+
+| Command | Access | Behavior |
+| --- | --- | --- |
+| `/cost` | authorized | Show this thread's and channel's accumulated cost, tokens, and the session budget (ephemeral). |
+| `/budget show` | owner | Show this channel's session budget (ephemeral). |
+| `/budget set usd:<usd>` | owner | Set this channel's session budget in USD; `0` disables it (ephemeral). |
+| `/login provider:<id>` | owner | Start a provider OAuth flow and post the authorization URL (ephemeral). |
+| `/login-code provider:<id> code:<code>` | owner | Finish an OAuth flow with the provider's authorization code (ephemeral). |
+
 ## Messages and shell
 
 | Input | Where | Behavior |
@@ -61,8 +71,7 @@ Commands: `/project restart`, `/share`, `/diff`, `/undo`, `/redo`,
 Features: worktree-per-thread, `/btw` forks, queue UI (`. queue`),
 permission-approval buttons, `question` rendered as Discord components, voice
 messages, image attachments, OpenCode web UI, tunnels/screenshare, multi-guild,
-cloud sandboxes, `--clone` sandbox mode, OAuth subscription login, and
-Linux/macOS deployment docs.
+cloud sandboxes, `--clone` sandbox mode, and Linux/macOS deployment docs.
 
 See the [architecture reference](/reference/architecture) for what happens under
 the hood when you run these.

@@ -39,6 +39,7 @@ DISCORD_GUILD_ID=your-guild-id
 | `ATTACHMENT_MAX_BYTES` | `102400` | Text-attachment cap (100 KB). |
 | `MAX_QUEUE` | `20` | Per-thread prompt queue bound. |
 | `MAX_CONCURRENT_RUNS` | `4` | Global concurrent run cap. |
+| `SESSION_BUDGET_USD` | `0` | Per-session cost budget in USD; `0` disables. Per-channel override with `/budget set`. |
 | `DATA_DIR` | `./data` | SQLite database, logs, and lock file. |
 | `LOG_LEVEL` | `info` | One of `debug`, `info`, `warn`, `error`. |
 
@@ -47,6 +48,10 @@ DISCORD_GUILD_ID=your-guild-id
 first boot only. Once a value exists there, it is authoritative and re-reading
 `.env` will not overwrite it.
 </Note>
+
+`SESSION_BUDGET_USD` is the global seed. `/budget set <usd>` stores
+`budget_usd:<channelId>` in the `settings` table; that value wins for the
+channel, and `/budget set 0` disables the budget for it.
 
 ## `PROJECTS_ROOT` and path containment
 

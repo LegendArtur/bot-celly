@@ -77,6 +77,28 @@ thread; a thread with neither set uses the `DEFAULT_MODEL` / `DEFAULT_AGENT`
 seeded at first boot.
 </Note>
 
+## Login from Discord
+
+Owner-only `/login <provider>` asks the sandbox's OpenCode server for that
+provider's auth methods, starts the **oauth** method, and posts the
+authorization URL. Complete the browser step, then:
+
+- if the flow returned a `code` method, run `/login-code <provider> <code>` with
+  the code the provider showed;
+- if it returned `auto`, finish in the browser and run `/login <provider>` again
+  to verify.
+
+Authorization codes and tokens go straight to the sandbox server over the
+loopback API. Celly never logs, audits, or echoes them. A provider with no OAuth
+method answers `error: no oauth method for <provider>`; use `sbx secret` on the
+host for that provider.
+
+<Note>
+Managing `sbx secret` from Discord is **deferred and host-only**. Doing it safely
+needs a host spike on `sbx secret ls/set-custom` output and stdin behavior; until
+then, register credentials on the host as described above.
+</Note>
+
 ## Verify
 
 After configuring a provider, ask the agent something in a thread. If replies
