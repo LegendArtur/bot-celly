@@ -151,7 +151,24 @@ export function assertCellyPermissionPolicy(permission: any): void {
   }
 }
 
-export async function applyAndAssertCellyPolicy(client: PolicyClient): Promise<void> {
+/**
+ * The v1 config surface reports `question` as `deny` no matter what is PATCHed;
+ * the v2 global config surface round-trips it. Merge the allow into the current
+ * v2 config and PATCH it. Best-effort: any failure returns false so boot does
+ * not depend on a surface that may not exist in a future server.
+ */
+export async function enableQuestionPermissionV2(v2: OpencodeV2Client): Promise<boolean> {
+  try {
+    const current = unwrapConfigResponse(await v2.global.config.get())
+    const merged = { ...current, permission: { ...(current?.permission ?? {}), question: "allow" } }
+    await v2.global.config.update({ config: merged } as any)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function applyAndAssertCellyPolicy(client: PolicyClient, v2?: OpencodeV2Client): Promise<void> {
   const policy = cellyPolicy()
   await client.config.update({ body: policy } as any)
   const current = unwrapConfigResponse(await client.config.get())
@@ -159,6 +176,7 @@ export async function applyAndAssertCellyPolicy(client: PolicyClient): Promise<v
   if (current?.share !== "disabled") {
     throw new Error(`celly share policy was not enforced by the server: got ${JSON.stringify(current?.share)}`)
   }
+  if (v2) await enableQuestionPermissionV2(v2)
 }
 
 export const BOOTSTRAP_PREPARE = `set -e; mkdir -p ${CELLY_CONFIG_DIR}; chmod 700 ${CELLY_CONFIG_DIR}`

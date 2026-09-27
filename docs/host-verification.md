@@ -89,11 +89,15 @@ the repo root unless a step says otherwise.
 1. Keep `/mode buttons`; prompt: `ask me a question with three options`.
 2. Expected: buttons or a select plus a Custom answer button; answering lets the
    run continue. A Reject button cancels it.
-3. **Record what actually happens.** Step 1's `/config` showed
-   `"question":"deny"` on opencode 1.18.32's v1 config surface, so the question
-   may be auto-rejected and never reach Discord. If no question UI appears,
-   paste the prompt's reply and the bot log tail — this decides whether we move
-   the question bridge to the v2 config/event surface.
+3. On boot the bot now best-effort enables questions through the **v2 global
+   config surface** (`client.v2.global.config.update`), because the v1 config
+   surface reports `"question":"deny"` regardless. Expected: `"question"`
+   appears as `"allow"` in `/config` (re-check step 1's command) and the
+   question UI appears.
+4. **Record what actually happens.** If the question UI still does not appear,
+   paste the prompt's reply and the bot log tail — the v2 enable is
+   best-effort and never fails boot, so the actual behavior decides the next
+   step for the question bridge.
 
 ## 6. OAuth login (`/login`)
 

@@ -1,7 +1,7 @@
 // test/opencode.test.ts
 import { createServer } from "node:http"
 import { expect, test } from "vitest"
-import { applyAndAssertCellyPolicy, BASH_DENY, basicAuth, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, createV2Client, resolveBaseUrl, resolveClient, resolveV2Client, waitForHealth } from "../src/opencode.ts"
+import { applyAndAssertCellyPolicy, BASH_DENY, basicAuth, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, createV2Client, enableQuestionPermissionV2, resolveBaseUrl, resolveClient, resolveV2Client, waitForHealth } from "../src/opencode.ts"
 
 test("basicAuth encodes the opencode user and password", () => {
   expect(basicAuth("pw")).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
@@ -116,6 +116,37 @@ test("applyAndAssertCellyPolicy accepts the server's normalized permission map",
     get: async () => ({ data: { share: "disabled", permission: SERVER_NORMALIZED_PERMISSION } }),
   } }
   await expect(applyAndAssertCellyPolicy(client as any)).resolves.toBeUndefined()
+})
+
+test("enableQuestionPermissionV2 merges question allow and PATCHes the global config", async () => {
+  const calls: any[] = []
+  const v2 = { global: { config: {
+    get: async () => ({ data: { permission: { bash: { "git push": "deny" }, external_directory: "deny" }, share: "disabled" } }),
+    update: async (o: any) => { calls.push(o.config); return {} },
+  } } }
+  await expect(enableQuestionPermissionV2(v2 as any)).resolves.toBe(true)
+  expect(calls).toHaveLength(1)
+  expect(calls[0].permission.question).toBe("allow")
+  expect(calls[0].permission.bash).toEqual({ "git push": "deny" })
+  expect(calls[0].permission.external_directory).toBe("deny")
+  expect(calls[0].share).toBe("disabled")
+})
+
+test("enableQuestionPermissionV2 returns false when the client throws", async () => {
+  const v2 = { global: { config: {
+    get: async () => { throw new Error("boom") },
+    update: async () => ({}),
+  } } }
+  await expect(enableQuestionPermissionV2(v2 as any)).resolves.toBe(false)
+})
+
+test("applyAndAssertCellyPolicy still resolves when the v2 client throws", async () => {
+  const client = { config: {
+    update: async () => ({}),
+    get: async () => ({ data: { share: "disabled", permission: SERVER_NORMALIZED_PERMISSION } }),
+  } }
+  const v2 = { global: { config: { get: async () => { throw new Error("no v2 config") }, update: async () => ({}) } } }
+  await expect(applyAndAssertCellyPolicy(client as any, v2 as any)).resolves.toBeUndefined()
 })
 
 test("applyAndAssertCellyPolicy fails closed when a deny pattern is weakened to allow", async () => {
