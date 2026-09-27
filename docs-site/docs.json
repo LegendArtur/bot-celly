@@ -32,7 +32,8 @@
           "guides/configuration",
           "guides/providers",
           "guides/terminal-attach",
-          "guides/deployment"
+          "guides/deployment",
+          "guides/deployment-linux"
         ]
       },
       {

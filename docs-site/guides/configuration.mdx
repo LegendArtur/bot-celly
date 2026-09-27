@@ -41,6 +41,11 @@ DISCORD_GUILD_ID=your-guild-id
 | `MAX_CONCURRENT_RUNS` | `4` | Global concurrent run cap. |
 | `DATA_DIR` | `./data` | SQLite database, logs, and lock file. |
 | `LOG_LEVEL` | `info` | One of `debug`, `info`, `warn`, `error`. |
+| `ADMIN_PORT` | `4560` | Loopback-only admin page; `0` disables. |
+| `LOG_MAX_BYTES` | `5000000` | Rotate a log file after this many bytes. |
+| `LOG_MAX_FILES` | `3` | Rotated log copies kept (`.1`…`.N`). |
+| `BACKUP_INTERVAL_HOURS` | `24` | SQLite backup cadence; `0` disables. |
+| `BACKUP_KEEP` | `7` | Backup files kept before pruning. |
 
 <Note>
 `DEFAULT_MODEL` and `DEFAULT_AGENT` are seeded into the `settings` table on the
@@ -86,3 +91,13 @@ single-instance lock. It is gitignored and created on boot.
 Keep `DATA_DIR` outside OneDrive/Dropbox-style synced folders. Cloud-sync
 detection is not implemented in v1, so this is on you.
 </Warning>
+
+## Admin page, backups, and log rotation
+
+`ADMIN_PORT` starts a loopback-only HTTP status page and JSON API on
+`127.0.0.1`. It has no authentication; reach it locally or through an SSH
+tunnel, never through a public interface.
+
+Backups run every `BACKUP_INTERVAL_HOURS` hours into `DATA_DIR/backups` and keep
+`BACKUP_KEEP` files. Logs rotate at `LOG_MAX_BYTES` and keep `LOG_MAX_FILES`
+numbered copies.

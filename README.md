@@ -143,6 +143,9 @@ is documented in
 | `/abort` | channel or thread | Abort the current run (or all runs). |
 | `/model` | thread | Choose the model for this thread. |
 | `/agent` | thread | Choose the agent for this thread. |
+| `/task add <channel> <prompt> <every_minutes>` | guild (owner) | Schedule a recurring prompt in a project channel. |
+| `/task list` | guild | List scheduled tasks. |
+| `/task remove <id>` | guild (owner) | Remove a scheduled task. |
 | `!<command>` | channel or thread | Run a shell command in the sandbox. |
 
 Full details and the deferred list are in the
@@ -191,8 +194,8 @@ v1 is the command set above. Deferred to v1.1:
 - **Input:** voice messages and image attachments.
 - **Surfaces:** OpenCode web UI, admin website, diff viewer, tunnels/screenshare,
   forum-channel layout.
-- **Scale/deploy:** multi-guild, cloud sandboxes, `--clone` sandbox mode, OAuth
-  subscription login, Linux/macOS deployment docs.
+- **Scale/deploy:** multi-guild, cloud sandboxes, `--clone` sandbox mode, and
+  OAuth subscription login.
 
 ## Limitations
 

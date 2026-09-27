@@ -153,7 +153,33 @@ Store the PAT the same way you store other host secrets (for example, Windows
 Credential Manager) if you need to automate this step; do not commit it or put
 it in `.env`.
 
-## 5. Verifying a deployment
+## 5. Backups and log rotation
+
+Celly writes a full SQLite backup of `DATA_DIR/bot.db` with `VACUUM INTO` and
+prunes old copies. It also rotates `bot.log` and each project server log.
+
+| Variable | Default | Behavior |
+| --- | --- | --- |
+| `BACKUP_INTERVAL_HOURS` | `24` | Hours between backups; `0` disables. |
+| `BACKUP_KEEP` | `7` | Backups kept before the oldest is pruned. |
+| `LOG_MAX_BYTES` | `5000000` | Rotate a log after this many bytes. |
+| `LOG_MAX_FILES` | `3` | Rotated copies kept (`.1`…`.N`). |
+
+Backups land in `data\backups\bot-<ISO>.db` (for example
+`bot-2026-09-27T00-00-00-000Z.db`). To restore, stop the task, replace
+`data\bot.db`, and start the task again:
+
+```powershell
+Stop-ScheduledTask -TaskName Celly
+Copy-Item data\backups\bot-2026-09-27T00-00-00-000Z.db data\bot.db -Force
+Start-ScheduledTask -TaskName Celly
+```
+
+`ADMIN_PORT` (default `4560`, `0` disables) serves a loopback-only status page
+and JSON API. Reach it from the host at `http://127.0.0.1:4560`; never
+port-forward it.
+
+## 6. Verifying a deployment
 
 - `sbx diagnose` reports a healthy install, daemon, and authentication.
 - `sbx policy ls` shows the `balanced` preset as the floor.
@@ -163,7 +189,7 @@ it in `.env`.
 - After an at-logon start, `data/bot.log` shows the preflight passing and the
   Discord client logging in.
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
@@ -174,7 +200,7 @@ it in `.env`.
 | Task starts but nothing happens | Task configured as LocalSystem / "run whether logged on" | Recreate the task as "Run only when user is logged on". |
 | Sandboxes not stopped after reboot | Expected | Sandboxes stop automatically when idle; the next prompt wakes them via `ensureReady`. |
 
-## 7. Sensitive paths
+## 8. Sensitive paths
 
 `PROJECTS_ROOT` may live under the user profile (the default is
 `%USERPROFILE%\Celly\projects`). The sensitive-path denylist rejects specific
@@ -183,7 +209,7 @@ sensitive subtrees (`.ssh`, `.aws`, `.gnupg`, `.config`, `.docker`, `.kube`,
 repository, and system directories, so keep projects out of those. See
 [Configuration](/guides/configuration) for the complete list.
 
-## 8. Limitations to plan around
+## 9. Limitations to plan around
 
 - **The in-memory message queue is lost on bot restart.** Active runs are
   re-attached from session history, but queued-but-unsent prompts are dropped.

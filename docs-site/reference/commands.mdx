@@ -35,6 +35,14 @@ with block checked first.
 | `/model` | authorized | Choose the model for this thread (two-step provider → model). |
 | `/agent` | authorized | Choose the agent for this thread. |
 
+## Scheduled tasks
+
+| Command | Access | Behavior |
+| --- | --- | --- |
+| `/task add channel:<#channel> prompt:<text> every_minutes:<n>` | owner | Schedule a recurring prompt in a project channel (minimum 1 minute). |
+| `/task list` | authorized | List scheduled tasks with their next run. |
+| `/task remove id:<n>` | owner | Remove a scheduled task by id. |
+
 ## Messages and shell
 
 | Input | Where | Behavior |
@@ -61,8 +69,7 @@ Commands: `/project restart`, `/share`, `/diff`, `/undo`, `/redo`,
 Features: worktree-per-thread, `/btw` forks, queue UI (`. queue`),
 permission-approval buttons, `question` rendered as Discord components, voice
 messages, image attachments, OpenCode web UI, tunnels/screenshare, multi-guild,
-cloud sandboxes, `--clone` sandbox mode, OAuth subscription login, and
-Linux/macOS deployment docs.
+cloud sandboxes, `--clone` sandbox mode, OAuth subscription login.
 
 See the [architecture reference](/reference/architecture) for what happens under
 the hood when you run these.

@@ -1,0 +1,125 @@
+---
+title: Deployment on Linux
+description: Run Celly as a long-lived systemd user service on a Linux host, with Node 24, sbx, loopback admin, backups, and log rotation.
+---
+
+This guide covers running Celly as a long-lived service on a Linux host with
+`systemd --user`. As on Windows, the bot **must** run as the user who owns the
+`sbx` daemon and its credentials.
+
+## 1. Host bootstrap
+
+1. Install `sbx` (Docker Sandboxes), then log in and initialize the network
+   policy:
+   ```bash
+   sbx login
+   sbx policy init balanced
+   sbx version
+   ```
+   Celly targets `sbx` >= 0.45.0.
+2. Install Node 24 with `fnm` (or `nvm`):
+   ```bash
+   curl -fsSL https://fnm.vercel.app/install | bash
+   fnm install 24
+   fnm default 24
+   ```
+3. Register provider credentials used by the sandboxed agent (see
+   [Providers](/guides/providers)):
+   ```bash
+   sbx secret set <provider>
+   ```
+
+## 2. Build and configure
+
+```bash
+git clone https://github.com/LegendArtur/bot-celly.git ~/discordAI
+cd ~/discordAI
+npm ci
+npm run build
+cp .env.example .env   # fill in DISCORD_TOKEN and DISCORD_GUILD_ID
+node dist/index.js     # first foreground boot; Ctrl-C once it is ready
+```
+
+## 3. systemd user service
+
+Create `~/.config/systemd/user/celly.service`:
+
+```ini
+[Unit]
+Description=Celly Discord bot
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/discordAI
+ExecStart=/bin/bash -lc 'exec node dist/index.js'
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+```
+
+`bash -lc` loads your shell profile so `fnm`/`nvm` and `sbx` are on `PATH`;
+`exec` keeps Node as the main process so `SIGTERM` reaches Celly's shutdown
+handler. Enable it and keep it running after logout:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now celly
+loginctl enable-linger "$USER"
+journalctl --user -u celly -f
+```
+
+## 4. Backups and log rotation
+
+Celly backs up `DATA_DIR/bot.db` with SQLite `VACUUM INTO` on an interval and
+prunes old copies. It also rotates `bot.log` and every per-project server log.
+
+| Variable | Default | Behavior |
+| --- | --- | --- |
+| `BACKUP_INTERVAL_HOURS` | `24` | Hours between backups; `0` disables backups. |
+| `BACKUP_KEEP` | `7` | Backup files kept before the oldest is pruned. |
+| `LOG_MAX_BYTES` | `5000000` | Rotate a log after this many bytes. |
+| `LOG_MAX_FILES` | `3` | Rotated copies kept (`.1`…`.N`). |
+
+Backups are named `data/backups/bot-<ISO>.db`. To restore one, stop the service,
+replace the database, and start it again:
+
+```bash
+systemctl --user stop celly
+cp data/backups/bot-2026-09-27T00-00-00-000Z.db data/bot.db
+systemctl --user start celly
+```
+
+## 5. Admin page (optional)
+
+Set `ADMIN_PORT` (default `4560`, `0` disables) to serve a loopback-only status
+page and JSON API:
+
+- `GET /` — HTML status page
+- `GET /api/projects`, `GET /api/health`
+- `POST /api/projects/<channelId>/start|stop`
+- `GET /api/logs/<channelId>?lines=200` — redacted log tail
+- `GET /api/audit?limit=100` — when the audit log is enabled
+
+It binds `127.0.0.1` only and has no authentication: reach it through an SSH
+tunnel (`ssh -L 4560:127.0.0.1:4560 host`) and never expose the port.
+
+## 6. Verifying a deployment
+
+- `sbx diagnose` reports a healthy daemon and authentication.
+- `systemctl --user status celly` is `active (running)`.
+- `curl -s http://127.0.0.1:4560/api/health` returns `{"ok":true,...}`.
+- `data/bot.log` shows the preflight passing and the Discord client logging in.
+
+## 7. Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `sbx CLI not found` | PATH does not include `sbx` in the unit | Keep `ExecStart=/bin/bash -lc …`. |
+| Boot fails with an `sbx login` error | Expired credentials | Re-run `sbx login` as the service user, then `systemctl --user restart celly`. |
+| Service stops at logout | No lingering user session | `loginctl enable-linger "$USER"`. |
+| Admin port unreachable | It listens on loopback by design | Use an SSH tunnel; do not expose it publicly. |
