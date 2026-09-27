@@ -85,6 +85,16 @@ cannot weaken it:
 - Any permission request that still surfaces is answered from the policy — there
   is no catch-all auto-allow.
 
+## Worktrees
+
+Thread worktrees live under `<project>/.celly/worktrees/<slug>`, inside the same
+mounted project directory and the same per-project microVM as the project root.
+They add no new host paths: the `PROJECTS_ROOT` containment and sensitivity
+checks still apply, `.celly/` is appended to the project's `.gitignore` on first
+use, and every git invocation runs in the sandbox through argv-only `sbx exec`.
+`/worktree merge` refuses dirty worktrees and dirty project roots before it
+touches the main branch.
+
 ## Secrets
 
 - `DISCORD_TOKEN` lives only in `.env` (gitignored).

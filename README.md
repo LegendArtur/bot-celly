@@ -44,6 +44,9 @@ core idea (channels as projects, threads as sessions) and runs each project in a
 - **Streaming replies.** Assistant text and tool activity stream into the thread,
   throttled into a single live message.
 - **Session resume.** `/resume` reopens a past OpenCode session in a new thread.
+- **Per-thread worktrees.** `/worktree` creates, merges, and removes git
+  worktrees under `<project>/.celly/worktrees`, and `/fork` (or `/btw`) forks a
+  session with its worktree.
 - **Model and agent switching.** `/model` and `/agent` pick per-thread settings.
 - **Abort.** `/abort` stops the current run, or every active run in the channel.
 - **Shell.** A message starting with `!` runs `bash -lc <command>` inside the
@@ -132,7 +135,7 @@ is documented in
 | Command | Where | Description |
 |---|---|---|
 | `/project add <name> <path>` | guild (owner) | Register a directory under `PROJECTS_ROOT`. |
-| `/project create <name>` | guild (owner) | Create a project directory under `PROJECTS_ROOT`. |
+| `/project create <name> [clone] [branch]` | guild (owner) | Create a project directory; optionally `git clone` an https repository. |
 | `/project list` | guild | List projects with status and health. |
 | `/project status <name>` | guild | Status, port, and session count. |
 | `/project start <name>` | guild (owner) | Wake the sandbox (recreates it if missing). |
@@ -143,6 +146,9 @@ is documented in
 | `/abort` | channel or thread | Abort the current run (or all runs). |
 | `/model` | thread | Choose the model for this thread. |
 | `/agent` | thread | Choose the agent for this thread. |
+| `/worktree status\|new\|merge\|remove` | thread | Manage this thread's git worktree. |
+| `/fork [prompt]` / `/btw <prompt>` | thread | Fork this session into a new thread. |
+| `/last-sessions [count]` | channel or thread | List recent threads (ephemeral, max 10). |
 | `!<command>` | channel or thread | Run a shell command in the sandbox. |
 
 Full details and the deferred list are in the
@@ -186,13 +192,13 @@ v1 is the command set above. Deferred to v1.1:
 
 - **Commands:** `/project restart`, `/share`, `/diff`, `/undo`, `/redo`,
   `/context-usage`.
-- **Thread/conversation:** worktree-per-thread, `/btw` forks, queue UI, permission
-  approval buttons, `question` as Discord components.
+- **Thread/conversation:** queue UI, permission approval buttons, `question` as
+  Discord components.
 - **Input:** voice messages and image attachments.
 - **Surfaces:** OpenCode web UI, admin website, diff viewer, tunnels/screenshare,
   forum-channel layout.
-- **Scale/deploy:** multi-guild, cloud sandboxes, `--clone` sandbox mode, OAuth
-  subscription login, Linux/macOS deployment docs.
+- **Scale/deploy:** multi-guild, cloud sandboxes, OAuth subscription login,
+  Linux/macOS deployment docs.
 
 ## Limitations
 
