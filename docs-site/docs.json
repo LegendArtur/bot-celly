@@ -52,5 +52,8 @@
     "socials": {
       "github": "https://github.com/LegendArtur/bot-celly"
     }
+  },
+  "icons": {
+    "library": "tabler"
   }
 }
