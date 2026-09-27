@@ -15,3 +15,7 @@ export function attachCommand(project: Pick<Project, "sandboxName">, sessionId: 
 export function sessionIdReply(project: Pick<Project, "sandboxName">, sessionId: string): string {
   return `\`${sessionId}\`\n||${attachCommand(project, sessionId)}||`
 }
+
+export function attachReply(project: Pick<Project, "sandboxName">, sessionId: string): string {
+  return ["```", attachCommand(project, sessionId), "```"].join("\n")
+}

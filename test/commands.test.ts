@@ -62,7 +62,7 @@ const editOf = (i: any) => {
 
 test("declares the v1 command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "model", "new", "project", "resume", "session-id"])
+  expect(names).toEqual(["abort", "agent", "attach", "model", "new", "project", "resume", "session-id"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -478,4 +478,28 @@ test("a failed defer reports error: <message> as an ephemeral reply", async () =
   await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
   expect(i.calls).toHaveLength(1)
   expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "error: defer failed", flags: 64, allowedMentions: { parse: [] } } })
+})
+
+test("attach replies with the code-block command from a thread", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  db.threads.upsert(threadRow("t1"))
+  const i = interaction({ commandName: "attach", channelId: "t1" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true })
+  expect(i.calls[0]).toEqual({ kind: "defer", o: { flags: 64 } })
+  expect(editOf(i)).toBe("```\nsbx exec -it celly-demo bash -lc 'set -a; . ~/.config/celly/opencode.env; set +a; exec opencode attach http://127.0.0.1:4096 -s s1'\n```")
+})
+
+test("attach outside a thread is rejected", async () => {
+  const i = interaction({ commandName: "attach", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
+  expect(editOf(i)).toBe("use /attach inside a thread")
+})
+
+test("attach reports a missing project row", async () => {
+  // threads.channel_id is FK-bound to projects(channel_id), so this dangling
+  // thread cannot exist in a real db; stub it to exercise the guard.
+  const db = { threads: { get: () => threadRow("t1") }, projects: { getByChannel: () => undefined } } as any
+  const i = interaction({ commandName: "attach", channelId: "t1" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true })
+  expect(editOf(i)).toBe("project not found")
 })
