@@ -8,8 +8,8 @@ import { createLogger } from "./log.js"
 import { openDb } from "./db.js"
 import { Sbx, SbxRunner } from "./sbx.js"
 import { ProjectService } from "./projects.js"
-import { createDiscordClient, isAuthorized, isOwner, rolesOf } from "./discord.js"
-import { commandData, handleCommand, handleSelect } from "./commands.js"
+import { createDiscordClient, fetchConfiguredGuilds, isAuthorized, isOwner, rolesOf } from "./discord.js"
+import { commandData, deployCommandsToGuilds, handleCommand, handleSelect } from "./commands.js"
 import type { CommandDeps, CreateThreadInput } from "./commands.js"
 import { acquireLock } from "./lock.js"
 import { Runner } from "./runner.js"
@@ -458,14 +458,17 @@ async function main(): Promise<void> {
     await shutdown(1)
     return
   }
-  guild = await client.guilds.fetch(cfg.guildId)
-  await guild.commands.set(commandData())
+  const fetchedGuilds = await fetchConfiguredGuilds(cfg.guildIds, (id) => client.guilds.fetch(id), log)
+  const firstGuild = fetchedGuilds[0]
+  if (!firstGuild) throw new Error("no configured guild was reachable")
+  guild = firstGuild
+  await deployCommandsToGuilds(fetchedGuilds, commandData(), { log })
   // Boot subscribe + thread reconcile are driven by the Events.ClientReady
   // handler registered above; running them again here would double-wake every
   // project. ClientReady fires during `client.login()` (the handler is attached
   // before login), so no explicit fallback is needed.
 
-  log.info("Celly ready", { guild: guild.name })
+  log.info("Celly ready", { guilds: fetchedGuilds.map((g) => g.id) })
   const required: Array<[string, bigint]> = [
     ["View Channels", PermissionFlagsBits.ViewChannel],
     ["Send Messages", PermissionFlagsBits.SendMessages],
@@ -476,9 +479,9 @@ async function main(): Promise<void> {
     ["Read Message History", PermissionFlagsBits.ReadMessageHistory],
     ["Embed Links", PermissionFlagsBits.EmbedLinks],
   ]
-  const me = guild.members.me
+  const me = firstGuild.members.me
   const missingPermissions = required.filter(([, bit]) => !(me?.permissions.has(bit) ?? false)).map(([name]) => name)
-  console.log(formatStartupBanner({ guild: guild.name, projects: db.projects.list().length, dataDir: cfg.dataDir, model: cfg.defaultModel, missingPermissions }))
+  console.log(formatStartupBanner({ guild: firstGuild.name, projects: db.projects.list().length, dataDir: cfg.dataDir, model: cfg.defaultModel, missingPermissions }))
 }
 
 export function isMainModule(moduleUrl: string, argv1: string | undefined): boolean {

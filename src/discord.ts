@@ -34,6 +34,26 @@ export function rolesOf(member: { roles: { cache: Map<string, { id: string }> } 
   return [...member.roles.cache.values()].map((r) => r.id)
 }
 
+export async function fetchConfiguredGuilds<G extends { id: string }>(
+  ids: string[],
+  fetchGuild: (id: string) => Promise<G>,
+  log: { warn(message: string, fields?: any): void },
+): Promise<G[]> {
+  const guilds: G[] = []
+  const failures: string[] = []
+  for (const id of ids) {
+    try {
+      guilds.push(await fetchGuild(id))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      failures.push(`${id}: ${message}`)
+      log.warn("configured guild is unavailable; skipping", { guildId: id, error: message })
+    }
+  }
+  if (guilds.length === 0) throw new Error(`could not fetch any configured guild (${failures.join("; ")})`)
+  return guilds
+}
+
 export function shouldHandleMessage(message: Message, projectChannelId: string | undefined, knownThread = false): boolean {
   if (!projectChannelId) return false
   if (message.author.bot || message.webhookId || message.system) return false

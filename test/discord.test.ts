@@ -1,5 +1,5 @@
-import { expect, test } from "vitest"
-import { isAuthorized, rolesOf, shouldHandleMessage } from "../src/discord.ts"
+import { expect, test, vi } from "vitest"
+import { fetchConfiguredGuilds, isAuthorized, rolesOf, shouldHandleMessage } from "../src/discord.ts"
 
 const perm = (admin = false, manage = false) => ({ has: (bit: bigint) => (admin && bit === 8n) || (manage && bit === 32n) })
 test("owner always allowed", () => expect(isAuthorized({ id: "o", roles: [], permissions: perm() }, "o", {})).toBe(true))
@@ -46,4 +46,18 @@ test("router accepts a known archived thread even when parentId is null", () => 
   const archived = message({ channel: { id: "thread", parentId: null, isThread: () => true } })
   expect(shouldHandleMessage(archived, "project")).toBe(false)
   expect(shouldHandleMessage(archived, "project", true)).toBe(true)
+})
+
+test("fetchConfiguredGuilds keeps reachable guilds and warns about missing ones", async () => {
+  const warn = vi.fn()
+  const guilds = await fetchConfiguredGuilds(["g1", "g2"], async (id) => {
+    if (id === "g2") throw new Error("Unknown Guild")
+    return { id }
+  }, { warn })
+  expect(guilds).toEqual([{ id: "g1" }])
+  expect(warn).toHaveBeenCalledWith("configured guild is unavailable; skipping", { guildId: "g2", error: "Unknown Guild" })
+})
+test("fetchConfiguredGuilds throws when no configured guild is reachable", async () => {
+  await expect(fetchConfiguredGuilds(["g1"], async () => { throw new Error("Unknown Guild") }, { warn: () => {} }))
+    .rejects.toThrow(/could not fetch any configured guild/)
 })

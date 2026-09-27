@@ -1,8 +1,8 @@
 // test/commands.test.ts
 import { readFileSync } from "node:fs"
-import { expect, test } from "vitest"
+import { expect, test, vi } from "vitest"
 import { ApplicationCommandOptionType, ComponentType } from "discord.js"
-import { SELECT_OPTION_MAX, SELECT_OPTIONS_MAX, commandData, handleCommand, handleSelect, requiresOwner, sanitizeSelectOptions } from "../src/commands.ts"
+import { SELECT_OPTION_MAX, SELECT_OPTIONS_MAX, commandData, deployCommandsToGuilds, handleCommand, handleSelect, requiresOwner, sanitizeSelectOptions } from "../src/commands.ts"
 import { isOwner } from "../src/discord.ts"
 import { openDb } from "../src/db.ts"
 
@@ -402,6 +402,41 @@ test("sanitizeSelectOptions enforces Discord's 100-char, unique, non-empty, 25-o
   expect(option.label.length).toBeLessThanOrEqual(SELECT_OPTION_MAX)
   const many = Array.from({ length: 40 }, (_, i) => ({ label: `l${i}`, value: `v${i}` }))
   expect(sanitizeSelectOptions(many)).toHaveLength(SELECT_OPTIONS_MAX)
+})
+
+test("deployCommandsToGuilds deploys to every guild and logs the ids", async () => {
+  const calls: string[] = []
+  const info = vi.fn()
+  const guilds = ["g1", "g2"].map((id) => ({ id, commands: { set: async (data: any[]) => { calls.push(`${id}:${data.length}`) } } }))
+  const deployed = await deployCommandsToGuilds(guilds, commandData(), { log: { info, warn: () => {} } })
+  expect(calls).toEqual(["g1:6", "g2:6"])
+  expect(deployed).toEqual(["g1", "g2"])
+  expect(info).toHaveBeenCalledWith("commands deployed", { guilds: ["g1", "g2"] })
+})
+test("deployCommandsToGuilds isolates a single guild failure", async () => {
+  const warn = vi.fn()
+  const set = vi.fn(async () => {})
+  const guilds = [
+    { id: "g1", commands: { set: async () => { throw new Error("Missing Access") } } },
+    { id: "g2", commands: { set } },
+  ]
+  const deployed = await deployCommandsToGuilds(guilds, [], { log: { info: () => {}, warn } })
+  expect(deployed).toEqual(["g2"])
+  expect(set).toHaveBeenCalledTimes(1)
+  expect(warn).toHaveBeenCalledWith("command deploy failed for guild", { guildId: "g1", error: "Missing Access" })
+})
+test("deployCommandsToGuilds throws when every guild fails", async () => {
+  const guilds = [{ id: "g1", commands: { set: async () => { throw new Error("Missing Access") } } }]
+  await expect(deployCommandsToGuilds(guilds, [], { log: { info: () => {}, warn: () => {} } })).rejects.toThrow(/every guild/)
+})
+test("deployCommandsToGuilds treats an invalid token as fatal immediately", async () => {
+  const set = vi.fn(async () => {})
+  const guilds = [
+    { id: "g1", commands: { set: async () => { throw new Error("An invalid token was provided.") } } },
+    { id: "g2", commands: { set } },
+  ]
+  await expect(deployCommandsToGuilds(guilds, [], { log: { info: () => {}, warn: () => {} } })).rejects.toThrow(/invalid token/)
+  expect(set).not.toHaveBeenCalled()
 })
 
 test("model selection survives malformed and oversized model lists without throwing", async () => {
