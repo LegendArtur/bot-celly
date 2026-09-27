@@ -1,9 +1,10 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "name": "Celly",
-  "theme": "mint",
+  "theme": "almond",
   "colors": {
-    "primary": "#7C3AED"
+    "primary": "#FF0000",
+    "light": "#00B90A"
   },
   "navigation": {
     "global": {
@@ -52,5 +53,12 @@
     "socials": {
       "github": "https://github.com/LegendArtur/bot-celly"
     }
+  },
+  "icons": {
+    "library": "fontawesome"
+  },
+  "appearance": {
+    "default": "dark",
+    "strict": true
   }
 }
