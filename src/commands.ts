@@ -38,6 +38,7 @@ export function commandData(): any[] {
     { name: "diff", description: "List changed files in this session" },
     { name: "share", description: "Share the session and post the URL" },
     { name: "unshare", description: "Stop sharing the session" },
+    { name: "compact", description: "Summarize the session with the thread's model" },
     { name: "mode", description: "Set the approval mode for this session's project channel", options: [
       { type: ApplicationCommandOptionType.String, name: "mode", description: "How permission requests are handled", required: true,
         choices: APPROVAL_MODES.map((mode) => ({ name: mode, value: mode })) } ] } ]
@@ -322,6 +323,13 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       }
       await deps.sessions.unshare(thread.threadId)
       return void await interaction.editReply(noMentions("unshared"))
+    }
+    if (interaction.commandName === "compact") {
+      const thread = deps.db.threads.get(interaction.channelId)
+      if (!thread) return void await interaction.editReply(noMentions("use /compact inside a thread"))
+      if (!deps.sessions) return void await interaction.editReply(noMentions("session utilities unavailable"))
+      await deps.sessions.compact(thread.threadId)
+      return void await interaction.editReply(noMentions("compacted"))
     }
     if (interaction.commandName === "mode") {
       const requested = interaction.options.getString("mode", true)

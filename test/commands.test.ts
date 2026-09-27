@@ -56,7 +56,7 @@ const editOf = (i: any) => {
 
 test("declares the v1 command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "diff", "mode", "model", "new", "project", "queue", "redo", "resume", "share", "undo", "unshare"])
+  expect(names).toEqual(["abort", "agent", "compact", "diff", "mode", "model", "new", "project", "queue", "redo", "resume", "share", "undo", "unshare"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -748,4 +748,17 @@ test("share posts the share url and unshare confirms", async () => {
     sessions: { unshare: async (threadId: string) => { unshared.push(threadId) } } as any })
   expect(unshared).toEqual(["t1"])
   expect(editOf(unshareInteraction)).toBe("unshared")
+})
+
+test("compact reports compacted, and the no-model error is exact", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const ok = interaction({ commandName: "compact", channelId: "t1" })
+  await handleCommand(ok, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { compact: async () => "compacted" } as any })
+  expect(editOf(ok)).toBe("compacted")
+
+  const bad = interaction({ commandName: "compact", channelId: "t1" })
+  await handleCommand(bad, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { compact: async () => { throw new Error("set a model with /model first") } } as any })
+  expect(editOf(bad)).toBe("error: set a model with /model first")
 })

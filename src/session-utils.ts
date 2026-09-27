@@ -12,11 +12,13 @@ export interface SessionOps {
   diff(threadId: string): Promise<FileDiff[]>
   share(threadId: string): Promise<string>
   unshare(threadId: string): Promise<void>
+  compact(threadId: string): Promise<"compacted">
 }
 
 export interface SessionOpsDeps {
   targetFor(threadId: string): SessionTarget | undefined
   clientFor(threadId: string): OpencodeClient
+  threadModel(threadId: string): string | null | undefined
 }
 
 export interface SessionArgs {
@@ -90,6 +92,17 @@ export function createSessionOps(deps: SessionOpsDeps): SessionOps {
     async unshare(threadId) {
       const args = argsFor(deps, threadId)
       await deps.clientFor(threadId).session.unshare(args)
+    },
+    async compact(threadId) {
+      const model = deps.threadModel(threadId)
+      const slash = typeof model === "string" ? model.indexOf("/") : -1
+      if (slash <= 0 || slash === model!.length - 1) throw new Error("set a model with /model first")
+      const args = argsFor(deps, threadId)
+      await deps.clientFor(threadId).session.summarize({
+        ...args,
+        body: { providerID: model!.slice(0, slash), modelID: model!.slice(slash + 1) },
+      })
+      return "compacted"
     },
   }
 }

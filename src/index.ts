@@ -163,6 +163,7 @@ async function main(): Promise<void> {
       return directory ? { sessionId: thread.sessionId, directory } : { sessionId: thread.sessionId }
     },
     clientFor,
+    threadModel: (threadId) => db.threads.get(threadId)?.model,
   })
 
   const projectForThread = (threadId: string): Project => {
