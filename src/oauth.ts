@@ -30,8 +30,17 @@ function unwrap(response: unknown): any {
 /** The v1 SDK type omits `prompts`, but the live 1.18.32 server returns it. */
 type AuthMethod = ProviderAuthMethod & { prompts?: unknown[] }
 
+/**
+ * Prefer a code/device-style OAuth method over the browser one. The browser
+ * flow opens a localhost callback inside the sandbox that a Discord user's
+ * browser cannot reach; the headless/device methods return a code the user
+ * pastes back through `/login-code`.
+ */
 export function selectOAuthMethod(methods: ProviderAuthMethod[] | undefined): number {
-  return (methods ?? []).findIndex((m) => m?.type === "oauth")
+  const list = methods ?? []
+  const preferred = list.findIndex((m) => m?.type === "oauth" && /headless|device|code|manual|token/i.test(m.label ?? ""))
+  if (preferred >= 0) return preferred
+  return list.findIndex((m) => m?.type === "oauth")
 }
 
 /** Provider ids that expose at least one `oauth` method, sorted. */

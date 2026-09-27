@@ -17,7 +17,12 @@ function fakeClient(over: any = {}) {
   return { client, calls }
 }
 
-test("selectOAuthMethod returns the oauth method index or -1", () => {
+test("selectOAuthMethod prefers a headless/code method over the browser one", () => {
+  expect(selectOAuthMethod([
+    { type: "oauth", label: "ChatGPT Pro/Plus (browser)" },
+    { type: "oauth", label: "ChatGPT Pro/Plus (headless)" },
+  ])).toBe(1)
+  expect(selectOAuthMethod([{ type: "oauth", label: "Claude Pro" }])).toBe(0)
   expect(selectOAuthMethod([{ type: "api", label: "API key" }, { type: "oauth", label: "Pro" }])).toBe(1)
   expect(selectOAuthMethod([{ type: "api", label: "API key" }])).toBe(-1)
   expect(selectOAuthMethod(undefined)).toBe(-1)
@@ -28,6 +33,16 @@ test("startProviderLogin picks the oauth method and returns the authorization", 
   const login = await startProviderLogin({ client, log: () => {} }, "anthropic")
   expect(login).toEqual({ providerId: "anthropic", method: 0, url: "https://example.test/auth", flow: "code", instructions: "Paste the code" })
   expect(calls).toEqual([{ op: "authorize", o: { path: { id: "anthropic" }, body: { method: 0 } } }])
+})
+
+test("startProviderLogin uses the headless method for an openai-like pair", async () => {
+  const { client, calls } = fakeClient({ authResponse: { openai: [
+    { type: "oauth", label: "ChatGPT Pro/Plus (browser)" },
+    { type: "oauth", label: "ChatGPT Pro/Plus (headless)" },
+  ] } })
+  const login = await startProviderLogin({ client, log: () => {} }, "openai")
+  expect(login.method).toBe(1)
+  expect(calls).toEqual([{ op: "authorize", o: { path: { id: "openai" }, body: { method: 1 } } }])
 })
 
 test("startProviderLogin recognizes auto-method flows", async () => {
