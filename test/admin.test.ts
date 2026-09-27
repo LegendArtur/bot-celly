@@ -38,6 +38,9 @@ test("the admin server binds loopback and renders the HTML status page", async (
     const body = await res.text()
     expect(body).toContain("demo")
     expect(body).toContain("&lt;b&gt;bold&lt;/b&gt;")
+    expect(body).toContain("Local only")
+    expect(body).toContain("127.0.0.1")
+    expect(body).toContain("ADMIN_PORT=0")
   } finally {
     svr.close()
   }

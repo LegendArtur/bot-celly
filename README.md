@@ -64,6 +64,9 @@ core idea (channels as projects, threads as sessions) and runs each project in a
   and env-file inspection, and is re-asserted after every wake.
 - **Cost tracking and budgets.** `/cost` reports per-thread and per-channel
   usage, and a session budget (env or `/budget`) stops a run that exceeds it.
+- **Local admin page.** A loopback-only status page and JSON API on
+  `127.0.0.1:4560` (`ADMIN_PORT`, `0` disables) for projects, health,
+  start/stop, logs, and audit — localhost only and unauthenticated by design.
 
 ## Architecture
 

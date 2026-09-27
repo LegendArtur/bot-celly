@@ -83,8 +83,12 @@ recreated.
 
 ## Admin and backup surfaces
 
-- The admin page binds `127.0.0.1:ADMIN_PORT` only and has no authentication. It
-  must never be exposed through a tunnel or port-forward.
+- The admin page binds `127.0.0.1:ADMIN_PORT` only and has no authentication
+  **by design**: it is safe precisely because it is not network-exposed. The
+  consequence is that anything running locally on the host can read status and
+  redacted log tails and start or stop projects, so local code shares the host
+  trust boundary. It must never be rebound to `0.0.0.0`, published, or
+  port-forwarded; use an SSH tunnel for remote access.
 - It exposes project names/status, start/stop actions, and redacted log tails.
   Log redaction reuses the same `redact` path as `bot.log`.
 - Backups are written under `DATA_DIR/backups` (`VACUUM INTO` output) and stay

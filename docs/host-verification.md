@@ -124,15 +124,31 @@ the repo root unless a step says otherwise.
 
 ## 8. Admin page
 
+Expected posture: the admin page is **local-only and unauthenticated by
+design**. It binds `127.0.0.1` only, so the status page must load on the host
+and must **not** be reachable from any other device or the network.
+
 1. With `ADMIN_PORT=4560` (default) open `http://127.0.0.1:4560/` in a browser.
-   Expected: the status page loads.
-2. Click start/stop on a project (or use the API):
+   Expected: the status page loads, and the notice at the top states it is local
+   only, listening on `127.0.0.1`, unauthenticated by design, and disabled with
+   `ADMIN_PORT=0`.
+2. Confirm the bind address is loopback, not all interfaces:
+   ```powershell
+   netstat -ano | findstr :4560
+   ```
+   Expected: a `127.0.0.1:4560` line (TcpV6 as `[::1]:4560` is also loopback).
+   A `0.0.0.0:4560` line is a failure — the page must never be bound to all
+   interfaces.
+3. From another device on the same network, browse `http://<host-ip>:4560/`.
+   Expected: the connection fails (refused/timeout) — remote browsing must not
+   work.
+4. Click start/stop on a project (or use the API):
    ```powershell
    curl http://127.0.0.1:4560/api/projects
    curl http://127.0.0.1:4560/api/audit?limit=5
    ```
    Expected: JSON; `/api/audit` returns entries after step 4 (no 404).
-3. `/api/logs/<channelId>?lines=20` returns recent project log lines.
+5. `/api/logs/<channelId>?lines=20` returns recent project log lines.
 
 ## 9. Multi-guild (only if you use more than one guild)
 

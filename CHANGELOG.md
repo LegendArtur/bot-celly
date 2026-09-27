@@ -4,7 +4,7 @@
 
 ### Minor Changes
 
-- d32df6a: Add the loopback admin page (`ADMIN_PORT`), size-based log rotation
+- d32df6a: Add the loopback (localhost only) admin page (`ADMIN_PORT`), size-based log rotation
   (`LOG_MAX_BYTES`/`LOG_MAX_FILES`), scheduled SQLite backups
   (`BACKUP_INTERVAL_HOURS`/`BACKUP_KEEP`), and recurring `/task` prompts.
 - ec1dbba: Add approval modes (`auto`/`buttons`/`plan`), Discord permission approval

@@ -132,9 +132,20 @@ project channel; the next message wakes the project again. Leave
 
 ## Admin page, backups, and log rotation
 
-`ADMIN_PORT` starts a loopback-only HTTP status page and JSON API on
-`127.0.0.1`. It has no authentication; reach it locally or through an SSH
-tunnel, never through a public interface.
+`ADMIN_PORT` (default `4560`, `0` disables) starts an HTTP status page and JSON
+API that binds **`127.0.0.1` only**. It is **local by design and
+unauthenticated**: there is no login or token, and it is reachable only from the
+machine running Celly at `http://127.0.0.1:<ADMIN_PORT>`. It is not reachable
+from other devices or the network. Because it trusts anything on the host, never
+bind it to `0.0.0.0` and never publish or port-forward it. For remote access,
+forward the loopback port over SSH:
+
+```sh
+ssh -L 4560:127.0.0.1:4560 user@host
+```
+
+then open `http://127.0.0.1:4560` on your local machine. Set `ADMIN_PORT=0` to
+disable the page entirely.
 
 Backups run every `BACKUP_INTERVAL_HOURS` hours into `DATA_DIR/backups` and keep
 `BACKUP_KEEP` files. Logs rotate at `LOG_MAX_BYTES` and keep `LOG_MAX_FILES`

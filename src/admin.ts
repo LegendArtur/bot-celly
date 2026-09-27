@@ -55,7 +55,7 @@ export async function createAdminServer(deps: AdminDeps): Promise<AdminServer> {
         if (parts.length === 0 && method === "GET") {
           const rows = deps.db.projects.list()
             .map((p) => `<li>${escapeHtml(p.name)} — ${escapeHtml(p.status)} (${p.hostPort})</li>`).join("")
-          sendHtml(res, 200, `<!doctype html><html><head><meta charset="utf-8"><title>Celly admin</title></head><body><h1>Celly</h1><ul>${rows}</ul></body></html>`)
+          sendHtml(res, 200, `<!doctype html><html><head><meta charset="utf-8"><title>Celly admin</title></head><body><h1>Celly</h1><p><strong>Local only</strong> — listening on 127.0.0.1; not reachable from other devices. There is no authentication by design. Set ADMIN_PORT=0 to disable.</p><ul>${rows}</ul></body></html>`)
           return
         }
         if (parts[0] === "api" && parts[1] === "projects" && parts.length === 2 && method === "GET") {

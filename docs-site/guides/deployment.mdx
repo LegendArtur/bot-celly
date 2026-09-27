@@ -118,6 +118,20 @@ Unregister-ScheduledTask -TaskName Celly -Confirm:$false
 The bot's single-instance lock prevents a second copy from double-driving
 sandboxes, so a logon and a manual start cannot both run.
 
+### Admin page
+
+`ADMIN_PORT` (default `4560`, `0` disables) serves a loopback-only status page
+and JSON API at `http://127.0.0.1:4560` on the host. It is **local-only and
+unauthenticated by design**: not reachable from other devices or the network,
+and it must never be bound to `0.0.0.0` or port-forwarded. For remote access,
+forward the loopback port over SSH instead:
+
+```sh
+ssh -L 4560:127.0.0.1:4560 <host>
+```
+
+Then browse `http://127.0.0.1:4560` on your local machine.
+
 ## 4. PAT headless re-login
 
 `sbx` normally signs in through an interactive browser. On a headless or
@@ -174,10 +188,6 @@ Stop-ScheduledTask -TaskName Celly
 Copy-Item data\backups\bot-2026-09-27T00-00-00-000Z.db data\bot.db -Force
 Start-ScheduledTask -TaskName Celly
 ```
-
-`ADMIN_PORT` (default `4560`, `0` disables) serves a loopback-only status page
-and JSON API. Reach it from the host at `http://127.0.0.1:4560`; never
-port-forward it.
 
 ## 6. Verifying a deployment
 
