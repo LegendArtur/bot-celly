@@ -307,3 +307,12 @@ test("formatStartupBanner summarizes the run and flags missing permissions", () 
   expect(bad).toContain("MISSING: Manage Channels")
   expect(bad).toContain("/project add")
 })
+
+test("!shell appends an audit entry with the verbatim command", async () => {
+  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  const audits: any[] = []
+  const deps = baseDeps(db, { runShell: vi.fn(async () => ["ok"]), audit: (e: any) => audits.push(e) })
+  const { message } = fakeMessage({ content: "!echo hi" })
+  await createMessageHandler(deps)(message)
+  expect(audits).toEqual([{ kind: "shell", channelId: "c", threadId: "c", actorId: "u1", detail: "echo hi", decision: "run" }])
+})

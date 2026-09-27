@@ -4,6 +4,8 @@ import { ChannelType, Events, PermissionFlagsBits } from "discord.js"
 import type { Guild, Interaction, Message } from "discord.js"
 import type { Project, Thread } from "./types.ts"
 import { ensureDataDir, loadConfig, loadDotEnv, seedSettings } from "./config.js"
+import { createAuditLog } from "./audit.js"
+import type { AuditDraft } from "./audit.ts"
 import { createLogger } from "./log.js"
 import { openDb } from "./db.js"
 import { Sbx, SbxRunner } from "./sbx.js"
@@ -39,6 +41,11 @@ async function main(): Promise<void> {
   db.migrate()
   for (const project of db.projects.list()) secrets.push(project.serverPassword)
   seedSettings(db, cfg)
+  const auditLog = createAuditLog({ file: `${cfg.dataDir}/audit.jsonl` })
+  const audit = (entry: AuditDraft): void => auditLog.append({
+    ...entry,
+    channelId: entry.channelId ?? db.threads.get(entry.threadId)?.channelId ?? entry.threadId,
+  })
 
   const sbxRunner = new SbxRunner()
   const sbx = new Sbx(sbxRunner, cfg.sandboxTemplate)
@@ -242,6 +249,7 @@ async function main(): Promise<void> {
     modeFor: (threadId) => approvalModeFor(db.settings, db.threads.get(threadId)?.channelId ?? threadId),
     now: () => Date.now(),
     timeoutMs: APPROVAL_TIMEOUT_MS,
+    audit,
     log: (message, fields) => log.warn(message, fields),
   })
 
@@ -303,6 +311,7 @@ async function main(): Promise<void> {
       await sdk.postSessionIdPermissionsPermissionId({ path: { id: sessionId, permissionID: requestId }, body: { response: reply } } as any)
     },
     approvals,
+    audit,
     onThreadIdle: (threadId) => stopTyping(threadId),
   })
 
@@ -446,6 +455,7 @@ async function main(): Promise<void> {
   const commandDeps: CommandDeps = {
     projects, runner: runnerSvc, db,
     approvals,
+    audit,
     authorized: authorize,
     isOwner: authorizeOwner,
     stopSubscription, startSubscription,
@@ -472,6 +482,7 @@ async function main(): Promise<void> {
     startTyping,
     createThread: createThreadForProject,
     registerSession,
+    audit,
   })
 
   const onInteraction = async (interaction: Interaction): Promise<void> => {
