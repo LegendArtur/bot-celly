@@ -115,3 +115,9 @@ test("rejects invalid backup settings", () => {
   expect(() => loadConfig({ ...base, BACKUP_INTERVAL_HOURS: "-1" })).toThrow(/BACKUP_INTERVAL_HOURS/)
   expect(() => loadConfig({ ...base, BACKUP_KEEP: "0" })).toThrow(/BACKUP_KEEP/)
 })
+
+test("admin port defaults to 4560 and accepts 0 to disable", () => {
+  expect(loadConfig(base).adminPort).toBe(4560)
+  expect(loadConfig({ ...base, ADMIN_PORT: "0" }).adminPort).toBe(0)
+  expect(() => loadConfig({ ...base, ADMIN_PORT: "-1" })).toThrow(/ADMIN_PORT/)
+})

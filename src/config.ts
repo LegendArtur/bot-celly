@@ -13,6 +13,7 @@ export interface Config {
   dataDir: string; logLevel: "debug" | "info" | "warn" | "error"
   logMaxBytes: number; logMaxFiles: number
   backupIntervalHours: number; backupKeep: number
+  adminPort: number
 }
 /** Create DATA_DIR (and parents) before the logger or SQLite file is opened. */
 export function ensureDataDir(dir: string): void {
@@ -88,5 +89,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     logMaxFiles: int(env, "LOG_MAX_FILES", 3, 1),
     backupIntervalHours: nonNegative(env, "BACKUP_INTERVAL_HOURS", 24),
     backupKeep: int(env, "BACKUP_KEEP", 7, 1),
+    adminPort: int(env, "ADMIN_PORT", 4560, 0),
   }
 }
