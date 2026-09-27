@@ -258,7 +258,7 @@ async function main(): Promise<void> {
         void runnerSvc.onEvent(threadId, event).catch((err) => log.error("runner event failed", { threadId, error: String(err) }))
       },
       onResync: async (threadId, sessionId) => { await runnerSvc.recover({ threadId, sessionId }) },
-      onUnknownSession: (sessionId) => autoThread(project, sessionId),
+      onUnknownSession: (sessionId) => controller.signal.aborted ? Promise.resolve(undefined) : autoThread(project, sessionId),
       knownSessions: () => db.threads.byChannel(project.channelId)
         .filter((thread) => !!thread.sessionId
           && (runnerSvc.isActive(thread.threadId) || thread.renderState === "running" || thread.renderState === "aborting"))

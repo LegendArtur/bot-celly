@@ -338,6 +338,33 @@ test("asks onUnknownSession for an unknown session and routes the event to the c
   }
 })
 
+test("does not dispatch an event when the subscription aborts while resolving an unknown session", async () => {
+  const events: Array<{ threadId: string; e: any }> = []
+  const ac = new AbortController()
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
+    res.flushHeaders()
+    res.write(`data: ${JSON.stringify({ payload: { type: "session.idle", properties: { sessionID: "terminal-1" } } })}\n\n`)
+    res.end()
+  })
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    const router = new EventRouter({
+      route: () => undefined,
+      onEvent: (threadId, e) => events.push({ threadId, e }),
+      onResync: async () => {},
+      knownSessions: () => [],
+      onUnknownSession: async (sessionId) => { ac.abort(); return `auto:${sessionId}` },
+    })
+    await router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    expect(events).toEqual([])
+  } finally {
+    server.close()
+    server.closeAllConnections()
+  }
+})
+
 test("dispatches the recorded opencode event fixture over SSE", async () => {
   const fixture = readFileSync(new URL("./fixtures/opencode-events.jsonl", import.meta.url), "utf8").trim().split("\n")
   const events: Array<{ threadId: string; e: any }> = []

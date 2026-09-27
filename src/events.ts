@@ -118,6 +118,7 @@ export class EventRouter {
               try { threadId = await this.deps.onUnknownSession(e.sessionId) }
               catch (err) { console.warn("onUnknownSession failed", err) }
             }
+            if (signal.aborted) return
             if (threadId) this.deps.onEvent(threadId, e)
           }
         }
