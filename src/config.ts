@@ -10,6 +10,7 @@ export interface Config {
   defaultModel?: string; defaultAgent?: string
   bootTimeoutMs: number; healthTimeoutMs: number; editIntervalMs: number
   attachmentMaxBytes: number; maxQueue: number; maxConcurrentRuns: number
+  idleStopMinutes: number
   dataDir: string; logLevel: "debug" | "info" | "warn" | "error"
 }
 /** Create DATA_DIR (and parents) before the logger or SQLite file is opened. */
@@ -75,6 +76,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     editIntervalMs: int(env, "EDIT_INTERVAL_MS", 1200, 1),
     attachmentMaxBytes: int(env, "ATTACHMENT_MAX_BYTES", 102400, 1),
     maxQueue: int(env, "MAX_QUEUE", 20, 1), maxConcurrentRuns: int(env, "MAX_CONCURRENT_RUNS", 4, 1),
+    idleStopMinutes: int(env, "IDLE_STOP_MINUTES", 30, 0),
     dataDir: str(env, "DATA_DIR") ?? "./data",
     logLevel: level as Config["logLevel"],
   }

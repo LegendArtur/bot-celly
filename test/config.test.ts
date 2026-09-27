@@ -45,6 +45,17 @@ test("rejects fractional counts and ports and non-positive cpu counts", () => {
   expect(() => loadConfig({ ...base, SANDBOX_CPUS: "0" })).toThrow(/SANDBOX_CPUS/)
 })
 
+test("parses IDLE_STOP_MINUTES and allows 0 to disable", () => {
+  expect(loadConfig(base).idleStopMinutes).toBe(30)
+  expect(loadConfig({ ...base, IDLE_STOP_MINUTES: "5" }).idleStopMinutes).toBe(5)
+  expect(loadConfig({ ...base, IDLE_STOP_MINUTES: "0" }).idleStopMinutes).toBe(0)
+})
+
+test("rejects a negative or fractional IDLE_STOP_MINUTES", () => {
+  expect(() => loadConfig({ ...base, IDLE_STOP_MINUTES: "-1" })).toThrow(/IDLE_STOP_MINUTES/)
+  expect(() => loadConfig({ ...base, IDLE_STOP_MINUTES: "1.5" })).toThrow(/IDLE_STOP_MINUTES/)
+})
+
 test("ensureDataDir creates nested directories", () => {
   const root = mkdtempSync(join(tmpdir(), "celly-data-"))
   const nested = join(root, "a", "b", "c")
