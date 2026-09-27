@@ -598,3 +598,38 @@ test("last-sessions with no threads says so", async () => {
   await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true })
   expect(editOf(i)).toBe("no sessions yet")
 })
+
+test("project create forwards clone and branch to the create saga", async () => {
+  const i = interaction({ sub: "create", strings: { name: "demo", clone: "https://example.com/a.git", branch: "main" } })
+  let captured: any
+  const projects: any = {
+    createProjectDirectory: async () => "C:\\projects\\demo",
+    addProject: async (input: any) => { captured = input; return { ...proj, name: "demo" } },
+  }
+  await handleCommand(i, { projects, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => true })
+  expect(captured).toEqual({ guildId: "g", name: "demo", directory: "C:\\projects\\demo",
+    clone: { url: "https://example.com/a.git", branch: "main" } })
+  expect(editOf(i)).toBe("created demo")
+})
+
+test("project create omits clone for a plain create", async () => {
+  const i = interaction({ sub: "create", strings: { name: "demo" } })
+  let captured: any
+  const projects: any = {
+    createProjectDirectory: async () => "C:\\projects\\demo",
+    addProject: async (input: any) => { captured = input; return { ...proj, name: "demo" } },
+  }
+  await handleCommand(i, { projects, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => true })
+  expect(captured).toEqual({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
+  expect(editOf(i)).toBe("created demo")
+})
+
+test("project create rejects branch without clone before creating a directory", async () => {
+  const i = interaction({ sub: "create", strings: { name: "demo", branch: "main" } })
+  const projects: any = {
+    createProjectDirectory: async () => { throw new Error("should not run") },
+    addProject: async () => { throw new Error("should not run") },
+  }
+  await handleCommand(i, { projects, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => true })
+  expect(editOf(i)).toBe("branch requires clone")
+})

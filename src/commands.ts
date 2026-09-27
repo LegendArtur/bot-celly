@@ -9,7 +9,9 @@ export function commandData(): any[] {
       { type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true },
       { type: ApplicationCommandOptionType.String, name: "path", description: "Host directory under PROJECTS_ROOT", required: true } ] },
     { type: ApplicationCommandOptionType.Subcommand, name: "create", description: "Create a project directory", options: [
-      { type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true } ] },
+      { type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true },
+      { type: ApplicationCommandOptionType.String, name: "clone", description: "Clone an https git repository into the new directory" },
+      { type: ApplicationCommandOptionType.String, name: "branch", description: "Branch to clone (requires clone)" } ] },
     { type: ApplicationCommandOptionType.Subcommand, name: "list", description: "List projects" },
     { type: ApplicationCommandOptionType.Subcommand, name: "status", description: "Project status", options: [
       { type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true } ] },
@@ -148,8 +150,12 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
     if (interaction.commandName === "project") {
       if (sub === "add" || sub === "create") {
         const onProgress = (stage: string) => interaction.editReply(noMentions(stage))
+        const cloneUrl = sub === "create" ? interaction.options.getString("clone", false) : null
+        const branch = sub === "create" ? interaction.options.getString("branch", false) : null
+        if (branch && !cloneUrl) return void await interaction.editReply(noMentions("branch requires clone"))
         const directory = sub === "create" ? await deps.projects.createProjectDirectory(name) : interaction.options.getString("path", true)
-        const added = await deps.projects.addProject({ guildId: interaction.guildId, name, directory }, onProgress)
+        const clone = cloneUrl ? { url: cloneUrl, ...(branch ? { branch } : {}) } : undefined
+        const added = await deps.projects.addProject({ guildId: interaction.guildId, name, directory, ...(clone ? { clone } : {}) }, onProgress)
         await deps.postConnected?.(added.channelId, added.name)
         return void await interaction.editReply(noMentions(sub === "create" ? `created ${added.name}` : `added ${added.name}`))
       }

@@ -11,6 +11,12 @@ import { applyAndAssertCellyPolicy, BOOTSTRAP_PREPARE, BOOTSTRAP_VERIFY, buildBo
 import type { OpencodeClient } from "./opencode.js"
 import { redact } from "./log.js"
 
+export interface CloneOptions { url: string; branch?: string }
+const CLONE_URL = /^https:\/\/[^\s"'`\\<>]+$/i
+export function validateCloneUrl(url: string): void {
+  if (!CLONE_URL.test(url)) throw new Error("clone URL must be a single https:// repository URL")
+}
+
 export interface ProjectDeps {
   sbx: Sbx; runner: SbxRunner; db: Db; config: Config
   log: { info(m: string, f?: any): void; warn(m: string, f?: any): void; error(m: string, f?: any): void; debug(m: string, f?: any): void }
@@ -124,7 +130,7 @@ export class ProjectService {
   }
 
   addProject(
-    input: { guildId: string; name: string; directory: string; existingChannelId?: string },
+    input: { guildId: string; name: string; directory: string; existingChannelId?: string; clone?: CloneOptions },
     onProgress?: (stage: string) => void | Promise<void>,
   ): Promise<Project> {
     return this.withAddLock(() => this.doAddProject(input, onProgress))
@@ -136,11 +142,12 @@ export class ProjectService {
   }
 
   private async doAddProject(
-    input: { guildId: string; name: string; directory: string; existingChannelId?: string },
+    input: { guildId: string; name: string; directory: string; existingChannelId?: string; clone?: CloneOptions },
     onProgress?: (stage: string) => void | Promise<void>,
   ): Promise<Project> {
     const { config, db, sbx } = this.deps
     this.validateDirectory(input.directory)
+    if (input.clone) validateCloneUrl(input.clone.url)
     const listed = await sbx.list()
     const taken = new Set(listed.map((s) => s.name))
     for (const p of db.projects.list()) taken.add(p.sandboxName)
@@ -163,6 +170,13 @@ export class ProjectService {
       await this.report(onProgress, "starting server…")
       const actualPort = await this.readBackPort(channelId, sandboxName, hostPort)
       const sandboxPath = await this.resolveSandboxPath(channelId, sandboxName, input.directory)
+      if (input.clone) {
+        await this.report(onProgress, "cloning…")
+        const args = ["git", "-C", sandboxPath, "clone"]
+        if (input.clone.branch) args.push("--branch", input.clone.branch)
+        args.push(input.clone.url, ".")
+        await sbx.exec(sandboxName, args, { timeoutMs: 300_000 })
+      }
       const child = this.bootServer(channelId)
       const client = createClient(`http://127.0.0.1:${actualPort}`, serverPassword)
       await this.waitForServer(client, config.bootTimeoutMs, child, sandboxName)
