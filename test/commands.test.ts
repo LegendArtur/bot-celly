@@ -312,12 +312,29 @@ test("/login posts the authorization URL and the code hint", async () => {
   expect(editOf(i)).toBe("Authorize anthropic:\nhttps://example.test/auth\nPaste the code\nThen run `/login-code anthropic <code>` with the code shown by the provider.")
 })
 
-test("/login tells the user to verify an auto flow in the browser", async () => {
+test("/login tells the user to finish an auto flow in the browser and prompt", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
   const i = interaction({ commandName: "login", channelId: "c", strings: { provider: "anthropic" } })
   await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
     startLogin: async () => ({ url: "https://example.test/auth", instructions: "A browser window opened", flow: "auto" }) })
-  expect(editOf(i)).toContain("Finish in the browser, then run `/login anthropic` again to verify.")
+  expect(editOf(i)).toContain("Finish in the browser, then send a prompt in this thread.")
+  expect(editOf(i)).toContain("use `/attach` and run `opencode auth login` in the sandbox")
+})
+
+test("/login without a provider lists the available oauth providers", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const i = interaction({ commandName: "login", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
+    listLogin: async () => ["github", "openai"] })
+  expect(editOf(i)).toBe("OAuth providers: github, openai")
+})
+
+test("/login without a provider reports when none are available", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const i = interaction({ commandName: "login", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
+    listLogin: async () => [] })
+  expect(editOf(i)).toBe("no OAuth providers available")
 })
 
 test("/login surfaces the no-oauth error", async () => {

@@ -81,17 +81,27 @@ seeded at first boot.
 
 Owner-only `/login <provider>` asks the sandbox's OpenCode server for that
 provider's auth methods, starts the **oauth** method, and posts the
-authorization URL. Complete the browser step, then:
+authorization URL. Run `/login` with no provider to list the providers that
+expose OAuth; on opencode 1.18.32 that is `azure`, `cloudflare-ai-gateway`,
+`cloudflare-workers-ai`, `digitalocean`, `github-copilot`, `gitlab`, `openai`,
+`poe`, `snowflake-cortex`, and `xai`. Complete the browser step, then:
 
 - if the flow returned a `code` method, run `/login-code <provider> <code>` with
   the code the provider showed;
-- if it returned `auto`, finish in the browser and run `/login <provider>` again
-  to verify.
+- if it returned `auto`, finish in the browser and send a prompt in the thread.
+  There is no separate "verify" step: if replies still fail, use `/attach` and
+  run `opencode auth login` in the sandbox.
 
 Authorization codes and tokens go straight to the sandbox server over the
 loopback API. Celly never logs, audits, or echoes them. A provider with no OAuth
-method answers `error: no oauth method for <provider>`; use `sbx secret` on the
-host for that provider.
+method answers `error: no oauth method for <provider>; oauth providers: <list>`;
+use `sbx secret` on the host for that provider.
+
+Anthropic and DeepSeek-style providers are API-key only — they have no OAuth
+method, so register them with `sbx secret` (see above). A provider whose OAuth
+method requires extra setup input (a non-empty `prompts` list) is not supported
+by this simple flow; `/login` rejects it and points at `/attach` plus
+`opencode auth login` in the sandbox.
 
 <Note>
 Managing `sbx secret` from Discord is **deferred and host-only**. Doing it safely

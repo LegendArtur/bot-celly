@@ -77,7 +77,7 @@ export function commandData(): any[] {
         { type: ApplicationCommandOptionType.Number, name: "usd", description: "Budget in USD; 0 disables", required: true } ] },
     ] },
     { name: "login", description: "Authorize a provider with OAuth (owner-only)", options: [
-      { type: ApplicationCommandOptionType.String, name: "provider", description: "Provider id, e.g. anthropic", required: true } ] },
+      { type: ApplicationCommandOptionType.String, name: "provider", description: "Provider id, e.g. anthropic", required: false } ] },
     { name: "login-code", description: "Finish OAuth login with an authorization code (owner-only)", options: [
       { type: ApplicationCommandOptionType.String, name: "provider", description: "Provider id", required: true },
       { type: ApplicationCommandOptionType.String, name: "code", description: "Authorization code", required: true } ] },
@@ -160,6 +160,7 @@ export interface CommandDeps {
   sessionBudgetUsd?: number
   startLogin?(channelId: string, providerId: string): Promise<{ url: string; instructions: string; flow: "auto" | "code" }>
   finishLogin?(channelId: string, providerId: string, code: string): Promise<void>
+  listLogin?(channelId: string): Promise<string[]>
 }
 
 export interface AutocompleteChoice { name: string; value: string }
@@ -588,7 +589,12 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
     if (interaction.commandName === "login") {
       const channelId = commandProjectChannel(interaction, deps.db)
       if (!channelId) return void await interaction.editReply(noMentions("this channel is not a project"))
-      const providerId = interaction.options.getString("provider", true)
+      const providerId = interaction.options.getString("provider", false)
+      if (!providerId) {
+        if (!deps.listLogin) return void await interaction.editReply(noMentions("login unavailable"))
+        const providers = await deps.listLogin(channelId)
+        return void await interaction.editReply(noMentions(providers.length ? `OAuth providers: ${providers.join(", ")}` : "no OAuth providers available"))
+      }
       if (!deps.startLogin) return void await interaction.editReply(noMentions("login unavailable"))
       const login = await deps.startLogin(channelId, providerId)
       const lines = [
@@ -596,7 +602,7 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         login.url,
         login.instructions,
         login.flow === "auto"
-          ? `Finish in the browser, then run \`/login ${providerId}\` again to verify.`
+          ? `Finish in the browser, then send a prompt in this thread. If replies still fail, use \`/attach\` and run \`opencode auth login\` in the sandbox.`
           : `Then run \`/login-code ${providerId} <code>\` with the code shown by the provider.`,
       ].filter(Boolean)
       return void await interaction.editReply(noMentions(lines.join("\n")))

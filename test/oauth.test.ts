@@ -1,6 +1,6 @@
 // test/oauth.test.ts
 import { expect, test } from "vitest"
-import { finishProviderLogin, selectOAuthMethod, startProviderLogin } from "../src/oauth.ts"
+import { finishProviderLogin, listOAuthProviders, selectOAuthMethod, startProviderLogin } from "../src/oauth.ts"
 import type { OAuthClient } from "../src/oauth.ts"
 
 function fakeClient(over: any = {}) {
@@ -36,9 +36,42 @@ test("startProviderLogin recognizes auto-method flows", async () => {
   expect(login.flow).toBe("auto")
 })
 
+test("listOAuthProviders returns sorted ids that expose an oauth method", () => {
+  expect(listOAuthProviders(undefined)).toEqual([])
+  expect(listOAuthProviders({
+    anthropic: [{ type: "api", label: "API key" }],
+    openai: [{ type: "oauth", label: "ChatGPT" }],
+    github: [{ type: "api", label: "PAT" }, { type: "oauth", label: "GitHub" }],
+  })).toEqual(["github", "openai"])
+})
+
 test("startProviderLogin errors when the provider has no oauth method", async () => {
   const { client } = fakeClient({ authResponse: { anthropic: [{ type: "api", label: "API key" }] } })
   await expect(startProviderLogin({ client, log: () => {} }, "anthropic")).rejects.toThrow("no oauth method for anthropic")
+})
+
+test("startProviderLogin lists the available oauth providers when the provider has none", async () => {
+  const { client } = fakeClient({ authResponse: {
+    anthropic: [{ type: "api", label: "API key" }],
+    openai: [{ type: "oauth", label: "ChatGPT" }],
+    github: [{ type: "oauth", label: "GitHub" }],
+  } })
+  await expect(startProviderLogin({ client, log: () => {} }, "anthropic"))
+    .rejects.toThrow("no oauth method for anthropic; oauth providers: github, openai")
+})
+
+test("startProviderLogin reports when no provider exposes oauth", async () => {
+  const { client } = fakeClient({ authResponse: { anthropic: [{ type: "api", label: "API key" }] } })
+  await expect(startProviderLogin({ client, log: () => {} }, "anthropic"))
+    .rejects.toThrow("no oauth method for anthropic; no providers expose OAuth")
+})
+
+test("startProviderLogin rejects an oauth method that needs extra setup prompts", async () => {
+  const { client } = fakeClient({ authResponse: {
+    anthropic: [{ type: "oauth", label: "Pro", prompts: [{ type: "text", key: "k", message: "m" }] }],
+  } })
+  await expect(startProviderLogin({ client, log: () => {} }, "anthropic"))
+    .rejects.toThrow("provider anthropic OAuth needs extra setup steps; use /attach and run `opencode auth login`")
 })
 
 test("finishProviderLogin exchanges the code and reports success", async () => {
