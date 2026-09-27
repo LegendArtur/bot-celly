@@ -12,6 +12,7 @@ export interface Config {
   attachmentMaxBytes: number; maxQueue: number; maxConcurrentRuns: number
   dataDir: string; logLevel: "debug" | "info" | "warn" | "error"
   logMaxBytes: number; logMaxFiles: number
+  backupIntervalHours: number; backupKeep: number
 }
 /** Create DATA_DIR (and parents) before the logger or SQLite file is opened. */
 export function ensureDataDir(dir: string): void {
@@ -50,6 +51,11 @@ const int = (e: NodeJS.ProcessEnv, k: string, d: number, min = 1) => {
   if (!Number.isInteger(n) || n < min) throw new Error(`${k} must be an integer >= ${min}, got "${e[k]}"`)
   return n
 }
+const nonNegative = (e: NodeJS.ProcessEnv, k: string, d: number) => {
+  const n = num(e, k, d)
+  if (n < 0) throw new Error(`${k} must be >= 0, got "${e[k]}"`)
+  return n
+}
 export function defaultProjectsRoot(): string {
   return join(homedir(), "Celly", "projects")
 }
@@ -80,5 +86,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     logLevel: level as Config["logLevel"],
     logMaxBytes: int(env, "LOG_MAX_BYTES", 5000000, 1),
     logMaxFiles: int(env, "LOG_MAX_FILES", 3, 1),
+    backupIntervalHours: nonNegative(env, "BACKUP_INTERVAL_HOURS", 24),
+    backupKeep: int(env, "BACKUP_KEEP", 7, 1),
   }
 }

@@ -4,6 +4,7 @@ import type { Project, ProjectStatus, RenderState, Thread } from "./types.ts"
 export interface Db {
   migrate(): void
   close(): void
+  backupTo(dest: string): void
   projects: {
     insertProvisioning(p: Omit<Project, "status">): void
     setReady(channelId: string, sandboxPath: string): void
@@ -99,6 +100,10 @@ export function openDb(path: string): Db {
       }
     },
     close() { raw.close() },
+    backupTo(dest) {
+      if (!dest || dest.includes("\0")) throw new Error("invalid backup path")
+      raw.exec(`VACUUM INTO '${dest.replace(/'/g, "''")}'`)
+    },
     projects: {
       insertProvisioning(p) {
         raw.prepare(`INSERT INTO projects (channel_id,guild_id,name,directory,sandbox_path,sandbox_name,host_port,server_password,status,created_at)

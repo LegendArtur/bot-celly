@@ -101,3 +101,17 @@ test("rejects invalid log rotation settings", () => {
   expect(() => loadConfig({ ...base, LOG_MAX_BYTES: "0" })).toThrow(/LOG_MAX_BYTES/)
   expect(() => loadConfig({ ...base, LOG_MAX_FILES: "0" })).toThrow(/LOG_MAX_FILES/)
 })
+
+test("parses backup settings and defaults", () => {
+  const c = loadConfig({ ...base, BACKUP_INTERVAL_HOURS: "0", BACKUP_KEEP: "3" })
+  expect(c.backupIntervalHours).toBe(0)
+  expect(c.backupKeep).toBe(3)
+  const d = loadConfig(base)
+  expect(d.backupIntervalHours).toBe(24)
+  expect(d.backupKeep).toBe(7)
+})
+
+test("rejects invalid backup settings", () => {
+  expect(() => loadConfig({ ...base, BACKUP_INTERVAL_HOURS: "-1" })).toThrow(/BACKUP_INTERVAL_HOURS/)
+  expect(() => loadConfig({ ...base, BACKUP_KEEP: "0" })).toThrow(/BACKUP_KEEP/)
+})
