@@ -97,8 +97,12 @@ longer active"; pending requests are not persisted across restarts.
 | `/cost` | authorized | Show this thread's and channel's accumulated cost, tokens, and the session budget (ephemeral). |
 | `/budget show` | owner | Show this channel's session budget (ephemeral). |
 | `/budget set usd:<usd>` | owner | Set this channel's session budget in USD; `0` disables it (ephemeral). |
-| `/login [provider:<id>]` | owner | Start a provider OAuth flow and post the authorization URL (ephemeral); omit `provider` to pick from a select of OAuth-capable providers. |
+| `/login [provider:<id>]` | owner | Start a provider OAuth flow and post the authorization URL (ephemeral); omit `provider` to pick from a select of OAuth-capable providers (for example `openai`). |
 | `/login-code provider:<id> code:<code>` | owner | Finish an OAuth flow with the provider's authorization code (ephemeral). |
+
+`/login` only works for providers that expose an OAuth method (for example
+`openai`). Anthropic and DeepSeek-style providers are API-key only; register
+them with `sbx secret` instead.
 
 ## Messages and shell
 

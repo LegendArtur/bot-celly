@@ -74,9 +74,9 @@ export function commandData(): any[] {
         { type: ApplicationCommandOptionType.Number, name: "usd", description: "Budget in USD; 0 disables", required: true } ] },
     ] },
     { name: "login", description: "Authorize a provider with OAuth (owner-only)", options: [
-      { type: ApplicationCommandOptionType.String, name: "provider", description: "Provider id (optional; omit to pick from a list)", required: false } ] },
+      { type: ApplicationCommandOptionType.String, name: "provider", description: "Provider id (e.g. openai); omit to pick from a list", required: false } ] },
     { name: "login-code", description: "Finish OAuth login with an authorization code (owner-only)", options: [
-      { type: ApplicationCommandOptionType.String, name: "provider", description: "Provider id", required: true },
+      { type: ApplicationCommandOptionType.String, name: "provider", description: "Provider id (e.g. openai)", required: true },
       { type: ApplicationCommandOptionType.String, name: "code", description: "Authorization code", required: true } ] },
     { name: "mode", description: "Set the approval mode for this session's project channel", options: [
       { type: ApplicationCommandOptionType.String, name: "mode", description: "How permission requests are handled", required: true,
