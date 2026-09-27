@@ -1,4 +1,3 @@
-import { isDeepStrictEqual } from "node:util"
 import { createOpencodeClient } from "@opencode-ai/sdk"
 import { createOpencodeClient as createV2SdkClient } from "@opencode-ai/sdk/v2/client"
 import type { Project } from "./types.ts"
@@ -117,15 +116,46 @@ export function unwrapConfigResponse(response: unknown): any {
  * Runtime enforcement of the celly policy. The bootstrap config is loaded below
  * a project-level `opencode.json`, so a project can weaken it. After the server
  * is healthy we PATCH the policy and then GET /config to assert the running
- * server actually reports `cellyPolicy()`. Any mismatch fails the caller closed.
+ * server actually enforces it. Any mismatch fails the caller closed.
  */
+
+/** opencode normalizes permission keys (drops spaces and `*`) when reporting config. */
+export function normalizePermissionPattern(pattern: string): string {
+  return pattern.replace(/\s+/g, "").replace(/\*/g, "")
+}
+
+/**
+ * The server normalizes the permission map it returns (`"git push*"` becomes
+ * `"git push"`, `"*"` becomes `""`), so assert the security-relevant rules
+ * semantically: `external_directory` stays denied, the share policy stays
+ * disabled, and every bash deny pattern survives as a deny (never weakened to
+ * allow). Server-added defaults and extra keys are allowed. `question` is not
+ * asserted because the v1 config surface reports it as deny regardless of the
+ * PATCH.
+ */
+export function assertCellyPermissionPolicy(permission: any): void {
+  if (permission?.external_directory !== "deny") {
+    throw new Error(`celly permission policy was not enforced by the server: external_directory=${JSON.stringify(permission?.external_directory)}`)
+  }
+  const bash = permission?.bash
+  if (!bash || typeof bash !== "object") {
+    throw new Error("celly permission policy was not enforced by the server: bash rules missing")
+  }
+  const rules = new Map<string, string>()
+  for (const [key, value] of Object.entries(bash)) rules.set(normalizePermissionPattern(key), String(value))
+  for (const pattern of bashDenyPatterns()) {
+    const actual = rules.get(normalizePermissionPattern(pattern))
+    if (actual !== "deny") {
+      throw new Error(`celly permission policy was not enforced by the server: "${pattern}" is ${actual ?? "missing"}`)
+    }
+  }
+}
+
 export async function applyAndAssertCellyPolicy(client: PolicyClient): Promise<void> {
   const policy = cellyPolicy()
   await client.config.update({ body: policy } as any)
   const current = unwrapConfigResponse(await client.config.get())
-  if (!isDeepStrictEqual(current?.permission, policy.permission)) {
-    throw new Error(`celly permission policy was not enforced by the server: got ${JSON.stringify(current?.permission)}`)
-  }
+  assertCellyPermissionPolicy(current?.permission)
   if (current?.share !== "disabled") {
     throw new Error(`celly share policy was not enforced by the server: got ${JSON.stringify(current?.share)}`)
   }

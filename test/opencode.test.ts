@@ -65,6 +65,79 @@ test("applyAndAssertCellyPolicy fails closed when the server keeps a weakened po
   await expect(applyAndAssertCellyPolicy(client as any)).rejects.toThrow(/policy/)
 })
 
+// Captured verbatim from a live opencode 1.18.32 server: it normalizes pattern
+// keys (spaces and `*` stripped, `"*"` becomes `""`) and reports `question`
+// as deny even though the PATCH asks for allow.
+const SERVER_NORMALIZED_PERMISSION = {
+  bash: {
+    "": "allow",
+    "git push": "deny",
+    "git clean -fdx": "deny",
+    "npm publish": "deny",
+    "pnpm publish": "deny",
+    "yarn publish": "deny",
+    printenv: "deny",
+    env: "deny",
+    "catopencode.env": "deny",
+    "cat/.config/celly/": "deny",
+    "awkopencode.env": "deny",
+    "awk/.config/celly/": "deny",
+    "base64opencode.env": "deny",
+    "base64/.config/celly/": "deny",
+    "cpopencode.env": "deny",
+    "cp/.config/celly/": "deny",
+    "grepopencode.env": "deny",
+    "grep/.config/celly/": "deny",
+    "headopencode.env": "deny",
+    "head/.config/celly/": "deny",
+    "lessopencode.env": "deny",
+    "less/.config/celly/": "deny",
+    "odopencode.env": "deny",
+    "od/.config/celly/": "deny",
+    "sedopencode.env": "deny",
+    "sed/.config/celly/": "deny",
+    "stringsopencode.env": "deny",
+    "strings/.config/celly/": "deny",
+    "tailopencode.env": "deny",
+    "tail/.config/celly/": "deny",
+    "xxdopencode.env": "deny",
+    "xxd/.config/celly/": "deny",
+    "opencode.env": "deny",
+    "/.config/celly/": "deny",
+  },
+  external_directory: "deny",
+  question: "deny",
+  "": "allow",
+}
+
+test("applyAndAssertCellyPolicy accepts the server's normalized permission map", async () => {
+  const client = { config: {
+    update: async () => ({}),
+    get: async () => ({ data: { share: "disabled", permission: SERVER_NORMALIZED_PERMISSION } }),
+  } }
+  await expect(applyAndAssertCellyPolicy(client as any)).resolves.toBeUndefined()
+})
+
+test("applyAndAssertCellyPolicy fails closed when a deny pattern is weakened to allow", async () => {
+  const permission = structuredClone(SERVER_NORMALIZED_PERMISSION) as any
+  permission.bash["gitpush"] = "allow"
+  const client = { config: {
+    update: async () => ({}),
+    get: async () => ({ data: { share: "disabled", permission } }),
+  } }
+  await expect(applyAndAssertCellyPolicy(client as any)).rejects.toThrow(/git push/)
+})
+
+test("applyAndAssertCellyPolicy fails closed when a deny pattern disappears", async () => {
+  const permission = structuredClone(SERVER_NORMALIZED_PERMISSION) as any
+  delete permission.bash["git clean -fdx"]
+  const client = { config: {
+    update: async () => ({}),
+    get: async () => ({ data: { share: "disabled", permission } }),
+  } }
+  await expect(applyAndAssertCellyPolicy(client as any)).rejects.toThrow(/git clean -fdx/)
+})
+
 test("waitForHealth resolves when /global/health is healthy", async () => {
   let n = 0
   const server = createServer((req, res) => {
