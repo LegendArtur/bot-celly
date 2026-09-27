@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util"
 import { createOpencodeClient } from "@opencode-ai/sdk"
+import { createOpencodeClient as createV2SdkClient } from "@opencode-ai/sdk/v2/client"
 import type { Project } from "./types.ts"
 export type OpencodeClient = ReturnType<typeof createOpencodeClient> & { baseUrl: string; auth: string }
 
@@ -15,6 +16,20 @@ export function resolveBaseUrl(p: { hostPort: number }): string {
 }
 export function resolveClient(p: Project): OpencodeClient {
   return createClient(resolveBaseUrl(p), p.serverPassword)
+}
+export type OpencodeV2Client = ReturnType<typeof createV2SdkClient> & { baseUrl: string; auth: string }
+export function createV2Client(baseUrl: string, password: string): OpencodeV2Client {
+  const auth = basicAuth(password)
+  const client = createV2SdkClient({ baseUrl, headers: { Authorization: auth }, throwOnError: true })
+  // The generated client exposes `auth` as a getter (the Auth sub-client) and no
+  // `baseUrl`, so Object.assign would throw on the getter. Define own data
+  // properties that shadow the prototype getter, matching the v1 client shape.
+  Object.defineProperty(client, "baseUrl", { value: baseUrl, enumerable: true })
+  Object.defineProperty(client, "auth", { value: auth, enumerable: true })
+  return client as OpencodeV2Client
+}
+export function resolveV2Client(p: Project): OpencodeV2Client {
+  return createV2Client(resolveBaseUrl(p), p.serverPassword)
 }
 export function buildServeArgs(): string[] {
   const payload = "set -a; . ~/.config/celly/opencode.env; set +a; exec opencode serve --port 4096 --hostname 0.0.0.0"
