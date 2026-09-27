@@ -41,6 +41,18 @@ import { buildPromptText, channelIdForBucket, createSubscriptionGate, describeDi
 
 export { buildPromptText, createSubscriptionGate, findCategoryId, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
+// Boot/upgrade wakes a stopped sandbox via `ensureReady`, which is not user
+// activity. Record the wake so the idle sweeper does not immediately stop a
+// project whose migrated `last_active_at` is still 0.
+export async function touchAfterWake(
+  projects: { ensureReady(channelId: string): Promise<unknown> },
+  db: { projects: { touch(channelId: string, at: number): void } },
+  channelId: string,
+): Promise<void> {
+  await projects.ensureReady(channelId)
+  db.projects.touch(channelId, Date.now())
+}
+
 async function main(): Promise<void> {
   loadDotEnv()
   const cfg = loadConfig(process.env)
@@ -412,7 +424,9 @@ async function main(): Promise<void> {
         // After a restart the sandbox may be stopped and the serve child is
         // always gone (it died with the previous bot process). Wake and boot it
         // before subscribing, otherwise the SSE connection refuses forever.
-        await projects.ensureReady(project.channelId)
+        // The wake also counts as activity so the idle sweeper does not stop
+        // every project right after boot.
+        await touchAfterWake(projects, db, project.channelId)
       } catch (e) {
         log.warn("project not ready at boot", { channelId: project.channelId, error: String(e) })
         continue

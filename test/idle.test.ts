@@ -9,7 +9,7 @@ const MINUTE = 60_000
 const project = (over: Partial<Project> = {}): Project => ({
   channelId: "c1", guildId: "g", name: "demo", directory: "C:\\p", sandboxPath: null,
   sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", status: "ready",
-  createdAt: 1, lastActiveAt: 0, ...over,
+  createdAt: 1, lastActiveAt: MINUTE, ...over,
 })
 
 function makeSweeper(over: Partial<IdleSweeperDeps> = {}) {
@@ -32,7 +32,24 @@ test("stops and notifies a project idle past the threshold", async () => {
   const { sweeper, stops, notices } = makeSweeper()
   await sweeper.tick()
   expect(stops).toEqual(["c1"])
-  expect(notices).toEqual([{ channelId: "c1", minutes: 31 }])
+  expect(notices).toEqual([{ channelId: "c1", minutes: 30 }])
+})
+
+test("skips a project that has never recorded activity", async () => {
+  const { sweeper, stops, notices } = makeSweeper({ listProjects: () => [project({ lastActiveAt: 0 })] })
+  await sweeper.tick()
+  expect(stops).toEqual([])
+  expect(notices).toEqual([])
+})
+
+test("clamps the notified minutes to the configured threshold", async () => {
+  const { sweeper, notices } = makeSweeper({
+    idleMs: 30 * MINUTE,
+    now: () => 10 * 60 * MINUTE,
+    listProjects: () => [project({ lastActiveAt: MINUTE })],
+  })
+  await sweeper.tick()
+  expect(notices).toEqual([{ channelId: "c1", minutes: 30 }])
 })
 
 test("skips a project with an active run", async () => {
@@ -55,7 +72,7 @@ test("does not stop a project that was active within the window", async () => {
 })
 
 test("a touch resets the idle clock", async () => {
-  let lastActiveAt = 0
+  let lastActiveAt = MINUTE
   const { sweeper, stops } = makeSweeper({ listProjects: () => [project({ lastActiveAt })] })
   await sweeper.tick()
   expect(stops).toEqual(["c1"])
@@ -89,7 +106,7 @@ test("start schedules one unref'd interval and stop clears it", async () => {
     let now = 0
     const stops: string[] = []
     const sweeper = createIdleSweeper({
-      listProjects: () => [project({ lastActiveAt: 0 })],
+      listProjects: () => [project({ lastActiveAt: 1 })],
       activeThreads: () => [],
       now: () => now,
       stop: (channelId) => { stops.push(channelId) },

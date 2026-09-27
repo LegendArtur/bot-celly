@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { expect, test } from "vitest"
 import { ChannelType } from "discord.js"
-import { buildPromptText, createSubscriptionGate, findCategoryId, isMainModule, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, uniqueChannelName } from "../src/index.ts"
+import { buildPromptText, createSubscriptionGate, findCategoryId, isMainModule, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, touchAfterWake, uniqueChannelName } from "../src/index.ts"
 
 test("findCategoryId prefers the configured category", () => {
   expect(findCategoryId({ channels: { cache: new Map() } }, "configured")).toBe("configured")
@@ -89,6 +89,24 @@ test("index wires log rotation, backups, tasks, and the admin server into boot",
   expect(source).toContain("taskRunner.stop()")
   expect(source).toContain("backups?.stop()")
   expect(source).toContain("admin?.close()")
+})
+
+test("touchAfterWake records activity after ensureReady, and not if the wake fails", async () => {
+  const calls: string[] = []
+  await touchAfterWake(
+    { ensureReady: async (channelId: string) => { calls.push(`ready:${channelId}`) } },
+    { projects: { touch: (channelId: string, at: number) => { calls.push(`touch:${channelId}:${typeof at}`) } } },
+    "c1",
+  )
+  expect(calls).toEqual(["ready:c1", "touch:c1:number"])
+
+  calls.length = 0
+  await expect(touchAfterWake(
+    { ensureReady: async () => { throw new Error("boom") } },
+    { projects: { touch: (channelId: string) => { calls.push(`touch:${channelId}`) } } },
+    "c1",
+  )).rejects.toThrow("boom")
+  expect(calls).toEqual([])
 })
 
 test("seedThreadDefaults prefers the channel default then the global default", () => {

@@ -23,6 +23,7 @@ export function formatIdleStopNotice(minutes: number): string {
 export function createIdleSweeper(deps: IdleSweeperDeps): IdleSweeper {
   let timer: ReturnType<typeof setInterval> | undefined
   let running = false
+  const thresholdMinutes = Math.max(1, Math.round(deps.idleMs / 60_000))
 
   const tick = async (): Promise<void> => {
     if (deps.idleMs <= 0 || running) return
@@ -30,12 +31,16 @@ export function createIdleSweeper(deps: IdleSweeperDeps): IdleSweeper {
     try {
       for (const project of deps.listProjects()) {
         if (project.status === "provisioning") continue
+        // A zero timestamp means the project has never been active (fresh row,
+        // pre-v5 migration, or booted but not yet used); it must not be swept.
+        if (project.lastActiveAt <= 0) continue
         if (deps.activeThreads(project.channelId).length > 0) continue
         const idleMs = deps.now() - project.lastActiveAt
         if (idleMs < deps.idleMs) continue
         try {
           await deps.stop(project.channelId)
-          await deps.notify(project.channelId, Math.round(idleMs / 60_000))
+          const minutes = Math.min(Math.round(idleMs / 60_000), thresholdMinutes)
+          await deps.notify(project.channelId, minutes)
         } catch {
           // stop/notify are wired with their own logging; one failing project
           // must not abort the sweep for the rest.
