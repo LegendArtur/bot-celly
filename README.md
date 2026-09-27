@@ -144,8 +144,16 @@ is documented in
 | `/new [prompt]` | project channel | Start a new session. |
 | `/resume` | project channel | Resume a past session in a new thread. |
 | `/abort` | channel or thread | Abort the current run (or all runs). |
-| `/model` | thread | Choose the model for this thread. |
-| `/agent` | thread | Choose the agent for this thread. |
+| `/model` | thread or project channel | Choose the model for this thread or the channel default. |
+| `/agent` | thread or project channel | Choose the agent for this thread or the channel default. |
+| `/queue` | thread | Show and manage queued prompts for this thread. |
+| `/undo` | thread | Revert the session to its last user message. |
+| `/redo` | thread | Restore messages reverted by `/undo`. |
+| `/diff` | thread | List changed files with `+adds/-dels` and totals. |
+| `/share` | thread | Share the session and post the URL. |
+| `/unshare` | thread | Stop sharing the session. |
+| `/compact` | thread | Summarize the session with the thread's model. |
+| `/context-usage` | thread | Token use against the model's context limit. |
 | `/mode <auto\|buttons\|plan>` | project channel or thread (owner) | Set the channel approval mode. |
 | `!<command>` | channel or thread | Run a shell command in the sandbox. |
 
@@ -188,9 +196,8 @@ Docs live in `docs-site/` (`npm run docs:dev`, `npm run docs:validate`,
 
 v1 is the command set above. Deferred to v1.1:
 
-- **Commands:** `/project restart`, `/share`, `/diff`, `/undo`, `/redo`,
-  `/context-usage`.
-- **Thread/conversation:** worktree-per-thread, `/btw` forks, queue UI.
+- **Commands:** `/project restart`.
+- **Thread/conversation:** worktree-per-thread, `/btw` forks.
 - **Input:** voice messages and image attachments.
 - **Surfaces:** OpenCode web UI, admin website, diff viewer, tunnels/screenshare,
   forum-channel layout.
