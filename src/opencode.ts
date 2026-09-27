@@ -47,7 +47,7 @@ export interface CellyPolicy {
     "*": "allow"
     bash: Record<string, "allow" | "deny">
     external_directory: "deny"
-    question: "deny"
+    question: "allow"
   }
 }
 
@@ -85,7 +85,7 @@ export function cellyPolicy(): CellyPolicy {
       "*": "allow",
       bash: { ...BASH_DENY },
       external_directory: "deny",
-      question: "deny",
+      question: "allow",
     },
   }
 }

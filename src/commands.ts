@@ -1,6 +1,8 @@
 import { ActionRowBuilder, ApplicationCommandOptionType, ComponentType, ModalBuilder, TextInputBuilder, TextInputStyle } from "discord.js"
 import { ANSWER_ACTION, APPROVAL_ACTION, REJECT_QUESTION_ACTION, answerCustomId } from "./approvals.js"
+import { APPROVAL_MODES, isApprovalMode } from "./mode.js"
 import type { ApprovalManager } from "./approvals.ts"
+import type { AuditDraft } from "./audit.ts"
 import type { Db } from "./db.ts"
 import type { ProjectService } from "./projects.ts"
 import type { Runner } from "./runner.ts"
@@ -26,7 +28,10 @@ export function commandData(): any[] {
     { name: "resume", description: "Resume a session" },
     { name: "abort", description: "Abort the current run" },
     { name: "model", description: "Choose the model for this thread" },
-    { name: "agent", description: "Choose the agent for this thread" } ]
+    { name: "agent", description: "Choose the agent for this thread" },
+    { name: "mode", description: "Set the approval mode for this session's project channel", options: [
+      { type: ApplicationCommandOptionType.String, name: "mode", description: "How permission requests are handled", required: true,
+        choices: APPROVAL_MODES.map((mode) => ({ name: mode, value: mode })) } ] } ]
 }
 
 export interface CreateThreadInput {
@@ -49,6 +54,7 @@ export interface CommandDeps {
   setThreadModel?(threadId: string, model: string | null): void
   setThreadAgent?(threadId: string, agent: string | null): void
   approvals?: ApprovalManager
+  audit?(entry: AuditDraft): void
 }
 
 export const RESUME_SELECT = "resume"
@@ -119,6 +125,7 @@ function selectRow(customId: string, placeholder: string, options: { label: stri
 
 const OWNER_ONLY_PROJECT_SUBS = new Set(["add", "create", "start", "stop", "remove"])
 export function requiresOwner(commandName: string, sub: string | null | undefined): boolean {
+  if (commandName === "mode") return true
   return commandName === "project" && !!sub && OWNER_ONLY_PROJECT_SUBS.has(sub)
 }
 
@@ -237,6 +244,19 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (!threadIds.length) return void await interaction.editReply(noMentions("nothing to abort"))
       for (const threadId of threadIds) await deps.runner.abort(threadId)
       return void await interaction.editReply(noMentions("aborted"))
+    }
+    if (interaction.commandName === "mode") {
+      const requested = interaction.options.getString("mode", true)
+      if (!isApprovalMode(requested)) return void await interaction.editReply(noMentions(`unknown mode: ${requested}`))
+      const thread = deps.db.threads.get(interaction.channelId)
+      const channelId = thread?.channelId ?? interaction.channelId
+      if (!deps.db.projects.getByChannel(channelId)) return void await interaction.editReply(noMentions("this channel is not a project"))
+      deps.db.settings.set(`approval_mode:${channelId}`, requested)
+      deps.audit?.({
+        kind: "mode", channelId, threadId: interaction.channelId,
+        actorId: interaction.user?.id ?? "unknown", detail: `approval_mode:${channelId}`, decision: requested,
+      })
+      return void await interaction.editReply(noMentions(`approval mode set to ${requested}`))
     }
     await interaction.editReply(noMentions("not implemented in this build"))
   } catch (e) {

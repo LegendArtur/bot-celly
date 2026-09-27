@@ -17,7 +17,7 @@ test("the celly policy matches spec section 8 and disables share", () => {
   expect(cellyPolicy().permission).toEqual({
     "*": "allow",
     bash: { ...BASH_DENY },
-    external_directory: "deny", question: "deny",
+    external_directory: "deny", question: "allow",
   })
   expect(cellyPolicy().permission.bash).toMatchObject({
     "*": "allow", "git push*": "deny", "git clean -fdx*": "deny", "npm publish*": "deny",

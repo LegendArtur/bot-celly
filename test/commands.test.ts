@@ -56,7 +56,7 @@ const editOf = (i: any) => {
 
 test("declares the v1 command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "model", "new", "project", "resume"])
+  expect(names).toEqual(["abort", "agent", "mode", "model", "new", "project", "resume"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -567,4 +567,35 @@ test("unauthorized button interactions are rejected before any manager call", as
   await handleButton(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => false, approvals: manager })
   expect(calls).toEqual([])
   expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "You are not authorized.", flags: 64 } })
+})
+
+test("mode is owner-only and declares the three approval modes", () => {
+  const mode = commandData().find((c) => c.name === "mode")!
+  expect(mode.options[0].choices.map((c: any) => c.value)).toEqual(["auto", "buttons", "plan"])
+  expect(requiresOwner("mode", null)).toBe(true)
+})
+
+test("mode writes the channel setting and audits the change", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  const i = interaction({ commandName: "mode", channelId: "c", strings: { mode: "plan" } })
+  const audits: any[] = []
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true, audit: (e: any) => audits.push(e) })
+  expect(db.settings.get("approval_mode:c")).toBe("plan")
+  expect(editOf(i)).toBe("approval mode set to plan")
+  expect(audits).toEqual([{ kind: "mode", channelId: "c", threadId: "c", actorId: "u1", detail: "approval_mode:c", decision: "plan" }])
+})
+
+test("mode inside a thread writes the owning project setting", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  db.threads.upsert(threadRow("t1"))
+  const i = interaction({ commandName: "mode", channelId: "t1", strings: { mode: "auto" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true })
+  expect(db.settings.get("approval_mode:c")).toBe("auto")
+})
+
+test("non-owner mode is rejected before defer", async () => {
+  const i = interaction({ commandName: "mode", channelId: "c", strings: { mode: "auto" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => false })
+  expect(i.calls).toHaveLength(1)
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only.", flags: 64 } })
 })
