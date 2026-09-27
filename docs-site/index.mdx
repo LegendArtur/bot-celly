@@ -34,31 +34,29 @@ flowchart LR
 
     subgraph host["host · Node 24 · Windows 11"]
         direction TB
-        bot["Celly bot<br/>Discord gateway + slash commands"]
+        bot["Celly bot<br/>gateway · commands · runner · renderer"]
         projects["ProjectService<br/>create / wake / stop one sbx per project"]
-        runner["Runner + Renderer<br/>queue prompts, stream and throttle replies"]
-        router["EventRouter<br/>SSE /global/event → thread / session routing"]
+        events["EventRouter<br/>SSE demux by sessionID"]
         db[("SQLite<br/>projects · threads")]
-        port["127.0.0.1:HOSTPORT<br/>Authorization: Basic opencode:password"]
+        port["127.0.0.1:HOSTPORT<br/>Basic auth"]
     end
 
     subgraph sandbox["sbx microVM · one per project"]
         direction TB
         serve["opencode serve<br/>sandbox port 4096"]
-        files["mounted project"]
+        project["mounted project"]
     end
 
     channel --> bot
     bot --> projects
-    bot --> runner
-    runner -- "SDK over loopback" --> port
-    port --> serve
+    bot --> events
     projects -- "sbx create / exec" --> serve
-    serve -- "SSE" --> router
-    router --> runner
-    runner -- "streamed replies" --> thread
-    serve --- files
+    bot -- "SDK" --> port
+    port --> serve
+    serve -- "SSE /global/event" --> events
+    events -- "streamed replies" --> thread
     projects --- db
+    serve --- project
 ```
 
 Provider credentials are injected by `sbx secret` at the host proxy. They are

@@ -10,39 +10,43 @@ its sandbox and is reached over a loopback-published port.
 ## Topology
 
 ```mermaid
-flowchart LR
-    subgraph discord["Discord"]
-        direction TB
-        message["#web-app · message"]
-        thread["thread = session"]
-        replies["agent replies"]
-    end
+sequenceDiagram
+    actor U as User
+    participant D as Discord
+    participant R as Runner
+    participant P as ProjectService
+    participant X as sbx exec child<br/>opencode serve :4096
+    participant E as EventRouter
+    participant V as Renderer
 
-    subgraph host["Windows 11 host"]
-        direction TB
-        router["message router"]
-        ready["ensureReady()"]
-        child["supervised serve child"]
-        db[("SQLite<br/>projects · threads")]
-        events["EventRouter"]
-        render["render"]
-    end
+    U->>D: message in channel or thread
+    D->>R: prompt(threadId, text)
+    R->>P: ensureReady(channelId)
+    P->>X: spawn supervised child
+    Note over P,X: an active exec session keeps the sandbox awake
+    P-->>R: ready after health check
+    R->>X: session create or reuse
+    R->>X: session.promptAsync
+    X-->>E: SSE /global/event
+    E->>R: events routed by sessionID
+    R->>V: text and tool parts
+    V-->>D: throttled edits to one message
+    D-->>U: live reply
+    X-->>E: session.idle
+    E->>R: idle
+    R->>V: finalize
 
-    subgraph sandbox["sbx sandbox · one per project"]
-        direction TB
-        serve["opencode serve :4096"]
+    alt another prompt while the run is active
+        D->>R: next prompt
+        R->>R: enqueue, drain after finalize
+    else abort
+        D->>R: /abort
+        R->>X: session.abort
+        R->>V: force-finalize after 10s
+    else SSE reconnect
+        E->>X: resubscribe /global/event
+        E->>V: resync parts, replace by id
     end
-
-    message --> router
-    message -.- thread
-    router --> ready
-    router --- db
-    ready --> child
-    ready -- "sbx create / exec" --> serve
-    child -- "supervised sbx exec" --> serve
-    serve -- "SSE over 127.0.0.1:HOSTPORT" --> events
-    events --> render
-    render --> replies
 ```
 
 Stack: TypeScript, Node 24.x (pinned via `engines` + `.nvmrc`), discord.js 14.x,

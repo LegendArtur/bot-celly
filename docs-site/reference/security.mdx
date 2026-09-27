@@ -9,6 +9,42 @@ The mounted project directory and everything inside it are untrusted.
 Celly favors invariants that are enforced in code and asserted at runtime over
 documentation that relies on good behavior.
 
+## Boundary map
+
+```mermaid
+flowchart LR
+    subgraph external["External"]
+        discord["Discord"]
+        providers["Provider APIs"]
+    end
+
+    subgraph host["host · trusted"]
+        bot["Celly bot<br/>Discord token in .env"]
+        db[("SQLite<br/>projects · passwords")]
+        cli["sbx CLI<br/>argv-only · shell:false"]
+        loop["127.0.0.1:HOSTPORT<br/>Basic auth"]
+    end
+
+    subgraph sandbox["sbx microVM · the boundary · per project"]
+        serve["opencode serve :4096"]
+        env["~/.config/celly/opencode.env<br/>mode 0600"]
+        policy["default-deny permission policy<br/>re-asserted after wake"]
+        project["mounted project<br/>untrusted"]
+    end
+
+    discord <--> bot
+    bot --> cli
+    cli -- "sbx create / exec" --> serve
+    bot -- "re-assert policy" --> policy
+    loop -- "SDK" --> serve
+    serve -- "SSE" --> bot
+    db -. "server password" .-> loop
+    serve --- env
+    serve --- policy
+    serve --- project
+    serve -- "outbound request · credentials injected by the sbx proxy" --> providers
+```
+
 ## argv-only spawns
 
 Every `sbx` invocation uses `spawn(bin, args, { shell: false })`. No command is

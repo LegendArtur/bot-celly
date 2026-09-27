@@ -65,17 +65,18 @@ Discord (channel = project, thread = session)
                                    ▼
 ┌──────────────────── host (Node 24, Windows 11) ─────────────────────┐
 │  Celly bot                                                          │
-│    • Discord gateway + slash commands                               │
+│    • gateway + slash commands                                       │
+│    • Runner + Renderer: run state and streaming edits               │
+│    • EventRouter: SSE /global/event -> thread routing               │
 │    • ProjectService: create / wake / stop one sbx per project       │
-│    • Runner + Renderer: queue prompts, stream and throttle replies  │
-│    • EventRouter: SSE /global/event -> thread / session routing     │
+│    • SQLite: projects, threads                                      │
 │                                                                     │
-│  127.0.0.1:<port>   (Authorization: Basic opencode:<password>)      │
+│  127.0.0.1:HOSTPORT   (Basic auth)                                  │
 └──────────────────────────────────┬──────────────────────────────────┘
                                    ▼
                          ┌───────────────────┐
                          │  sbx microVM      │   one per project
-                         │   opencode serve  │   (sandbox port 4096)
+                         │   opencode serve  │   sandbox port 4096
                          │   mounted project │
                          └───────────────────┘
 ```
