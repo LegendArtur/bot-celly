@@ -186,7 +186,12 @@ test("the appended migration adds scheduled_tasks to an older database", () => {
   const file = join(dir, "bot.db")
   try {
     const legacy = new DatabaseSync(file)
-    legacy.exec("PRAGMA user_version = 4")
+    legacy.exec(`
+      CREATE TABLE projects (channel_id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, name TEXT NOT NULL UNIQUE,
+        directory TEXT NOT NULL, sandbox_path TEXT, sandbox_name TEXT NOT NULL UNIQUE,
+        host_port INTEGER NOT NULL UNIQUE, server_password TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL);
+      PRAGMA user_version = 4;
+    `)
     legacy.close()
     const db = openDb(file)
     db.migrate()

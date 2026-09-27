@@ -94,7 +94,6 @@ Keep `DATA_DIR` outside OneDrive/Dropbox-style synced folders. Cloud-sync
 detection is not implemented in v1, so this is on you.
 </Warning>
 
-<<<<<<< HEAD
 ## Idle auto-stop
 
 With `IDLE_STOP_MINUTES` greater than `0` (default `30`), Celly stops a
@@ -103,7 +102,7 @@ activity. Projects with a run in flight and projects still provisioning are
 skipped. Celly posts a plain notice in the project channel; the next message
 wakes the project again. Set `IDLE_STOP_MINUTES=0` to keep every started
 project running.
-=======
+
 ## Admin page, backups, and log rotation
 
 `ADMIN_PORT` starts a loopback-only HTTP status page and JSON API on
@@ -113,4 +112,3 @@ tunnel, never through a public interface.
 Backups run every `BACKUP_INTERVAL_HOURS` hours into `DATA_DIR/backups` and keep
 `BACKUP_KEEP` files. Logs rotate at `LOG_MAX_BYTES` and keep `LOG_MAX_FILES`
 numbered copies.
->>>>>>> feat/admin-and-ops

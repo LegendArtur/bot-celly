@@ -1,69 +1,3 @@
-<<<<<<< HEAD
-{
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "Celly",
-  "theme": "almond",
-  "colors": {
-    "primary": "#FF0000",
-    "light": "#00B90A"
-  },
-  "navigation": {
-    "global": {
-      "anchors": [
-        {
-          "anchor": "GitHub",
-          "href": "https://github.com/LegendArtur/bot-celly",
-          "icon": "github"
-        },
-        {
-          "anchor": "Kimaki inspiration",
-          "href": "https://github.com/remorses/kimaki",
-          "icon": "lightbulb"
-        }
-      ]
-    },
-    "groups": [
-      {
-        "group": "Get started",
-        "pages": ["index", "quickstart"]
-      },
-      {
-        "group": "Guides",
-        "pages": [
-          "guides/configuration",
-          "guides/providers",
-          "guides/terminal-attach",
-          "guides/deployment"
-        ]
-      },
-      {
-        "group": "Reference",
-        "pages": [
-          "reference/commands",
-          "reference/architecture",
-          "reference/security"
-        ]
-      },
-      {
-        "group": "Project",
-        "pages": ["changelog", "contributing"]
-      }
-    ]
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/LegendArtur/bot-celly"
-    }
-  },
-  "icons": {
-    "library": "fontawesome"
-  },
-  "appearance": {
-    "default": "dark",
-    "strict": true
-  }
-}
-=======
 {
   "$schema": "https://mintlify.com/docs.json",
   "name": "Celly",
@@ -129,4 +63,3 @@
     "strict": true
   }
 }
->>>>>>> feat/admin-and-ops
