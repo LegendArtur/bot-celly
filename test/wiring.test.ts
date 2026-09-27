@@ -92,6 +92,14 @@ test("index wires log rotation, backups, tasks, and the admin server into boot",
   expect(source).toContain("admin?.close()")
 })
 
+test("index only wires the idle sweeper when IDLE_STOP_MINUTES is positive", () => {
+  const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8")
+  expect(source).toContain("if (cfg.idleStopMinutes > 0) {")
+  expect(source).toContain("createIdleSweeper({")
+  expect(source).toContain("idleSweeper.start()")
+  expect(source).toContain("idle auto-stop disabled")
+})
+
 test("touchAfterWake records activity after ensureReady, and not if the wake fails", async () => {
   const calls: string[] = []
   await touchAfterWake(

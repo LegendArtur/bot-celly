@@ -712,32 +712,35 @@ async function main(): Promise<void> {
   // before login), so no explicit fallback is needed.
 
   log.info("Celly ready", { guilds: fetchedGuilds.map((g) => g.id) })
-  const idleSweeper = createIdleSweeper({
-    // The DB selector narrows candidates with the same cutoff; the sweeper's
-    // injected clock remains the authority for testability.
-    listProjects: () => db.projects.idleSince(Date.now() - cfg.idleStopMinutes * 60_000),
-    activeThreads: (channelId) => runnerSvc.activeThreadsFor(channelId),
-    now: () => Date.now(),
-    stop: async (channelId) => {
-      await runnerSvc.resetChannel(channelId)
-      stopSubscription(channelId)
-      await projects.stop(channelId)
-      // The sweep itself counts as activity so the next tick does not stop and
-      // notify again until another full idle window passes.
-      db.projects.touch(channelId, Date.now())
-    },
-    notify: async (channelId, minutes) => {
-      const channel = await client.channels.fetch(channelId).catch(() => null)
-      if (channel && "send" in channel) {
-        await scheduleWithBucket(channelId, () => (channel as any).send(renderPayload(formatIdleStopNotice(minutes)))).catch(() => {})
-      }
-    },
-    idleMs: cfg.idleStopMinutes * 60_000,
-    intervalMs: 60_000,
-  })
-  idleSweeper.start()
-  if (cfg.idleStopMinutes > 0) log.info("idle auto-stop enabled", { minutes: cfg.idleStopMinutes })
-  else log.info("idle auto-stop disabled", { minutes: cfg.idleStopMinutes })
+  if (cfg.idleStopMinutes > 0) {
+    const idleSweeper = createIdleSweeper({
+      // The DB selector narrows candidates with the same cutoff; the sweeper's
+      // injected clock remains the authority for testability.
+      listProjects: () => db.projects.idleSince(Date.now() - cfg.idleStopMinutes * 60_000),
+      activeThreads: (channelId) => runnerSvc.activeThreadsFor(channelId),
+      now: () => Date.now(),
+      stop: async (channelId) => {
+        await runnerSvc.resetChannel(channelId)
+        stopSubscription(channelId)
+        await projects.stop(channelId)
+        // The sweep itself counts as activity so the next tick does not stop and
+        // notify again until another full idle window passes.
+        db.projects.touch(channelId, Date.now())
+      },
+      notify: async (channelId, minutes) => {
+        const channel = await client.channels.fetch(channelId).catch(() => null)
+        if (channel && "send" in channel) {
+          await scheduleWithBucket(channelId, () => (channel as any).send(renderPayload(formatIdleStopNotice(minutes)))).catch(() => {})
+        }
+      },
+      idleMs: cfg.idleStopMinutes * 60_000,
+      intervalMs: 60_000,
+    })
+    idleSweeper.start()
+    log.info("idle auto-stop enabled", { minutes: cfg.idleStopMinutes })
+  } else {
+    log.info("idle auto-stop disabled", { minutes: cfg.idleStopMinutes })
+  }
   const required: Array<[string, bigint]> = [
     ["View Channels", PermissionFlagsBits.ViewChannel],
     ["Send Messages", PermissionFlagsBits.SendMessages],

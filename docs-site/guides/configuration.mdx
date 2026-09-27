@@ -42,7 +42,7 @@ DISCORD_GUILD_IDS=111111111111111111,222222222222222222
 | `MAX_QUEUE` | `20` | Per-thread prompt queue bound. |
 | `MAX_CONCURRENT_RUNS` | `4` | Global concurrent run cap. |
 | `ATTACH_AUTO_THREAD` | `false` | Auto-create a Discord thread for a terminal-started session on its first event. |
-| `IDLE_STOP_MINUTES` | `30` | Stop a project after this many minutes without activity. `0` disables. |
+| `IDLE_STOP_MINUTES` | `0` | Stop a project after this many minutes without activity. `0` disables. |
 | `SESSION_BUDGET_USD` | `0` | Per-session cost budget in USD; `0` disables. Per-channel override with `/budget set`. |
 | `DATA_DIR` | `./data` | SQLite database, logs, and lock file. |
 | `LOG_LEVEL` | `info` | One of `debug`, `info`, `warn`, `error`. |
@@ -123,12 +123,12 @@ detection is not implemented in v1, so this is on you.
 
 ## Idle auto-stop
 
-With `IDLE_STOP_MINUTES` greater than `0` (default `30`), Celly stops a
-project's sandbox after that many minutes without message, prompt, or `!shell`
-activity. Projects with a run in flight and projects still provisioning are
-skipped. Celly posts a plain notice in the project channel; the next message
-wakes the project again. Set `IDLE_STOP_MINUTES=0` to keep every started
-project running.
+With `IDLE_STOP_MINUTES` set to a value greater than `0` (default `0`,
+disabled), Celly stops a project's sandbox after that many minutes without
+message, prompt, or `!shell` activity. Projects with a run in flight and
+projects still provisioning are skipped. Celly posts a plain notice in the
+project channel; the next message wakes the project again. Leave
+`IDLE_STOP_MINUTES=0` to keep every started project running.
 
 ## Admin page, backups, and log rotation
 

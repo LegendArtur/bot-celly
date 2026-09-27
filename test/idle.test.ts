@@ -81,15 +81,16 @@ test("a touch resets the idle clock", async () => {
   expect(stops).toEqual(["c1"])
 })
 
-test("idleMs 0 disables both tick and the interval", async () => {
+test("idleMs 0 is a no-op: start schedules no timer and tick stops nothing", async () => {
   vi.useFakeTimers()
   try {
-    const { sweeper, stops } = makeSweeper({ idleMs: 0 })
+    const { sweeper, stops, notices } = makeSweeper({ idleMs: 0 })
     sweeper.start()
     expect(vi.getTimerCount()).toBe(0)
     await vi.advanceTimersByTimeAsync(5000)
     await sweeper.tick()
     expect(stops).toEqual([])
+    expect(notices).toEqual([])
   } finally {
     vi.useRealTimers()
   }

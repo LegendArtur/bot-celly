@@ -61,8 +61,8 @@ test("parses ATTACH_AUTO_THREAD as a boolean defaulting to false", () => {
   expect(() => loadConfig({ ...base, ATTACH_AUTO_THREAD: "maybe" })).toThrow(/ATTACH_AUTO_THREAD/)
 })
 
-test("parses IDLE_STOP_MINUTES and allows 0 to disable", () => {
-  expect(loadConfig(base).idleStopMinutes).toBe(30)
+test("parses IDLE_STOP_MINUTES, defaulting to 0 (disabled)", () => {
+  expect(loadConfig(base).idleStopMinutes).toBe(0)
   expect(loadConfig({ ...base, IDLE_STOP_MINUTES: "5" }).idleStopMinutes).toBe(5)
   expect(loadConfig({ ...base, IDLE_STOP_MINUTES: "0" }).idleStopMinutes).toBe(0)
 })
@@ -73,8 +73,8 @@ test("rejects a negative or fractional IDLE_STOP_MINUTES", () => {
 })
 
 test("the idle auto-stop setting is documented in the env example and the config guide", () => {
-  expect(readFileSync(".env.example", "utf8")).toContain("# IDLE_STOP_MINUTES=30")
-  expect(readFileSync("docs-site/guides/configuration.mdx", "utf8")).toContain("| `IDLE_STOP_MINUTES` | `30` |")
+  expect(readFileSync(".env.example", "utf8")).toContain("# IDLE_STOP_MINUTES=0")
+  expect(readFileSync("docs-site/guides/configuration.mdx", "utf8")).toContain("| `IDLE_STOP_MINUTES` | `0` |")
 })
 
 test("ensureDataDir creates nested directories", () => {

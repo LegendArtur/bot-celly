@@ -14,10 +14,10 @@
   `/diff`, `/share`, `/unshare`, `/compact`, `/context-usage`, autocomplete for
   `/resume`, `/model`, and `/agent`, per-channel default model/agent, and tool
   titles with elapsed time in streamed replies.
-- 405734b: Auto-stop idle project sandboxes. `IDLE_STOP_MINUTES` (default 30, `0`
-  disables) stops a project after that many minutes without messages, prompts,
-  or `!shell` activity and posts a notice in its channel. The next message wakes
-  the project again.
+- 405734b: Auto-stop idle project sandboxes. `IDLE_STOP_MINUTES` (default `0`,
+  disabled; set minutes to enable) stops a project after that many minutes
+  without messages, prompts, or `!shell` activity and posts a notice in its
+  channel. The next message wakes the project again.
 - 0364586: Multi-guild support: `DISCORD_GUILD_IDS` accepts a comma-separated list (with
   `DISCORD_GUILD_ID` still supported) and Celly deploys its commands, boot
   subscription, and thread reconcile across every configured guild.

@@ -121,7 +121,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     attachmentMaxBytes: int(env, "ATTACHMENT_MAX_BYTES", 102400, 1),
     maxQueue: int(env, "MAX_QUEUE", 20, 1), maxConcurrentRuns: int(env, "MAX_CONCURRENT_RUNS", 4, 1),
     attachAutoThread: bool(env, "ATTACH_AUTO_THREAD", false),
-    idleStopMinutes: int(env, "IDLE_STOP_MINUTES", 30, 0),
+    idleStopMinutes: int(env, "IDLE_STOP_MINUTES", 0, 0),
     sessionBudgetUsd,
     dataDir: str(env, "DATA_DIR") ?? "./data",
     logLevel: level as Config["logLevel"],
