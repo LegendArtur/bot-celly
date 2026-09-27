@@ -32,10 +32,18 @@ with block checked first.
 | `/new [prompt]` | authorized | Start a new thread/session in this project channel. |
 | `/resume` | authorized | Pick a past session (ephemeral select) and resume it in a new thread. |
 | `/abort` | authorized | Abort the current run in a thread, or every active run in the project channel. |
-| `/model` | authorized | Choose the model for this thread (two-step provider → model). |
-| `/agent` | authorized | Choose the agent for this thread. |
+| `/model` | authorized | Choose the model for this thread, or the channel default in a project channel (autocomplete or two-step provider → model). |
+| `/agent` | authorized | Choose the agent for this thread, or the channel default in a project channel (autocomplete or select). |
 | `/attach` | thread | Show the exact `sbx exec` + `opencode attach` command for this thread's session (ephemeral). |
 | `/session-id` | thread | Show this thread's session id and the attach command behind a spoiler (ephemeral). |
+| `/queue` | authorized | Show the first 10 queued prompts for this thread with Remove and Clear buttons (ephemeral). |
+| `/undo` | authorized | Revert the session to its last user message. |
+| `/redo` | authorized | Restore messages reverted by the last `/undo`. |
+| `/diff` | authorized | List up to 10 changed files as `status path (+adds/-dels)` plus totals (chunked). |
+| `/share` | authorized | Share the session and post the share URL. |
+| `/unshare` | authorized | Stop sharing the session. |
+| `/compact` | authorized | Summarize the session using the thread's model; errors when no model is set. |
+| `/context-usage` | authorized | Show the last assistant message's token use against the model's context limit with a 20-cell bar (ephemeral). |
 | `/mode mode:<auto\|buttons\|plan>` | owner | Set the approval mode for this project channel (stored as `approval_mode:<channelId>`). |
 
 ## Scheduled tasks
@@ -90,13 +98,11 @@ running code.
 
 ## Deferred to v1.1
 
-Commands: `/project restart`, `/share`, `/diff`, `/undo`, `/redo`,
-`/context-usage`.
+Commands: `/project restart`.
 
-Features: worktree-per-thread, `/btw` forks, queue UI (`. queue`), voice
-messages, image attachments, tunnels/screenshare,
-cloud sandboxes, `--clone` sandbox mode, OAuth subscription login, and
-Linux/macOS deployment docs.
+Features: worktree-per-thread, `/btw` forks, voice messages, image attachments,
+tunnels/screenshare, cloud sandboxes, `--clone` sandbox mode, OAuth
+subscription login, and Linux/macOS deployment docs.
 
 The OpenCode web UI is intentionally not published (the sandbox server stays
 loopback-only); attach from a terminal instead — see the

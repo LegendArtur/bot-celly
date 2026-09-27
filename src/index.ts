@@ -16,9 +16,11 @@ import { openDb } from "./db.js"
 import { Sbx, SbxRunner } from "./sbx.js"
 import { ProjectService } from "./projects.js"
 import { createDiscordClient, fetchConfiguredGuilds, isAuthorized, isOwner, rolesOf } from "./discord.js"
-import { commandData, deployCommandsToGuilds, handleButton, handleCommand, handleModalSubmit, handleSelect } from "./commands.js"
+import { commandData, deployCommandsToGuilds, handleAutocomplete, handleButton, handleCommand, handleModalSubmit, handleSelect } from "./commands.js"
 import type { CommandDeps, CreateThreadInput } from "./commands.js"
 import { createAutoThreadResolver } from "./attach.js"
+import { createSuggestionCache } from "./autocomplete.js"
+import type { SuggestionCache } from "./autocomplete.js"
 import { APPROVAL_TIMEOUT_MS, ApprovalManager } from "./approvals.js"
 import { approvalModeFor } from "./mode.js"
 import { acquireLock } from "./lock.js"
@@ -26,15 +28,16 @@ import { Runner } from "./runner.js"
 import { EventRouter } from "./events.js"
 import { Renderer, renderPayload, sanitizeThreadName } from "./render.js"
 import { resolveBaseUrl, resolveClient, resolveV2Client } from "./opencode.js"
+import { createSessionOps } from "./session-utils.js"
 import { runShell } from "./shell.js"
 import { ingestAttachments } from "./attachments.js"
 import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
 import { SessionRoutes } from "./routing.js"
 import { createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "./handlers.js"
 import { createIdleSweeper, formatIdleStopNotice } from "./idle.js"
-import { buildPromptText, channelIdForBucket, createSubscriptionGate, describeDiscordStartupError, findCategoryId, formatStartupBanner, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
+import { buildPromptText, channelIdForBucket, createSubscriptionGate, describeDiscordStartupError, findCategoryId, formatStartupBanner, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
-export { buildPromptText, createSubscriptionGate, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
+export { buildPromptText, createSubscriptionGate, findCategoryId, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
 async function main(): Promise<void> {
   loadDotEnv()
@@ -172,6 +175,33 @@ async function main(): Promise<void> {
     return resolveClient(project)
   }
 
+  const directoryFor = (threadId: string): string | undefined => db.threads.get(threadId)?.worktreePath ?? undefined
+  const sessions = createSessionOps({
+    targetFor: (threadId) => {
+      const thread = db.threads.get(threadId)
+      if (!thread) return undefined
+      const directory = directoryFor(threadId)
+      return directory ? { sessionId: thread.sessionId, directory } : { sessionId: thread.sessionId }
+    },
+    clientFor,
+    threadModel: (threadId) => db.threads.get(threadId)?.model,
+    modelLimit: async (threadId, model) => {
+      const thread = db.threads.get(threadId)
+      if (!thread) return undefined
+      const project = db.projects.getByChannel(thread.channelId)
+      if (!project) return undefined
+      const slash = model.indexOf("/")
+      if (slash <= 0) return undefined
+      try {
+        const res: any = await resolveClient(project).config.providers()
+        const data = res?.data ?? res
+        const provider = (data?.providers ?? []).find((p: any) => p?.id === model.slice(0, slash))
+        const limit = provider?.models?.[model.slice(slash + 1)]?.limit?.context
+        return typeof limit === "number" && limit > 0 ? limit : undefined
+      } catch { return undefined }
+    },
+  })
+
   const projectForThread = (threadId: string): Project => {
     const thread = db.threads.get(threadId)
     const project = thread ? db.projects.getByChannel(thread.channelId) : undefined
@@ -189,9 +219,10 @@ async function main(): Promise<void> {
   }
   const registerThread = (project: Project, threadId: string, title: string, sessionId: string): Thread => {
     const now = Date.now()
+    const defaults = seedThreadDefaults((key) => db.settings.get(key), project.channelId)
     const record: Thread = {
       threadId, channelId: project.channelId, sessionId, title,
-      model: db.settings.get("default_model") ?? null, agent: db.settings.get("default_agent") ?? null,
+      model: defaults.model, agent: defaults.agent,
       worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: now, lastActiveAt: now,
     }
     db.threads.upsert(record)
@@ -516,8 +547,43 @@ async function main(): Promise<void> {
       return list.filter((a: any) => a?.mode !== "subagent").map((a: any) => ({ id: String(a.name), name: a.description ? `${a.name} — ${a.description}` : String(a.name) }))
     } catch { return [] }
   }
+  const suggestionCaches = new Map<string, SuggestionCache>()
+  const suggestionCacheFor = (key: string, load: () => Promise<string[]>): SuggestionCache => {
+    let cache = suggestionCaches.get(key)
+    if (!cache) {
+      cache = createSuggestionCache({ ttlMs: 60_000, load, now: () => Date.now() })
+      suggestionCaches.set(key, cache)
+    }
+    return cache
+  }
+  const suggest = async (interaction: any, query: string): Promise<{ name: string; value: string }[]> => {
+    if (interaction.commandName === "resume") {
+      const channelId = interaction.channelId
+      const cache = suggestionCacheFor(`resume:${channelId}`, async () => (await listSessions(channelId)).map((session) => session.id))
+      return (await cache.suggest(query)).map((value) => ({ name: value, value }))
+    }
+    const thread = db.threads.get(interaction.channelId)
+    const channelId = thread?.channelId ?? interaction.channelId
+    if (interaction.commandName === "model") {
+      const cache = suggestionCacheFor(`models:${channelId}`, async () => (await listModels(channelId)).map((model) => model.id))
+      return (await cache.suggest(query)).map((value) => ({ name: value, value }))
+    }
+    if (interaction.commandName === "agent") {
+      const cache = suggestionCacheFor(`agents:${channelId}`, async () => (await listAgents(channelId)).map((agent) => agent.id))
+      return (await cache.suggest(query)).map((value) => ({ name: value, value }))
+    }
+    return []
+  }
   const setThreadModel = (threadId: string, model: string | null): void => { if (db.threads.get(threadId)) db.threads.setModel(threadId, model) }
   const setThreadAgent = (threadId: string, agent: string | null): void => { if (db.threads.get(threadId)) db.threads.setAgent(threadId, agent) }
+  const setChannelModel = (channelId: string, model: string | null): void => {
+    if (!model || !db.projects.getByChannel(channelId)) return
+    db.settings.set(`default_model:${channelId}`, model)
+  }
+  const setChannelAgent = (channelId: string, agent: string | null): void => {
+    if (!agent || !db.projects.getByChannel(channelId)) return
+    db.settings.set(`default_agent:${channelId}`, agent)
+  }
 
   const commandDeps: CommandDeps = {
     projects, runner: runnerSvc, db,
@@ -528,7 +594,8 @@ async function main(): Promise<void> {
     stopSubscription, startSubscription,
     createThread: createThreadForProject,
     listSessions, listModels, listAgents,
-    setThreadModel, setThreadAgent,
+    setThreadModel, setThreadAgent, setChannelModel, setChannelAgent,
+    sessions, suggest,
     postConnected: async (channelId, projectName) => {
       const channel = await client.channels.fetch(channelId).catch(() => null)
       if (channel && "send" in channel) {
@@ -557,6 +624,7 @@ async function main(): Promise<void> {
       // Buttons and modals are dispatched through the shared handlers owned by
       // this feature; later plans add their own `handle*` branch inside
       // `handleButton` rather than redefining the dispatcher (spec §3.1).
+      if (interaction.isAutocomplete()) { await handleAutocomplete(interaction, commandDeps); return }
       if (interaction.isButton()) { await handleButton(interaction, commandDeps); return }
       if (interaction.isModalSubmit()) { await handleModalSubmit(interaction, commandDeps); return }
       if (interaction.isStringSelectMenu()) { await handleSelect(interaction, commandDeps); return }

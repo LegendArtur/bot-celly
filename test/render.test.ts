@@ -231,3 +231,32 @@ test("renderer seeds every persisted chunk id and reports id changes", async () 
   expect(edits.map((e) => e.id)).toEqual(["m1", "m2", "m3"])
   expect(reported[reported.length - 1]).toEqual(["m1", "m2", "m3"])
 })
+
+test("renderer renders tool lines with a title truncated to 120 chars", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "p1", name: "bash", status: "running", title: "npm test" })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "p2", name: "edit", status: "completed", title: "x".repeat(200) })
+  await r.finalize()
+  expect(sends).toEqual([`> [bash] running · npm test\n> [edit] completed · ${"x".repeat(119)}…`])
+})
+
+test("renderer tool lines without a title stay byte-compatible", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "p1", name: "bash", status: "running" })
+  await r.finalize()
+  expect(sends).toEqual(["> [bash] running"])
+})
+
+test("renderer reports elapsed time from the first push to finalize", async () => {
+  let t = 100
+  const r = new Renderer({ send: async () => "m1", edit: async () => {}, now: () => t, intervalMs: 1000 })
+  expect(r.elapsedMs()).toBe(0)
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "a" })
+  t = 150
+  await r.finalize()
+  expect(r.elapsedMs()).toBe(50)
+})

@@ -432,6 +432,56 @@ test("abort on an idle thread is a no-op", async () => {
   expect(aborts).toBe(0)
 })
 
+test("queuedFor returns copies of queued prompts with createdAt", async () => {
+  vi.useFakeTimers()
+  try {
+    vi.setSystemTime(1000)
+    const { db } = makeDb()
+    const runner = new Runner({ db, clientFor: () => ({ session: { promptAsync: async () => {} } }) as any,
+      createRenderer: async () => makeRenderer() as any,
+      sessionFor: async () => "s1", log() {}, maxQueue: 5, maxConcurrentRuns: 4 })
+    await runner.prompt("t1", "a", "u")
+    vi.setSystemTime(2000)
+    await runner.prompt("t1", "b", "u")
+    const entries = runner.queuedFor("t1")
+    expect(entries).toEqual([{ text: "b", actor: "u", createdAt: 2000 }])
+    entries.pop()
+    expect(runner.queuedFor("t1")).toHaveLength(1)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test("removeQueued removes by index and reports out-of-range", async () => {
+  const { db } = makeDb()
+  const runner = new Runner({ db, clientFor: () => ({ session: { promptAsync: async () => {} } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 5, maxConcurrentRuns: 4 })
+  await runner.prompt("t1", "a", "u")
+  await runner.prompt("t1", "b", "u")
+  await runner.prompt("t1", "c", "u")
+  expect(runner.queuedFor("t1").map((q) => q.text)).toEqual(["b", "c"])
+  expect(runner.removeQueued("t1", 1)).toBe(true)
+  expect(runner.queuedFor("t1").map((q) => q.text)).toEqual(["b"])
+  expect(runner.removeQueued("t1", 5)).toBe(false)
+  expect(runner.removeQueued("t1", -1)).toBe(false)
+  expect(runner.removeQueued("t1", 1.5)).toBe(false)
+  expect(runner.removeQueued("t2", 0)).toBe(false)
+  expect(runner.queuedFor("t1").map((q) => q.text)).toEqual(["b"])
+})
+
+test("clearQueued removes every entry and returns the count", async () => {
+  const { db } = makeDb()
+  const runner = new Runner({ db, clientFor: () => ({ session: { promptAsync: async () => {} } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 5, maxConcurrentRuns: 4 })
+  await runner.prompt("t1", "a", "u")
+  await runner.prompt("t1", "b", "u")
+  expect(runner.clearQueued("t1")).toBe(1)
+  expect(runner.queuedFor("t1")).toEqual([])
+  expect(runner.clearQueued("t1")).toBe(0)
+})
+
 test("recover seeds the renderer with every persisted chunk id", async () => {
   const edits: string[] = []
   const sends: string[] = []

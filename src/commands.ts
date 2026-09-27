@@ -1,12 +1,15 @@
-import { ActionRowBuilder, ApplicationCommandOptionType, ChannelType, ComponentType, ModalBuilder, TextInputBuilder, TextInputStyle } from "discord.js"
+import { ActionRowBuilder, ApplicationCommandOptionType, ButtonStyle, ChannelType, ComponentType, ModalBuilder, TextInputBuilder, TextInputStyle } from "discord.js"
 import { ANSWER_ACTION, APPROVAL_ACTION, REJECT_QUESTION_ACTION, answerCustomId } from "./approvals.js"
 import { APPROVAL_MODES, isApprovalMode } from "./mode.js"
 import type { ApprovalManager } from "./approvals.ts"
 import type { AuditDraft } from "./audit.ts"
 import type { Db } from "./db.ts"
 import type { ProjectService } from "./projects.ts"
-import type { Runner } from "./runner.ts"
+import type { QueuedPrompt, Runner } from "./runner.ts"
 import { attachReply, sessionIdReply } from "./attach.js"
+import { formatContextUsage, formatDiff } from "./session-utils.js"
+import type { SessionOps } from "./session-utils.ts"
+import { chunkMessage } from "./render.js"
 
 export function commandData(): any[] {
   const project = { name: "project", description: "Manage Celly projects", options: [
@@ -35,10 +38,21 @@ export function commandData(): any[] {
   ] }
   return [ project, task,
     { name: "new", description: "Start a new session", options: [{ type: ApplicationCommandOptionType.String, name: "prompt", description: "Initial prompt" }] },
-    { name: "resume", description: "Resume a session" },
+    { name: "resume", description: "Resume a session", options: [
+      { type: ApplicationCommandOptionType.String, name: "session", description: "Session to resume (autocomplete)", autocomplete: true } ] },
     { name: "abort", description: "Abort the current run" },
-    { name: "model", description: "Choose the model for this thread" },
-    { name: "agent", description: "Choose the agent for this thread" },
+    { name: "model", description: "Choose the model for this thread", options: [
+      { type: ApplicationCommandOptionType.String, name: "model", description: "provider/model (autocomplete)", autocomplete: true } ] },
+    { name: "agent", description: "Choose the agent for this thread", options: [
+      { type: ApplicationCommandOptionType.String, name: "agent", description: "Agent name (autocomplete)", autocomplete: true } ] },
+    { name: "queue", description: "Show and manage this thread's queued prompts" },
+    { name: "undo", description: "Revert the session to its last user message" },
+    { name: "redo", description: "Restore messages reverted by the last /undo" },
+    { name: "diff", description: "List changed files in this session" },
+    { name: "share", description: "Share the session and post the URL" },
+    { name: "unshare", description: "Stop sharing the session" },
+    { name: "compact", description: "Summarize the session with the thread's model" },
+    { name: "context-usage", description: "Show token use against the model's context limit" },
     { name: "mode", description: "Set the approval mode for this session's project channel", options: [
       { type: ApplicationCommandOptionType.String, name: "mode", description: "How permission requests are handled", required: true,
         choices: APPROVAL_MODES.map((mode) => ({ name: mode, value: mode })) } ] },
@@ -95,16 +109,29 @@ export interface CommandDeps {
   listAgents?(channelId: string): Promise<{ id: string; name: string }[]>
   setThreadModel?(threadId: string, model: string | null): void
   setThreadAgent?(threadId: string, agent: string | null): void
+  setChannelModel?(channelId: string, model: string | null): void
+  setChannelAgent?(channelId: string, agent: string | null): void
+  sessions?: SessionOps
+  suggest?(interaction: any, query: string): Promise<AutocompleteChoice[]>
   approvals?: ApprovalManager
   audit?(entry: AuditDraft): void
 }
+
+export interface AutocompleteChoice { name: string; value: string }
+export const AUTOCOMPLETE_BUDGET_MS = 2500
+export const AUTOCOMPLETE_MAX = 25
 
 export const RESUME_SELECT = "resume"
 export const MODEL_PROVIDER_SELECT = "model-provider"
 export const MODEL_SELECT = "model"
 export const AGENT_SELECT = "agent"
+export const QUEUE_REMOVE = "queue-remove"
+export const QUEUE_CLEAR = "queue-clear"
 
 export function selectCustomId(action: string, id: string): string { return `celly:${action}:${id}` }
+export function buttonCustomId(action: string, id: string, extra?: string): string {
+  return extra === undefined ? `celly:${action}:${id}` : `celly:${action}:${id}:${extra}`
+}
 export function parseCustomId(customId: string): { action: string; id?: string } {
   const { action, id } = parseCustomIdFull(customId)
   return { action, id }
@@ -163,6 +190,35 @@ export function sanitizeSelectOptions(options: { label?: unknown; value?: unknow
 
 function selectRow(customId: string, placeholder: string, options: { label: string; value: string }[]): any {
   return { type: ComponentType.ActionRow, components: [{ type: ComponentType.StringSelect, custom_id: customId, placeholder, min_values: 1, max_values: 1, options: sanitizeSelectOptions(options) }] }
+}
+
+async function replyChunks(interaction: any, content: string): Promise<void> {
+  const chunks = chunkMessage(content, 1900)
+  const [first = "no changes", ...rest] = chunks
+  await interaction.editReply(noMentions(first))
+  for (const chunk of rest) await interaction.followUp(noMentions(chunk, { flags: 64 }))
+}
+
+function queueMessage(threadId: string, entries: QueuedPrompt[]): any {
+  if (!entries.length) return noMentions("queue is empty")
+  const shown = entries.slice(0, 10)
+  const content = `Queued (${entries.length}):\n` + shown.map((entry, i) => `${i + 1}. ${entry.text.slice(0, 100)}`).join("\n")
+  const rows: any[] = []
+  for (let i = 0; i < shown.length; i += 5) {
+    rows.push({ type: ComponentType.ActionRow, components: shown.slice(i, i + 5).map((_, j) => ({
+      type: ComponentType.Button,
+      style: ButtonStyle.Secondary,
+      custom_id: buttonCustomId(QUEUE_REMOVE, threadId, String(i + j)),
+      label: `Remove #${i + j + 1}`,
+    })) })
+  }
+  rows.push({ type: ComponentType.ActionRow, components: [{
+    type: ComponentType.Button,
+    style: ButtonStyle.Danger,
+    custom_id: buttonCustomId(QUEUE_CLEAR, threadId),
+    label: "Clear",
+  }] })
+  return { content, components: rows, allowedMentions: { parse: [] } }
 }
 
 const OWNER_ONLY_PROJECT_SUBS = new Set(["add", "create", "start", "stop", "remove"])
@@ -271,6 +327,12 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
     if (interaction.commandName === "resume") {
       const project = deps.db.projects.getByChannel(interaction.channelId)
       if (!project) return void await interaction.editReply(noMentions("this channel is not a project"))
+      const direct = interaction.options.getString("session", false)
+      if (direct) {
+        const existing = deps.db.threads.getBySession(direct)[0]
+        const thread = await deps.createThread?.({ channelId: project.channelId, title: existing?.title ?? `resume ${new Date().toISOString()}`, sessionId: direct, authorId: interaction.user?.id })
+        return void await interaction.editReply(noMentions(thread ? `resumed in <#${thread.threadId}>` : "resume unavailable"))
+      }
       const sessions = (await deps.listSessions?.(project.channelId)) ?? []
       if (!sessions.length) return void await interaction.editReply(noMentions("no sessions to resume"))
       const options = sessions.slice(0, 25).map((s) => ({ label: (s.title || s.id).slice(0, 100), value: s.id }))
@@ -278,11 +340,26 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
     }
     if (interaction.commandName === "model" || interaction.commandName === "agent") {
       const thread = deps.db.threads.get(interaction.channelId)
-      if (!thread) return void await interaction.editReply(noMentions(`use /${interaction.commandName} inside a thread`))
+      const channelProject = thread ? undefined : deps.db.projects.getByChannel(interaction.channelId)
+      const scope = thread ? thread.threadId : channelProject ? interaction.channelId : undefined
+      if (!scope) return void await interaction.editReply(noMentions("this channel is not a project"))
       // Spec §9: wake the sandbox before asking it for models/agents.
-      await deps.projects.ensureReady?.(thread.channelId)
+      await deps.projects.ensureReady?.(thread?.channelId ?? interaction.channelId)
+      const direct = interaction.options.getString(interaction.commandName, false)
+      if (direct) {
+        if (thread) {
+          if (interaction.commandName === "model") deps.setThreadModel?.(scope, direct)
+          else deps.setThreadAgent?.(scope, direct)
+        } else if (interaction.commandName === "model") {
+          deps.setChannelModel?.(scope, direct)
+        } else {
+          deps.setChannelAgent?.(scope, direct)
+        }
+        const label = thread ? interaction.commandName : `channel ${interaction.commandName}`
+        return void await interaction.editReply(noMentions(`${label} set to ${direct}`))
+      }
       if (interaction.commandName === "model") {
-        const models = (await deps.listModels?.(thread.channelId)) ?? []
+        const models = (await deps.listModels?.(thread?.channelId ?? interaction.channelId)) ?? []
         if (!models.length) return void await interaction.editReply(noMentions("no models available"))
         // Discord select menus cap at 25 options, and a flattened model list
         // across every provider overflows it. Offer providers first, then that
@@ -297,12 +374,14 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         }
         const options = [...providers.entries()].map(([provider, count]) => ({ label: `${provider} (${count})`, value: provider }))
         if (!options.length) return void await interaction.editReply(noMentions("no models available"))
-        return void await interaction.editReply({ content: "Choose a provider for this thread:", components: [selectRow(selectCustomId(MODEL_PROVIDER_SELECT, thread.threadId), "Select a provider", options)], allowedMentions: { parse: [] } })
+        const where = thread ? "thread" : "channel"
+        return void await interaction.editReply({ content: `Choose a provider for this ${where}:`, components: [selectRow(selectCustomId(MODEL_PROVIDER_SELECT, scope), "Select a provider", options)], allowedMentions: { parse: [] } })
       }
-      const agents = (await deps.listAgents?.(thread.channelId)) ?? []
+      const agents = (await deps.listAgents?.(thread?.channelId ?? interaction.channelId)) ?? []
       if (!agents.length) return void await interaction.editReply(noMentions("no agents available"))
       const options = agents.slice(0, 25).map((a) => ({ label: (a.name || a.id).slice(0, 100), value: a.id }))
-      return void await interaction.editReply({ content: "Choose an agent for this thread:", components: [selectRow(selectCustomId(AGENT_SELECT, thread.threadId), "Select an agent", options)], allowedMentions: { parse: [] } })
+      const where = thread ? "thread" : "channel"
+      return void await interaction.editReply({ content: `Choose an agent for this ${where}:`, components: [selectRow(selectCustomId(AGENT_SELECT, scope), "Select an agent", options)], allowedMentions: { parse: [] } })
     }
     if (interaction.commandName === "abort") {
       const isThread = interaction.channel?.isThread?.() === true
@@ -312,6 +391,56 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (!threadIds.length) return void await interaction.editReply(noMentions("nothing to abort"))
       for (const threadId of threadIds) await deps.runner.abort(threadId)
       return void await interaction.editReply(noMentions("aborted"))
+    }
+    if (interaction.commandName === "queue") {
+      const thread = deps.db.threads.get(interaction.channelId)
+      if (!thread) return void await interaction.editReply(noMentions("use /queue inside a thread"))
+      return void await interaction.editReply(queueMessage(thread.threadId, deps.runner.queuedFor(thread.threadId)))
+    }
+    if (interaction.commandName === "undo" || interaction.commandName === "redo") {
+      const thread = deps.db.threads.get(interaction.channelId)
+      if (!thread) return void await interaction.editReply(noMentions(`use /${interaction.commandName} inside a thread`))
+      if (!deps.sessions) return void await interaction.editReply(noMentions("session utilities unavailable"))
+      if (interaction.commandName === "undo") {
+        const result = await deps.sessions.undo(thread.threadId)
+        return void await interaction.editReply(noMentions(result === "reverted" ? "reverted the last message" : "nothing to undo"))
+      }
+      await deps.sessions.redo(thread.threadId)
+      return void await interaction.editReply(noMentions("redone"))
+    }
+    if (interaction.commandName === "diff") {
+      const thread = deps.db.threads.get(interaction.channelId)
+      if (!thread) return void await interaction.editReply(noMentions("use /diff inside a thread"))
+      if (!deps.sessions) return void await interaction.editReply(noMentions("session utilities unavailable"))
+      const files = await deps.sessions.diff(thread.threadId)
+      return void await replyChunks(interaction, formatDiff(files))
+    }
+    if (interaction.commandName === "share" || interaction.commandName === "unshare") {
+      const thread = deps.db.threads.get(interaction.channelId)
+      if (!thread) return void await interaction.editReply(noMentions(`use /${interaction.commandName} inside a thread`))
+      if (!deps.sessions) return void await interaction.editReply(noMentions("session utilities unavailable"))
+      if (interaction.commandName === "share") {
+        const url = await deps.sessions.share(thread.threadId)
+        return void await interaction.editReply(noMentions(`shared: ${url}`))
+      }
+      await deps.sessions.unshare(thread.threadId)
+      return void await interaction.editReply(noMentions("unshared"))
+    }
+    if (interaction.commandName === "compact") {
+      const thread = deps.db.threads.get(interaction.channelId)
+      if (!thread) return void await interaction.editReply(noMentions("use /compact inside a thread"))
+      if (!deps.sessions) return void await interaction.editReply(noMentions("session utilities unavailable"))
+      await deps.sessions.compact(thread.threadId)
+      return void await interaction.editReply(noMentions("compacted"))
+    }
+    if (interaction.commandName === "context-usage") {
+      const thread = deps.db.threads.get(interaction.channelId)
+      if (!thread) return void await interaction.editReply(noMentions("use /context-usage inside a thread"))
+      if (!deps.sessions) return void await interaction.editReply(noMentions("session utilities unavailable"))
+      const usage = await deps.sessions.contextUsage(thread.threadId)
+      if (usage === "no-usage") return void await interaction.editReply(noMentions("no usage recorded for this thread yet"))
+      if (usage === "no-limit") return void await interaction.editReply(noMentions("context limit unavailable for this model"))
+      return void await interaction.editReply(noMentions(formatContextUsage(usage.used, usage.limit)))
     }
     if (interaction.commandName === "mode") {
       const requested = interaction.options.getString("mode", true)
@@ -369,14 +498,51 @@ export async function handleSelect(interaction: any, deps: CommandDeps): Promise
       return void await interaction.editReply({ content: `Choose a ${value} model:`, components: [selectRow(selectCustomId(MODEL_SELECT, id), "Select a model", options)], allowedMentions: { parse: [] } })
     }
     if (action === MODEL_SELECT) {
-      deps.setThreadModel?.(id ?? interaction.channelId, value ?? null)
-      return void await interaction.editReply({ content: `model set to ${value ?? "default"}`, components: [], allowedMentions: { parse: [] } })
+      const scope = id ?? interaction.channelId
+      if (deps.db.threads.get(scope)) {
+        deps.setThreadModel?.(scope, value ?? null)
+        return void await interaction.editReply({ content: `model set to ${value ?? "default"}`, components: [], allowedMentions: { parse: [] } })
+      }
+      deps.setChannelModel?.(scope, value ?? null)
+      return void await interaction.editReply({ content: `channel model set to ${value ?? "default"}`, components: [], allowedMentions: { parse: [] } })
     }
     if (action === AGENT_SELECT) {
-      deps.setThreadAgent?.(id ?? interaction.channelId, value ?? null)
-      return void await interaction.editReply({ content: `agent set to ${value ?? "default"}`, components: [], allowedMentions: { parse: [] } })
+      const scope = id ?? interaction.channelId
+      if (deps.db.threads.get(scope)) {
+        deps.setThreadAgent?.(scope, value ?? null)
+        return void await interaction.editReply({ content: `agent set to ${value ?? "default"}`, components: [], allowedMentions: { parse: [] } })
+      }
+      deps.setChannelAgent?.(scope, value ?? null)
+      return void await interaction.editReply({ content: `channel agent set to ${value ?? "default"}`, components: [], allowedMentions: { parse: [] } })
     }
     return void await interaction.editReply({ content: "unknown selection", components: [], allowedMentions: { parse: [] } })
+  } catch (e) {
+    const content = `error: ${(e as Error).message}`
+    if (interaction.deferred || interaction.replied) return void await interaction.editReply(noMentions(content))
+    await interaction.reply(noMentions(content, { flags: 64 }))
+  }
+}
+
+export async function handleQueueButton(interaction: any, deps: CommandDeps): Promise<void> {
+  if (!deps.authorized(interaction)) { await interaction.reply(noMentions("You are not authorized.", { flags: 64 })); return }
+  const { action, id: threadId, extra } = parseCustomIdFull(interaction.customId ?? "")
+  try {
+    await interaction.deferUpdate()
+    if (action === QUEUE_REMOVE) {
+      if (!threadId) return void await interaction.editReply(noMentions("unknown queue button"))
+      const index = Number(extra)
+      if (!Number.isInteger(index) || !deps.runner.removeQueued(threadId, index)) {
+        return void await interaction.editReply({ content: "queue changed; run /queue again", components: [], allowedMentions: { parse: [] } })
+      }
+      return void await interaction.editReply(queueMessage(threadId, deps.runner.queuedFor(threadId)))
+    }
+    if (action === QUEUE_CLEAR) {
+      if (!threadId) return void await interaction.editReply(noMentions("unknown queue button"))
+      const cleared = deps.runner.clearQueued(threadId)
+      const content = cleared > 0 ? `cleared ${cleared} queued prompt${cleared === 1 ? "" : "s"}` : "queue is empty"
+      return void await interaction.editReply({ content, components: [], allowedMentions: { parse: [] } })
+    }
+    return void await interaction.editReply({ content: "unknown button", components: [], allowedMentions: { parse: [] } })
   } catch (e) {
     const content = `error: ${(e as Error).message}`
     if (interaction.deferred || interaction.replied) return void await interaction.editReply(noMentions(content))
@@ -404,9 +570,47 @@ export function customAnswerModal(requestId: string, questionIndex: number): any
 export async function handleButton(interaction: any, deps: CommandDeps): Promise<void> {
   if (!deps.authorized(interaction)) { await interaction.reply(noMentions("You are not authorized.", { flags: 64 })); return }
   const { action } = parseCustomIdFull(interaction.customId ?? "")
+  if (action === QUEUE_REMOVE || action === QUEUE_CLEAR) return handleQueueButton(interaction, deps)
   if (action === APPROVAL_ACTION) return handleApprovalButton(interaction, deps)
   if (action === ANSWER_ACTION) return handleAnswerButton(interaction, deps)
   if (action === REJECT_QUESTION_ACTION) return handleRejectQuestionButton(interaction, deps)
+}
+
+export function sanitizeAutocompleteChoices(choices: AutocompleteChoice[]): AutocompleteChoice[] {
+  const seen = new Set<string>()
+  const out: AutocompleteChoice[] = []
+  for (const choice of choices) {
+    const value = choice?.value == null ? "" : String(choice.value).slice(0, SELECT_OPTION_MAX)
+    const rawName = choice?.name == null ? value : String(choice.name).slice(0, SELECT_OPTION_MAX)
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    out.push({ name: rawName || value, value })
+    if (out.length >= AUTOCOMPLETE_MAX) break
+  }
+  return out
+}
+
+function withBudget<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(undefined), ms)
+    if (typeof (timer as any).unref === "function") (timer as any).unref()
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value) },
+      () => { clearTimeout(timer); resolve(undefined) },
+    )
+  })
+}
+
+export async function handleAutocomplete(interaction: any, deps: CommandDeps): Promise<void> {
+  let choices: AutocompleteChoice[] = []
+  try {
+    if (deps.authorized(interaction) && deps.suggest) {
+      const focused = interaction.options?.getFocused?.()
+      const query = typeof focused === "string" ? focused : ""
+      choices = sanitizeAutocompleteChoices((await withBudget(deps.suggest(interaction, query), AUTOCOMPLETE_BUDGET_MS)) ?? [])
+    }
+  } catch {}
+  try { await interaction.respond(choices) } catch {}
 }
 
 export async function handleApprovalButton(interaction: any, deps: CommandDeps): Promise<void> {

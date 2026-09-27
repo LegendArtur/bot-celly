@@ -95,6 +95,11 @@ export function sanitizeThreadName(prompt: string): string {
   return (cleaned || `session ${new Date().toISOString()}`).slice(0, 80)
 }
 
+export const TOOL_TITLE_MAX = 120
+function truncateToolTitle(title: string, max = TOOL_TITLE_MAX): string {
+  return title.length > max ? title.slice(0, max - 1) + "…" : title
+}
+
 export class Renderer {
   private parts = new Map<string, string>()
   private order: string[] = []
@@ -104,6 +109,8 @@ export class Renderer {
   private lastEdit = Number.NEGATIVE_INFINITY
   private dirty = false
   private revision = 0
+  private startedAt: number | null = null
+  private endedAt: number | null = null
   private inFlight: Promise<void> | null = null
   constructor(private readonly deps: {
     send(content: string): Promise<string>; edit(messageId: string, content: string): Promise<void>
@@ -119,7 +126,13 @@ export class Renderer {
     const toolLines = [...this.tools.values()].map((t) => `> ${t}`).join("\n")
     return [toolLines, this.text].filter(Boolean).join("\n\n")
   }
+  elapsedMs(): number {
+    const end = this.endedAt ?? this.deps.now()
+    const start = this.startedAt ?? end
+    return Math.max(0, end - start)
+  }
   push(e: NormalizedEvent): void {
+    if (this.startedAt === null) this.startedAt = this.deps.now()
     if (e.kind === "text") {
       if (!this.parts.has(e.partId)) this.order.push(e.partId)
       this.parts.set(e.partId, e.text)
@@ -127,7 +140,8 @@ export class Renderer {
       this.dirty = true
       this.revision++
     } else if (e.kind === "tool") {
-      this.tools.set(e.partId, `[${e.name}] ${e.status}`)
+      const title = e.title ? ` · ${truncateToolTitle(e.title)}` : ""
+      this.tools.set(e.partId, `[${e.name}] ${e.status}${title}`)
       this.dirty = true
       this.revision++
     }
@@ -175,5 +189,8 @@ export class Renderer {
     if (this.ids.length > 0 && this.deps.now() - this.lastEdit < this.deps.intervalMs) return
     await this.flush()
   }
-  async finalize(): Promise<void> { await this.flush() }
+  async finalize(): Promise<void> {
+    await this.flush()
+    this.endedAt = this.deps.now()
+  }
 }

@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs"
 import { expect, test, vi } from "vitest"
 import { ApplicationCommandOptionType, ComponentType } from "discord.js"
-import { ANSWER_MODAL_INPUT, SELECT_OPTION_MAX, SELECT_OPTIONS_MAX, commandData, deployCommandsToGuilds, handleApprovalButton, handleButton, handleCommand, handleModalSubmit, handleRejectQuestionButton, handleSelect, parseCustomIdFull, requiresOwner, sanitizeSelectOptions } from "../src/commands.ts"
+import { ANSWER_MODAL_INPUT, AUTOCOMPLETE_BUDGET_MS, SELECT_OPTION_MAX, SELECT_OPTIONS_MAX, commandData, deployCommandsToGuilds, handleApprovalButton, handleAutocomplete, handleButton, handleCommand, handleModalSubmit, handleRejectQuestionButton, handleSelect, parseCustomIdFull, requiresOwner, sanitizeSelectOptions } from "../src/commands.ts"
 import { isOwner } from "../src/discord.ts"
 import { openDb } from "../src/db.ts"
 
@@ -62,7 +62,7 @@ const editOf = (i: any) => {
 
 test("declares the v1 command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "attach", "mode", "model", "new", "project", "resume", "session-id", "task"])
+  expect(names).toEqual(["abort", "agent", "attach", "compact", "context-usage", "diff", "mode", "model", "new", "project", "queue", "redo", "resume", "session-id", "share", "task", "undo", "unshare"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -315,12 +315,6 @@ test("model and agent ensureReady the sandbox before listing", async () => {
   }
 })
 
-test("model outside a thread is rejected", async () => {
-  const i = interaction({ commandName: "model", channelId: "c" })
-  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
-  expect(editOf(i)).toBe("use /model inside a thread")
-})
-
 test("project start resubscribes before waking the sandbox", async () => {
   const i = interaction({ sub: "start", strings: { name: "demo" } })
   const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
@@ -354,6 +348,7 @@ test("selecting a model updates the thread", async () => {
 
 test("selecting an agent updates the thread", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert(threadRow("t1"))
   const i = select({ customId: "celly:agent:t1", values: ["build"] })
   let set: any
   await handleSelect(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
@@ -782,4 +777,319 @@ test("non-owner mode is rejected before defer", async () => {
   await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => false })
   expect(i.calls).toHaveLength(1)
   expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only.", flags: 64 } })
+})
+
+test("queue lists queued prompts with remove and clear buttons", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const entries = [
+    { text: "first", actor: "u1", createdAt: 1 },
+    { text: "second", actor: "u2", createdAt: 2 },
+  ]
+  const i = interaction({ commandName: "queue", channelId: "t1" })
+  await handleCommand(i, { projects: {} as any, runner: { queuedFor: () => entries } as any, db, authorized: () => true })
+  const edit = editOf(i)
+  expect(edit.content).toContain("Queued (2)")
+  expect(edit.content).toContain("1. first")
+  expect(edit.content).toContain("2. second")
+  const rows = edit.components
+  expect(rows[0].components.map((b: any) => b.custom_id)).toEqual([
+    "celly:queue-remove:t1:0",
+    "celly:queue-remove:t1:1",
+  ])
+  expect(rows[0].components[0].label).toBe("Remove #1")
+  expect(rows[1].components[0].custom_id).toBe("celly:queue-clear:t1")
+  expect(rows[1].components[0].label).toBe("Clear")
+})
+
+test("queue outside a thread is rejected and an empty queue says so", async () => {
+  const outside = interaction({ commandName: "queue", channelId: "c" })
+  await handleCommand(outside, { projects: {} as any, runner: { queuedFor: () => [] } as any, db: fresh(), authorized: () => true })
+  expect(editOf(outside)).toBe("use /queue inside a thread")
+
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const empty = interaction({ commandName: "queue", channelId: "t1" })
+  await handleCommand(empty, { projects: {} as any, runner: { queuedFor: () => [] } as any, db, authorized: () => true })
+  expect(editOf(empty)).toBe("queue is empty")
+})
+
+test("queue remove button removes the index and refreshes the list", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const state = [
+    { text: "first", actor: "u", createdAt: 1 },
+    { text: "second", actor: "u", createdAt: 2 },
+  ]
+  const removed: number[] = []
+  const i = button({ customId: "celly:queue-remove:t1:0" })
+  await handleButton(i, { projects: {} as any, db, authorized: () => true, runner: {
+    removeQueued: (_threadId: string, index: number) => { removed.push(index); state.splice(index, 1); return true },
+    queuedFor: () => state,
+  } as any })
+  expect(removed).toEqual([0])
+  const edit = editOf(i)
+  expect(edit.content).toContain("Queued (1)")
+  expect(edit.content).toContain("1. second")
+  expect(edit.components[0].components[0].custom_id).toBe("celly:queue-remove:t1:0")
+})
+
+test("queue remove with a stale index reports the queue changed", async () => {
+  const i = button({ customId: "celly:queue-remove:t1:9" })
+  await handleButton(i, { projects: {} as any, db: fresh(), authorized: () => true,
+    runner: { removeQueued: () => false } as any })
+  expect(editOf(i).content).toBe("queue changed; run /queue again")
+})
+
+test("queue clear button clears and reports the count", async () => {
+  const i = button({ customId: "celly:queue-clear:t1" })
+  await handleButton(i, { projects: {} as any, db: fresh(), authorized: () => true,
+    runner: { clearQueued: () => 3 } as any })
+  const edit = editOf(i)
+  expect(edit.content).toBe("cleared 3 queued prompts")
+  expect(edit.components).toEqual([])
+})
+
+test("unauthorized queue buttons are rejected before deferUpdate", async () => {
+  const i = button({ customId: "celly:queue-clear:t1" })
+  await handleButton(i, { projects: {} as any, db: fresh(), authorized: () => false, runner: {} as any })
+  expect(i.calls).toHaveLength(1)
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "You are not authorized.", flags: 64, allowedMentions: { parse: [] } } })
+})
+
+test("undo reverts the thread's last user message", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const calls: string[] = []
+  const i = interaction({ commandName: "undo", channelId: "t1" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { undo: async (threadId: string) => { calls.push(threadId); return "reverted" } } as any })
+  expect(calls).toEqual(["t1"])
+  expect(editOf(i)).toBe("reverted the last message")
+})
+
+test("undo outside a thread is rejected and nothing to undo is reported", async () => {
+  const outside = interaction({ commandName: "undo", channelId: "c" })
+  await handleCommand(outside, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, sessions: {} as any })
+  expect(editOf(outside)).toBe("use /undo inside a thread")
+
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const empty = interaction({ commandName: "undo", channelId: "t1" })
+  await handleCommand(empty, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { undo: async () => "nothing" } as any })
+  expect(editOf(empty)).toBe("nothing to undo")
+})
+
+test("redo unreverts the thread", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const calls: string[] = []
+  const i = interaction({ commandName: "redo", channelId: "t1" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { redo: async (threadId: string) => { calls.push(threadId); return "redone" } } as any })
+  expect(calls).toEqual(["t1"])
+  expect(editOf(i)).toBe("redone")
+})
+
+test("diff formats the file list", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const files = [
+    { file: "src/a.ts", before: "a", after: "b", additions: 2, deletions: 1 },
+    { file: "src/b.ts", before: "", after: "x", additions: 3, deletions: 0 },
+  ]
+  const i = interaction({ commandName: "diff", channelId: "t1" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { diff: async () => files } as any })
+  expect(editOf(i)).toBe("M src/a.ts (+2/-1)\nA src/b.ts (+3/-0)\ntotal: +5/-1 across 2 files")
+})
+
+test("diff chunks long file lists into a follow-up", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const files = Array.from({ length: 10 }, (_, i) => ({ file: `src/${"x".repeat(200)}${i}.ts`, before: "a", after: "b", additions: 1, deletions: 1 }))
+  const i = interaction({ commandName: "diff", channelId: "t1" })
+  i.followUp = async (c: any) => { i.calls.push({ kind: "followUp", c }) }
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { diff: async () => files } as any })
+  expect(i.calls.filter((c: any) => c.kind === "edit")).toHaveLength(1)
+  expect(i.calls.filter((c: any) => c.kind === "followUp")).toHaveLength(1)
+  for (const call of i.calls) {
+    if (call.kind === "followUp") expect(call.c.flags).toBe(64)
+  }
+})
+
+test("share posts the share url and unshare confirms", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const shared: string[] = []
+  const sharedInteraction = interaction({ commandName: "share", channelId: "t1" })
+  await handleCommand(sharedInteraction, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { share: async (threadId: string) => { shared.push(threadId); return "https://opncd.ai/s/abc" } } as any })
+  expect(shared).toEqual(["t1"])
+  expect(editOf(sharedInteraction)).toBe("shared: https://opncd.ai/s/abc")
+
+  const unshared: string[] = []
+  const unshareInteraction = interaction({ commandName: "unshare", channelId: "t1" })
+  await handleCommand(unshareInteraction, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { unshare: async (threadId: string) => { unshared.push(threadId) } } as any })
+  expect(unshared).toEqual(["t1"])
+  expect(editOf(unshareInteraction)).toBe("unshared")
+})
+
+test("compact reports compacted, and the no-model error is exact", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const ok = interaction({ commandName: "compact", channelId: "t1" })
+  await handleCommand(ok, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { compact: async () => "compacted" } as any })
+  expect(editOf(ok)).toBe("compacted")
+
+  const bad = interaction({ commandName: "compact", channelId: "t1" })
+  await handleCommand(bad, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { compact: async () => { throw new Error("set a model with /model first") } } as any })
+  expect(editOf(bad)).toBe("error: set a model with /model first")
+})
+
+test("context-usage renders the usage bar and the no-usage message", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const ok = interaction({ commandName: "context-usage", channelId: "t1" })
+  await handleCommand(ok, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { contextUsage: async () => ({ used: 50000, limit: 100000 }) } as any })
+  expect(editOf(ok)).toBe("50k/100k (50%)\n[██████████░░░░░░░░░░]")
+
+  const empty = interaction({ commandName: "context-usage", channelId: "t1" })
+  await handleCommand(empty, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { contextUsage: async () => "no-usage" } as any })
+  expect(editOf(empty)).toBe("no usage recorded for this thread yet")
+})
+
+function autocompleteInteraction(over: any = {}) {
+  const calls: any[] = []
+  const i: any = {
+    commandName: over.commandName ?? "model",
+    channelId: over.channelId ?? "t1",
+    options: { getFocused: () => over.focused ?? "" },
+    user: { id: "u1" },
+    calls,
+    respond: async (choices: any) => { calls.push({ kind: "respond", choices }) },
+    reply: async (c: any) => { calls.push({ kind: "reply", c }) },
+  }
+  return i
+}
+
+test("autocomplete options are declared for resume, model, and agent", () => {
+  const commands = commandData()
+  expect(commands.find((c: any) => c.name === "resume").options[0]).toMatchObject({ name: "session", autocomplete: true })
+  expect(commands.find((c: any) => c.name === "model").options[0]).toMatchObject({ name: "model", autocomplete: true })
+  expect(commands.find((c: any) => c.name === "agent").options[0]).toMatchObject({ name: "agent", autocomplete: true })
+})
+
+test("autocomplete responds with sanitized choices from suggest", async () => {
+  const i = autocompleteInteraction({ commandName: "model", focused: "anth" })
+  let captured: any
+  await handleAutocomplete(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true,
+    suggest: async (interaction: any, query: string) => { captured = { command: interaction.commandName, query }; return [
+      { name: "anthropic/claude", value: "anthropic/claude" },
+      { name: "", value: "dup" },
+      { name: "dup", value: "dup" },
+      { name: "x".repeat(150), value: "y".repeat(150) },
+    ] } })
+  expect(captured).toEqual({ command: "model", query: "anth" })
+  expect(i.calls[0].choices).toEqual([
+    { name: "anthropic/claude", value: "anthropic/claude" },
+    { name: "dup", value: "dup" },
+    { name: "x".repeat(100), value: "y".repeat(100) },
+  ])
+})
+
+test("autocomplete responds [] when unauthorized or suggest rejects", async () => {
+  const denied = autocompleteInteraction()
+  await handleAutocomplete(denied, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => false,
+    suggest: async () => { throw new Error("should not run") } })
+  expect(denied.calls[0].choices).toEqual([])
+
+  const failing = autocompleteInteraction()
+  await handleAutocomplete(failing, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true,
+    suggest: async () => { throw new Error("boom") } })
+  expect(failing.calls[0].choices).toEqual([])
+})
+
+test("autocomplete responds within the budget when suggest hangs", async () => {
+  vi.useFakeTimers()
+  try {
+    const i = autocompleteInteraction()
+    const pending = handleAutocomplete(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true,
+      suggest: () => new Promise(() => {}) })
+    await vi.advanceTimersByTimeAsync(AUTOCOMPLETE_BUDGET_MS)
+    await pending
+    expect(i.calls[0].choices).toEqual([])
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test("model and agent with a direct autocompleted value set the thread override", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const calls: any[] = []
+  const modelInteraction = interaction({ commandName: "model", channelId: "t1", strings: { model: "anthropic/claude" } })
+  await handleCommand(modelInteraction, { projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
+    setThreadModel: (id: string, model: string | null) => { calls.push(["model", id, model]) } })
+  expect(calls).toEqual([["model", "t1", "anthropic/claude"]])
+  expect(editOf(modelInteraction)).toBe("model set to anthropic/claude")
+
+  const agentInteraction = interaction({ commandName: "agent", channelId: "t1", strings: { agent: "build" } })
+  await handleCommand(agentInteraction, { projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
+    setThreadAgent: (id: string, agent: string | null) => { calls.push(["agent", id, agent]) } })
+  expect(calls[1]).toEqual(["agent", "t1", "build"])
+  expect(editOf(agentInteraction)).toBe("agent set to build")
+})
+
+test("resume with a direct session id creates the thread without a select", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  const i = interaction({ commandName: "resume", channelId: "c", strings: { session: "s9" } })
+  let captured: any
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    createThread: async (input: any) => { captured = input; return { threadId: "t9", sessionId: "s9" } } })
+  expect(captured).toMatchObject({ channelId: "c", sessionId: "s9" })
+  expect(editOf(i)).toBe("resumed in <#t9>")
+})
+
+test("model in a project channel offers a channel-scoped provider select", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const i = interaction({ commandName: "model", channelId: "c" })
+  await handleCommand(i, { projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
+    listModels: async () => [{ id: "anthropic/claude", name: "Claude" }] })
+  const edit = editOf(i)
+  expect(edit.content).toBe("Choose a provider for this channel:")
+  expect(edit.components[0].components[0].custom_id).toBe("celly:model-provider:c")
+})
+
+test("selecting a channel model stores it as a channel default", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const i = select({ customId: "celly:model:c", values: ["openai/gpt"] })
+  let set: any
+  await handleSelect(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    setChannelModel: (id: string, model: string | null) => { set = [id, model] } })
+  expect(set).toEqual(["c", "openai/gpt"])
+  expect(i.calls[1].c).toMatchObject({ content: "channel model set to openai/gpt", components: [] })
+})
+
+test("selecting a channel agent stores it as a channel default", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const i = select({ customId: "celly:agent:c", values: ["build"] })
+  let set: any
+  await handleSelect(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    setChannelAgent: (id: string, agent: string | null) => { set = [id, agent] } })
+  expect(set).toEqual(["c", "build"])
+  expect(i.calls[1].c).toMatchObject({ content: "channel agent set to build", components: [] })
+})
+
+test("model and agent in a non-project channel are rejected", async () => {
+  for (const commandName of ["model", "agent"] as const) {
+    const i = interaction({ commandName, channelId: "c" })
+    await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
+    expect(editOf(i)).toBe("this channel is not a project")
+  }
+})
+
+test("model in a project channel with a direct value sets the channel default", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const i = interaction({ commandName: "model", channelId: "c", strings: { model: "anthropic/claude" } })
+  let set: any
+  await handleCommand(i, { projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
+    setChannelModel: (id: string, model: string | null) => { set = [id, model] } })
+  expect(set).toEqual(["c", "anthropic/claude"])
+  expect(editOf(i)).toBe("channel model set to anthropic/claude")
 })

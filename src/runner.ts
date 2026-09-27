@@ -185,8 +185,14 @@ export interface RunnerDeps {
   audit?(entry: AuditDraft): void
 }
 
+export interface QueuedPrompt {
+  text: string
+  actor: string
+  createdAt: number
+}
+
 export class Runner {
-  private queue = new Map<string, { text: string; actor: string }[]>()
+  private queue = new Map<string, QueuedPrompt[]>()
   private active = new Set<string>()
   private epochs = new Map<string, number>()
   private owner = new Map<string, number>()
@@ -198,6 +204,22 @@ export class Runner {
   isActive(threadId: string): boolean { return this.active.has(threadId) }
   activeThreadsFor(channelId: string): string[] {
     return this.deps.db.threads.byChannel(channelId).map((t) => t.threadId).filter((id) => this.active.has(id))
+  }
+  queuedFor(threadId: string): QueuedPrompt[] {
+    return (this.queue.get(threadId) ?? []).map((entry) => ({ ...entry }))
+  }
+  removeQueued(threadId: string, index: number): boolean {
+    const q = this.queue.get(threadId)
+    if (!q || !Number.isInteger(index) || index < 0 || index >= q.length) return false
+    q.splice(index, 1)
+    if (q.length === 0) this.queue.delete(threadId)
+    return true
+  }
+  clearQueued(threadId: string): number {
+    const q = this.queue.get(threadId)
+    const count = q?.length ?? 0
+    this.queue.delete(threadId)
+    return count
   }
 
   private nextEpoch(threadId: string): number {
@@ -245,14 +267,14 @@ export class Runner {
     const client = this.deps.clientFor(threadId)
     await client.postSessionIdPermissionsPermissionId({ path: { id: e.sessionId, permissionID: e.permissionId }, body: { response: reply } } as any)
   }
-  private requeue(threadId: string, next: { text: string; actor: string }): void {
+  private requeue(threadId: string, next: QueuedPrompt): void {
     const q = this.queue.get(threadId) ?? []
     q.unshift(next); this.queue.set(threadId, q)
   }
   private enqueue(threadId: string, next: { text: string; actor: string }): string {
     const q = this.queue.get(threadId) ?? []
     if (q.length >= this.deps.maxQueue) return "queue full"
-    q.push(next); this.queue.set(threadId, q)
+    q.push({ text: next.text, actor: next.actor, createdAt: Date.now() }); this.queue.set(threadId, q)
     return `queued (${q.length})`
   }
   private kickGlobalDrain(): void {
