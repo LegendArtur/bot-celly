@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { expect, test } from "vitest"
 import { ChannelType } from "discord.js"
@@ -76,4 +77,16 @@ test("the project subscription gate starts at most one subscription and can resu
   gate.release("c1")
   expect(gate.has("c1")).toBe(false)
   expect(gate.claim("c1")).toBe(true)
+})
+
+test("index wires log rotation, backups, tasks, and the admin server into boot", () => {
+  const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8")
+  expect(source).toContain("maxBytes: cfg.logMaxBytes")
+  expect(source).toContain("maxFiles: cfg.logMaxFiles")
+  expect(source).toContain("createBackupScheduler({")
+  expect(source).toContain("createTaskRunner({")
+  expect(source).toContain("createAdminServer({")
+  expect(source).toContain("taskRunner.stop()")
+  expect(source).toContain("backups?.stop()")
+  expect(source).toContain("admin?.close()")
 })
