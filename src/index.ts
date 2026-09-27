@@ -64,7 +64,7 @@ async function main(): Promise<void> {
   db.migrate()
   for (const project of db.projects.list()) secrets.push(project.serverPassword)
   seedSettings(db, cfg)
-  const auditLog = createAuditLog({ file: `${cfg.dataDir}/audit.jsonl` })
+  const auditLog = createAuditLog({ file: `${cfg.dataDir}/audit.jsonl`, error: (message, fields) => log.error(message, fields) })
   const audit = (entry: AuditDraft): void => auditLog.append({
     ...entry,
     channelId: entry.channelId ?? db.threads.get(entry.threadId)?.channelId ?? entry.threadId,
@@ -412,6 +412,7 @@ async function main(): Promise<void> {
         .filter((thread) => !!thread.sessionId
           && (runnerSvc.isActive(thread.threadId) || thread.renderState === "running" || thread.renderState === "aborting"))
         .map((thread) => ({ threadId: thread.threadId, sessionId: thread.sessionId })),
+      log: { warn: (message, fields) => log.warn(message, { channelId: project.channelId, ...fields }) },
     })
     void router.subscribe(resolveBaseUrl(project), project.serverPassword, controller.signal)
       .catch((err) => { if (!controller.signal.aborted) log.warn("event subscription ended", { channelId: project.channelId, error: String(err) }) })

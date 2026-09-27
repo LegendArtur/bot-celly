@@ -1,4 +1,5 @@
 import { ChannelType } from "discord.js"
+import { ANSI, colorEnabled, paint } from "./ansi.js"
 
 export function findCategoryId(
   guild: { channels: { cache: { values(): IterableIterator<{ id: string; name: string; type: ChannelType }> } } },
@@ -87,20 +88,23 @@ export function createSubscriptionGate(): { claim(channelId: string): boolean; r
 }
 
 /** Turn raw Discord login/gateway errors into an actionable message for the operator. */
-export function describeDiscordStartupError(err: unknown): string {
+export function describeDiscordStartupError(err: unknown, opts: { color?: boolean } = {}): string {
+  const color = opts.color ?? colorEnabled()
   const raw = err instanceof Error ? err.message : String(err)
   if (/disallowed intents/i.test(raw)) {
-    return [
+    const [headline, ...rest] = [
       'Discord rejected the bot\'s privileged intents ("Used disallowed intents").',
       "Enable the Message Content intent, then restart:",
       "  1. Open https://discord.com/developers/applications and select your app.",
       "  2. Go to the Bot tab, then Privileged Gateway Intents.",
       '  3. Turn on "Message Content Intent" and click Save Changes.',
       "  4. Run `node dist/index.js` again.",
-    ].join("\n")
+    ]
+    return [paint(ANSI.red, headline, color), ...rest].join("\n")
   }
   if (/invalid token|token was provided/i.test(raw)) {
-    return `Discord rejected the bot token. Check DISCORD_TOKEN in .env (Developer Portal -> Bot -> Reset Token).\n${raw}`
+    const headline = paint(ANSI.red, "Discord rejected the bot token. Check DISCORD_TOKEN in .env (Developer Portal -> Bot -> Reset Token).", color)
+    return `${headline}\n${raw}`
   }
   return raw
 }
@@ -116,18 +120,33 @@ export interface StartupBanner {
   dataDir: string
   model?: string
 }
-export function formatStartupBanner(info: StartupBanner): string {
-  const lines = [
-    `Projects: ${info.projects}`,
-    `Data:     ${info.dataDir}`,
-    `Model:    ${info.model ?? "(OpenCode default)"}`,
-    ...info.guilds.map((g) => `Guild:    ${g.name} (${g.id})${g.missingPermissions.length === 0 ? "" : ` MISSING: ${g.missingPermissions.join(", ")}`}`),
+const LABEL_WIDTH = 10
+export function formatStartupBanner(info: StartupBanner, opts: { color?: boolean } = {}): string {
+  const color = opts.color ?? colorEnabled()
+  const rows: { label: string; value: string; tone?: string }[] = [
+    { label: "Projects", value: String(info.projects) },
+    { label: "Data", value: info.dataDir },
+    { label: "Model", value: info.model ?? "(OpenCode default)" },
   ]
-  const width = Math.max("Celly is running".length, ...lines.map((l) => l.length))
-  const rule = `+${"-".repeat(width + 2)}+`
-  const box = [rule, `| ${"Celly is running".padEnd(width)} |`, rule, ...lines.map((l) => `| ${l.padEnd(width)} |`), rule]
+  for (const g of info.guilds) {
+    rows.push({ label: "Guild", value: `${g.name} (${g.id})` })
+    if (g.missingPermissions.length > 0) rows.push({ label: "MISSING", value: g.missingPermissions.join(", "), tone: ANSI.red })
+  }
+  const title = "Celly is running"
+  const width = Math.max(title.length, ...rows.map((r) => r.label.padEnd(LABEL_WIDTH).length + r.value.length))
+  const body = rows.map((row) => {
+    if (row.tone) return paint(row.tone, `${row.label.padEnd(LABEL_WIDTH)}${row.value}`, color)
+    return paint(ANSI.dim, row.label.padEnd(LABEL_WIDTH), color) + row.value
+  })
   const next = info.projects === 0
-    ? "Next: in Discord run  /project add <name> <path>  then send a message in its channel."
-    : "Next: send a message in a project channel to start a session."
-  return [...box, next].join("\n")
+    ? "in Discord run  /project add <name> <path>  then send a message in its channel."
+    : "send a message in a project channel to start a session."
+  const indent = "  "
+  return [
+    indent + paint(`${ANSI.bold}${ANSI.cyan}`, title, color),
+    indent + paint(ANSI.dim, "─".repeat(width), color),
+    ...body.map((line) => indent + line),
+    indent + paint(ANSI.dim, "─".repeat(width), color),
+    indent + paint(ANSI.dim, "Next".padEnd(LABEL_WIDTH), color) + next,
+  ].join("\n")
 }

@@ -2,8 +2,50 @@ import { expect, test, vi } from "vitest"
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createLogger, redact } from "../src/log.ts"
+import { createLogger, formatLogLine, redact } from "../src/log.ts"
 
+test("formatLogLine renders local time, padded level, message, and key=value fields", () => {
+  const line = formatLogLine({
+    ts: new Date(2026, 8, 27, 20, 49, 57),
+    level: "warn",
+    msg: "provider login not detected",
+    fields: { sandboxName: "celly-komorebi", providerId: "openai" },
+  }, { color: false })
+  expect(line).toBe("20:49:57  WARN   provider login not detected  sandboxName=celly-komorebi providerId=openai")
+})
+test("formatLogLine pads every level to the same message column", () => {
+  const info = formatLogLine({ ts: new Date(2026, 8, 27, 20, 49, 57), level: "info", msg: "ready" }, { color: false })
+  const error = formatLogLine({ ts: new Date(2026, 8, 27, 20, 49, 57), level: "error", msg: "boom" }, { color: false })
+  expect(info).toBe("20:49:57  INFO   ready")
+  expect(error).toBe("20:49:57  ERROR  boom")
+})
+test("formatLogLine quotes values with whitespace and renders arrays and objects", () => {
+  const line = formatLogLine({
+    ts: new Date(2026, 8, 27, 20, 49, 57),
+    level: "info",
+    msg: "m",
+    fields: { note: "hello world", tags: ["a", "b"], meta: { n: 1 }, empty: [], nil: null, missing: undefined },
+  }, { color: false })
+  expect(line).toBe('20:49:57  INFO   m  note="hello world" tags=a,b meta={"n":1} empty=[] nil=null')
+})
+test("formatLogLine renders the error field last and indents its stack", () => {
+  const line = formatLogLine({
+    ts: new Date(2026, 8, 27, 20, 49, 57),
+    level: "error",
+    msg: "failed",
+    fields: { error: "first\nsecond", channelId: "c1" },
+  }, { color: false })
+  expect(line).toBe("20:49:57  ERROR  failed  channelId=c1 error=first\n    second")
+})
+test("formatLogLine colors timestamp, level, and error field only when color is on", () => {
+  const record = { ts: new Date(2026, 8, 27, 20, 49, 57), level: "error" as const, msg: "boom", fields: { error: "nope" } }
+  const colored = formatLogLine(record, { color: true })
+  expect(colored).toContain("\x1b[90m20:49:57\x1b[0m")
+  expect(colored).toContain("\x1b[31mERROR\x1b[0m")
+  expect(colored).toContain("\x1b[31merror=nope\x1b[0m")
+  const plain = formatLogLine(record, { color: false })
+  expect(plain).not.toContain("\x1b[")
+})
 test("redacts known secrets anywhere in a string", () => {
   expect(redact("auth=abc123 end", ["abc123"])).toBe("auth=[redacted] end")
 })
@@ -92,6 +134,31 @@ test("removing a secret from the array stops redacting it", () => {
   expect(line).toContain("second")
   info.mockRestore()
 })
+test("logger pretty mode writes a human line to the console and JSON to the file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "celly-log-pretty-"))
+  const file = join(dir, "bot.log")
+  const info = vi.spyOn(console, "info").mockImplementation(() => {})
+  try {
+    const log = createLogger({ level: "info", file, pretty: true, color: false })
+    log.info("admin server listening", { port: 4560 })
+    expect(info.mock.calls[0]?.[0]).toMatch(/^\d{2}:\d{2}:\d{2}  INFO   admin server listening  port=4560$/)
+    expect(readFileSync(file, "utf8")).toContain('"msg":"admin server listening"')
+  } finally {
+    info.mockRestore()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+test("logger pretty mode still redacts secrets", () => {
+  const info = vi.spyOn(console, "info").mockImplementation(() => {})
+  const log = createLogger({ level: "info", pretty: true, color: false, secrets: ["topsecret"] })
+  log.info("login", { token: "topsecret", note: "topsecret" })
+  const line = info.mock.calls[0]?.[0] as string
+  expect(line).toMatch(/^\d{2}:\d{2}:\d{2}  INFO   login  /)
+  expect(line).not.toContain("topsecret")
+  expect(line).toContain("[redacted]")
+  info.mockRestore()
+})
+
 test("truncate clears an existing log file at construction", () => {
   const dir = mkdtempSync(join(tmpdir(), "celly-log-"))
   const file = join(dir, "bot.log")

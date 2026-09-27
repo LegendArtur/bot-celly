@@ -58,7 +58,8 @@ development uses `tsx`, and the build is `tsc`.
 | Module | Responsibility |
 | --- | --- |
 | `src/config.ts` | Parse/validate `.env`, expose typed config. Fail fast. |
-| `src/log.ts` | Structured logging to console + `data/bot.log`, with redaction of tokens/passwords/headers. |
+| `src/log.ts` | Human-readable console logging plus JSONL `data/bot.log`, with redaction of tokens/passwords/headers. Colors only on a TTY (`NO_COLOR`/`FORCE_COLOR` respected). |
+| `src/ansi.ts` | Zero-dependency ANSI colors and TTY/`NO_COLOR`/`FORCE_COLOR` detection shared by logs and the startup banner. |
 | `src/db.ts` | SQLite schema, `PRAGMA user_version` migrations, `foreign_keys=ON`, typed queries. No business logic. |
 | `src/sbx.ts` | **The only module that invokes `sbx`.** argv-only (`spawn(cmd, args, { shell: false })`), typed errors, timeouts, JSON parsers, path/name validation, port allocation, sandbox lifecycle. |
 | `src/projects.ts` | Project lifecycle orchestration: create/remove sagas with rollback, `ensureReady()`, per-project single-flight mutex, supervised serve child registry, reconcile loop. |

@@ -240,6 +240,44 @@ test("trimSseBuffer drops complete frames but keeps a trailing partial frame", (
   expect(trimSseBuffer("small", 100)).toBe("small")
 })
 
+test("routes SSE stream warnings through the injected logger instead of the console", async () => {
+  const warnings: Array<{ msg: string; fields?: Record<string, unknown> }> = []
+  const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
+  const events: Array<{ threadId: string; e: any }> = []
+  let connections = 0
+  let knownCalls = 0
+  const server = createServer((_req, res) => {
+    connections++
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
+    res.flushHeaders()
+    if (connections === 1) res.end()
+    else res.write(`data: ${JSON.stringify({ payload: { type: "session.idle", properties: { sessionID: "s1" } } })}\n\n`)
+  })
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    const router = new EventRouter({
+      route: (sessionId) => (sessionId === "s1" ? "t1" : undefined),
+      onEvent: (threadId, e) => events.push({ threadId, e }),
+      onResync: async () => {},
+      knownSessions: () => { knownCalls++; throw new Error("known boom") },
+      log: { warn: (msg, fields) => warnings.push({ msg, fields }) },
+    })
+    const ac = new AbortController()
+    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    await waitFor(() => knownCalls >= 1 && events.length >= 1)
+    ac.abort()
+    await done
+    expect(warnings.some((w) => w.msg.includes("known"))).toBe(true)
+    expect(warnings[0]?.fields?.error).toContain("known boom")
+    expect(consoleWarn).not.toHaveBeenCalled()
+  } finally {
+    server.close()
+    server.closeAllConnections()
+    consoleWarn.mockRestore()
+  }
+})
+
 test("isolates a throwing knownSessions and keeps the stream alive", async () => {
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
   const events: Array<{ threadId: string; e: any }> = []
