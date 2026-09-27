@@ -56,6 +56,18 @@ test("tail on a missing file returns an empty list", () => {
   })
 })
 
+test("reports init and append failures through the injected error logger", () => {
+  withTempDir((dir) => {
+    const file = join(dir, "audit.jsonl")
+    mkdirSync(file)
+    const errors: Array<{ msg: string; fields?: Record<string, unknown> }> = []
+    const audit = createAuditLog({ file, error: (msg, fields) => errors.push({ msg, fields }) })
+    audit.append({ kind: "shell", channelId: "c1", threadId: "c1", actorId: "u1", detail: "x", decision: "run" })
+    expect(errors.map((e) => e.msg)).toEqual(["audit log init failed", "audit append failed"])
+    expect(errors.every((e) => typeof e.fields?.error === "string")).toBe(true)
+  })
+})
+
 test("append never throws when the file is unwritable", () => {
   withTempDir((dir) => {
     const file = join(dir, "audit.jsonl")

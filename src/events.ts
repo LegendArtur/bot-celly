@@ -131,9 +131,15 @@ export interface EventRouterDeps {
   onResync(threadId: string, sessionId: string): Promise<void>
   knownSessions(): { threadId: string; sessionId: string }[]
   onUnknownSession?(sessionId: string): Promise<string | undefined>
+  log?: { warn(message: string, fields?: Record<string, unknown>): void }
 }
 export class EventRouter {
   constructor(private readonly deps: EventRouterDeps) {}
+  private warn(message: string, fields?: Record<string, unknown>): void {
+    if (this.deps.log) this.deps.log.warn(message, fields)
+    else if (fields) console.warn(message, fields)
+    else console.warn(message)
+  }
   async subscribe(baseUrl: string, password: string, signal: AbortSignal): Promise<void> {
     const auth = basicAuth(password)
     let connectedBefore = false
@@ -149,9 +155,10 @@ export class EventRouter {
         warned = false
         if (connectedBefore) {
           let sessions: { threadId: string; sessionId: string }[] = []
-          try { sessions = this.deps.knownSessions() } catch (err) { console.warn("knownSessions failed", err) }
+          try { sessions = this.deps.knownSessions() } catch (err) { this.warn("known sessions lookup failed", { error: String(err) }) }
           for (const s of sessions) {
-            try { await this.deps.onResync(s.threadId, s.sessionId) } catch (err) { console.warn("event stream resync failed", err) }
+            try { await this.deps.onResync(s.threadId, s.sessionId) }
+            catch (err) { this.warn("session resync failed", { threadId: s.threadId, sessionId: s.sessionId, error: String(err) }) }
           }
         }
         connectedBefore = true
@@ -169,7 +176,7 @@ export class EventRouter {
             let threadId = this.deps.route(e.sessionId)
             if (!threadId && this.deps.onUnknownSession) {
               try { threadId = await this.deps.onUnknownSession(e.sessionId) }
-              catch (err) { console.warn("onUnknownSession failed", err) }
+              catch (err) { this.warn("auto-thread resolution failed", { sessionId: e.sessionId, error: String(err) }) }
             }
             if (signal.aborted) return
             if (threadId) this.deps.onEvent(threadId, e)
@@ -181,14 +188,14 @@ export class EventRouter {
           buf += decoder.decode(value, { stream: true })
           await consume()
           if (buf.length > MAX_SSE_BUFFER) {
-            console.warn(`event stream frame exceeded ${MAX_SSE_BUFFER} bytes; trimming to the last frame boundary`)
+            this.warn("event stream buffer exceeded limit; trimming to the last frame boundary", { maxBytes: MAX_SSE_BUFFER })
             buf = trimSseBuffer(buf, MAX_SSE_BUFFER)
           }
         }
       } catch (err) {
         if (reader) { try { await reader.cancel() } catch {} reader = null }
         if (signal.aborted) return
-        if (!warned) { console.warn("event stream connection failed; will keep retrying", String(err)); warned = true }
+        if (!warned) { this.warn("event stream connection failed; will keep retrying", { error: String(err) }); warned = true }
       }
       if (signal.aborted) return
       const waitMs = connected ? INITIAL_BACKOFF : backoff

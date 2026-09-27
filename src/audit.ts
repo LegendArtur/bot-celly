@@ -26,14 +26,18 @@ export interface AuditLog {
   tail(limit: number): AuditEntry[]
 }
 const FILE_MODE = 0o600
-export function createAuditLog(opts: { file: string; clock?: () => number }): AuditLog {
+export function createAuditLog(opts: { file: string; clock?: () => number; error?: (message: string, fields?: Record<string, unknown>) => void }): AuditLog {
   const clock = opts.clock ?? Date.now
+  const report = opts.error ?? ((message: string, fields?: Record<string, unknown>) => {
+    if (fields) console.error(message, fields)
+    else console.error(message)
+  })
   try {
     mkdirSync(dirname(opts.file), { recursive: true })
     appendFileSync(opts.file, "", { mode: FILE_MODE })
     chmodSync(opts.file, FILE_MODE)
   } catch (err) {
-    console.error(`audit log init failed: ${String(err)}`)
+    report("audit log init failed", { error: String(err) })
   }
   return {
     append(draft) {
@@ -48,7 +52,7 @@ export function createAuditLog(opts: { file: string; clock?: () => number }): Au
         ...(draft.guildId ? { guildId: draft.guildId } : {}),
       }
       try { appendFileSync(opts.file, JSON.stringify(entry) + "\n", { mode: FILE_MODE }) }
-      catch (err) { console.error(`audit append failed: ${String(err)}`) }
+      catch (err) { report("audit append failed", { error: String(err) }) }
     },
     tail(limit) {
       if (limit <= 0) return []

@@ -357,6 +357,14 @@ test("describeDiscordStartupError explains an invalid token", () => {
 test("describeDiscordStartupError passes through unknown errors", () => {
   expect(describeDiscordStartupError(new Error("boom"))).toBe("boom")
 })
+test("describeDiscordStartupError colors the headline only when asked", () => {
+  const colored = describeDiscordStartupError(new Error("Used disallowed intents"), { color: true })
+  expect(colored).toContain("\x1b[31mDiscord rejected the bot's privileged intents")
+  expect(colored).toContain("\x1b[0m")
+  const plain = describeDiscordStartupError(new Error("Used disallowed intents"), { color: false })
+  expect(plain).not.toContain("\x1b[")
+  expect(describeDiscordStartupError(new Error("boom"), { color: true })).toBe("boom")
+})
 
 test("formatStartupBanner lists every guild and flags its missing permissions", () => {
   const ok = formatStartupBanner({
@@ -365,17 +373,27 @@ test("formatStartupBanner lists every guild and flags its missing permissions", 
       { id: "g2", name: "Guild Two", missingPermissions: [] },
     ],
     projects: 2, dataDir: "./data", model: "anthropic/x",
-  })
+  }, { color: false })
   expect(ok).toContain("Celly is running")
-  expect(ok).toContain("Projects: 2")
-  expect(ok).toContain("Guild:    Guild One (g1)")
-  expect(ok).toContain("Guild:    Guild Two (g2)")
+  expect(ok).toContain("Projects  2")
+  expect(ok).toContain("Model     anthropic/x")
+  expect(ok).toContain("Guild     Guild One (g1)")
+  expect(ok).toContain("Guild     Guild Two (g2)")
+  expect(ok).toContain("Next")
   const bad = formatStartupBanner({
     guilds: [{ id: "g1", name: "Guild One", missingPermissions: ["Manage Channels"] }],
     projects: 0, dataDir: "./data",
-  })
-  expect(bad).toContain("MISSING: Manage Channels")
+  }, { color: false })
+  expect(bad).toMatch(/MISSING\s+Manage Channels/)
   expect(bad).toContain("/project add")
+})
+test("formatStartupBanner paints the title, rule, and missing permissions only when color is on", () => {
+  const info = { guilds: [{ id: "g1", name: "Guild One", missingPermissions: ["Manage Channels"] }], projects: 1, dataDir: "./data" }
+  const plain = formatStartupBanner(info, { color: false })
+  expect(plain).not.toContain("\x1b[")
+  const colored = formatStartupBanner(info, { color: true })
+  expect(colored).toContain("\x1b[36mCelly is running\x1b[0m")
+  expect(colored).toContain("\x1b[31mMISSING   Manage Channels\x1b[0m")
 })
 
 test("!shell appends an audit entry with the verbatim command", async () => {
