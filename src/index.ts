@@ -164,6 +164,21 @@ async function main(): Promise<void> {
     },
     clientFor,
     threadModel: (threadId) => db.threads.get(threadId)?.model,
+    modelLimit: async (threadId, model) => {
+      const thread = db.threads.get(threadId)
+      if (!thread) return undefined
+      const project = db.projects.getByChannel(thread.channelId)
+      if (!project) return undefined
+      const slash = model.indexOf("/")
+      if (slash <= 0) return undefined
+      try {
+        const res: any = await resolveClient(project).config.providers()
+        const data = res?.data ?? res
+        const provider = (data?.providers ?? []).find((p: any) => p?.id === model.slice(0, slash))
+        const limit = provider?.models?.[model.slice(slash + 1)]?.limit?.context
+        return typeof limit === "number" && limit > 0 ? limit : undefined
+      } catch { return undefined }
+    },
   })
 
   const projectForThread = (threadId: string): Project => {

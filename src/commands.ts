@@ -6,7 +6,7 @@ import type { AuditDraft } from "./audit.ts"
 import type { Db } from "./db.ts"
 import type { ProjectService } from "./projects.ts"
 import type { QueuedPrompt, Runner } from "./runner.ts"
-import { formatDiff } from "./session-utils.js"
+import { formatContextUsage, formatDiff } from "./session-utils.js"
 import type { SessionOps } from "./session-utils.ts"
 import { chunkMessage } from "./render.js"
 
@@ -39,6 +39,7 @@ export function commandData(): any[] {
     { name: "share", description: "Share the session and post the URL" },
     { name: "unshare", description: "Stop sharing the session" },
     { name: "compact", description: "Summarize the session with the thread's model" },
+    { name: "context-usage", description: "Show token use against the model's context limit" },
     { name: "mode", description: "Set the approval mode for this session's project channel", options: [
       { type: ApplicationCommandOptionType.String, name: "mode", description: "How permission requests are handled", required: true,
         choices: APPROVAL_MODES.map((mode) => ({ name: mode, value: mode })) } ] } ]
@@ -330,6 +331,15 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (!deps.sessions) return void await interaction.editReply(noMentions("session utilities unavailable"))
       await deps.sessions.compact(thread.threadId)
       return void await interaction.editReply(noMentions("compacted"))
+    }
+    if (interaction.commandName === "context-usage") {
+      const thread = deps.db.threads.get(interaction.channelId)
+      if (!thread) return void await interaction.editReply(noMentions("use /context-usage inside a thread"))
+      if (!deps.sessions) return void await interaction.editReply(noMentions("session utilities unavailable"))
+      const usage = await deps.sessions.contextUsage(thread.threadId)
+      if (usage === "no-usage") return void await interaction.editReply(noMentions("no usage recorded for this thread yet"))
+      if (usage === "no-limit") return void await interaction.editReply(noMentions("context limit unavailable for this model"))
+      return void await interaction.editReply(noMentions(formatContextUsage(usage.used, usage.limit)))
     }
     if (interaction.commandName === "mode") {
       const requested = interaction.options.getString("mode", true)

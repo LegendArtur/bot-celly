@@ -13,12 +13,14 @@ export interface SessionOps {
   share(threadId: string): Promise<string>
   unshare(threadId: string): Promise<void>
   compact(threadId: string): Promise<"compacted">
+  contextUsage(threadId: string): Promise<{ used: number; limit: number } | "no-usage" | "no-limit">
 }
 
 export interface SessionOpsDeps {
   targetFor(threadId: string): SessionTarget | undefined
   clientFor(threadId: string): OpencodeClient
   threadModel(threadId: string): string | null | undefined
+  modelLimit(threadId: string, model: string): Promise<number | undefined>
 }
 
 export interface SessionArgs {
@@ -47,6 +49,19 @@ export async function lastUserMessageId(client: OpencodeClient, args: SessionArg
     }
   }
   return typeof last?.info?.id === "string" && last.info.id ? last.info.id : undefined
+}
+
+export function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}m`
+  if (n >= 1000) return `${Math.round(n / 100) / 10}k`
+  return String(n)
+}
+
+export function formatContextUsage(used: number, limit: number, cells = 20): string {
+  const ratio = limit > 0 ? used / limit : 0
+  const pct = Math.round(ratio * 100)
+  const filled = Math.max(0, Math.min(cells, Math.round(ratio * cells)))
+  return `${formatTokens(used)}/${formatTokens(limit)} (${pct}%)\n[${"█".repeat(filled)}${"░".repeat(cells - filled)}]`
 }
 
 export function formatDiff(files: FileDiff[], max = 10): string {
@@ -103,6 +118,23 @@ export function createSessionOps(deps: SessionOpsDeps): SessionOps {
         body: { providerID: model!.slice(0, slash), modelID: model!.slice(slash + 1) },
       })
       return "compacted"
+    },
+    async contextUsage(threadId) {
+      const args = argsFor(deps, threadId)
+      const messages = unwrap<unknown>(await deps.clientFor(threadId).session.messages(args))
+      let last: any
+      if (Array.isArray(messages)) {
+        for (const message of messages as any[]) if (message?.info?.role === "assistant") last = message
+      }
+      if (!last) return "no-usage"
+      const tokens = last.info?.tokens ?? {}
+      const used = Number(tokens.input ?? 0) + Number(tokens.output ?? 0)
+        + Number(tokens.cache?.read ?? 0) + Number(tokens.cache?.write ?? 0)
+      const model = deps.threadModel(threadId)
+      if (typeof model !== "string" || !model) return "no-limit"
+      const limit = await deps.modelLimit(threadId, model)
+      if (typeof limit !== "number" || limit <= 0) return "no-limit"
+      return { used, limit }
     },
   }
 }

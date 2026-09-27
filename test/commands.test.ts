@@ -56,7 +56,7 @@ const editOf = (i: any) => {
 
 test("declares the v1 command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "compact", "diff", "mode", "model", "new", "project", "queue", "redo", "resume", "share", "undo", "unshare"])
+  expect(names).toEqual(["abort", "agent", "compact", "context-usage", "diff", "mode", "model", "new", "project", "queue", "redo", "resume", "share", "undo", "unshare"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -761,4 +761,17 @@ test("compact reports compacted, and the no-model error is exact", async () => {
   await handleCommand(bad, { projects: {} as any, runner: {} as any, db, authorized: () => true,
     sessions: { compact: async () => { throw new Error("set a model with /model first") } } as any })
   expect(editOf(bad)).toBe("error: set a model with /model first")
+})
+
+test("context-usage renders the usage bar and the no-usage message", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const ok = interaction({ commandName: "context-usage", channelId: "t1" })
+  await handleCommand(ok, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { contextUsage: async () => ({ used: 50000, limit: 100000 }) } as any })
+  expect(editOf(ok)).toBe("50k/100k (50%)\n[██████████░░░░░░░░░░]")
+
+  const empty = interaction({ commandName: "context-usage", channelId: "t1" })
+  await handleCommand(empty, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { contextUsage: async () => "no-usage" } as any })
+  expect(editOf(empty)).toBe("no usage recorded for this thread yet")
 })
