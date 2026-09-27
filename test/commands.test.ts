@@ -24,6 +24,7 @@ function interaction(over: any = {}) {
     options: {
       getSubcommand: () => over.sub,
       getString: (n: string) => strings[n],
+      getNumber: (n: string) => (over.numbers ?? {})[n],
     },
     deferReply: async (o: any) => { calls.push({ kind: "defer", o }) },
     editReply: async (c: any) => { calls.push({ kind: "edit", c }) },
@@ -56,7 +57,7 @@ const editOf = (i: any) => {
 
 test("declares the providers and cost command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "cost", "model", "new", "project", "resume"])
+  expect(names).toEqual(["abort", "agent", "budget", "cost", "model", "new", "project", "resume"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -266,6 +267,41 @@ test("/cost outside a project is rejected", async () => {
   const i = interaction({ commandName: "cost", channelId: "other" })
   await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
   expect(editOf(i)).toBe("this channel is not a project")
+})
+
+test("/budget set stores the channel override and show reports it", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const setI = interaction({ commandName: "budget", sub: "set", channelId: "c", numbers: { usd: 2.5 } })
+  await handleCommand(setI, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true, sessionBudgetUsd: 5 })
+  expect(db.settings.get("budget_usd:c")).toBe("2.5")
+  expect(editOf(setI)).toBe("budget set to $2.5000 per session")
+  const showI = interaction({ commandName: "budget", sub: "show", channelId: "c" })
+  await handleCommand(showI, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true, sessionBudgetUsd: 5 })
+  expect(editOf(showI)).toBe("session budget: $2.5000")
+})
+
+test("/budget set 0 disables the budget for the channel", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const setI = interaction({ commandName: "budget", sub: "set", channelId: "c", numbers: { usd: 0 } })
+  await handleCommand(setI, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true, sessionBudgetUsd: 5 })
+  const showI = interaction({ commandName: "budget", sub: "show", channelId: "c" })
+  await handleCommand(showI, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true, sessionBudgetUsd: 5 })
+  expect(editOf(showI)).toBe("session budget: off")
+})
+
+test("/budget is owner-only", async () => {
+  const i = interaction({ commandName: "budget", sub: "show", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => false })
+  expect(i.calls).toHaveLength(1)
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only.", flags: 64, allowedMentions: { parse: [] } } })
+})
+
+test("requiresOwner covers the new owner-only commands", () => {
+  expect(requiresOwner("budget", "show")).toBe(true)
+  expect(requiresOwner("budget", "set")).toBe(true)
+  expect(requiresOwner("login", null)).toBe(true)
+  expect(requiresOwner("login-code", null)).toBe(true)
+  expect(requiresOwner("cost", null)).toBe(false)
 })
 
 test("new creates a thread in the project channel and prompts", async () => {

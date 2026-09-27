@@ -26,7 +26,12 @@ export function commandData(): any[] {
     { name: "abort", description: "Abort the current run" },
     { name: "model", description: "Choose the model for this thread" },
     { name: "agent", description: "Choose the agent for this thread" },
-    { name: "cost", description: "Show session and channel cost" } ]
+    { name: "cost", description: "Show session and channel cost" },
+    { name: "budget", description: "Show or set this channel's session budget (owner-only)", options: [
+      { type: ApplicationCommandOptionType.Subcommand, name: "show", description: "Show the current session budget" },
+      { type: ApplicationCommandOptionType.Subcommand, name: "set", description: "Set the channel session budget in USD", options: [
+        { type: ApplicationCommandOptionType.Number, name: "usd", description: "Budget in USD; 0 disables", required: true } ] },
+    ] } ]
 }
 
 export interface CreateThreadInput {
@@ -103,7 +108,8 @@ function selectRow(customId: string, placeholder: string, options: { label: stri
 
 const OWNER_ONLY_PROJECT_SUBS = new Set(["add", "create", "start", "stop", "remove"])
 export function requiresOwner(commandName: string, sub: string | null | undefined): boolean {
-  return commandName === "project" && !!sub && OWNER_ONLY_PROJECT_SUBS.has(sub)
+  if (commandName === "project") return !!sub && OWNER_ONLY_PROJECT_SUBS.has(sub)
+  return commandName === "budget" || commandName === "login" || commandName === "login-code"
 }
 
 function commandProjectChannel(interaction: any, db: Db): string | undefined {
@@ -113,7 +119,9 @@ function commandProjectChannel(interaction: any, db: Db): string | undefined {
 
 export async function handleCommand(interaction: any, deps: CommandDeps): Promise<void> {
   if (!deps.authorized(interaction)) { await interaction.reply(noMentions("You are not authorized.", { flags: 64 })); return }
-  const sub = interaction.commandName === "project" ? interaction.options.getSubcommand(false) : null
+  const sub = interaction.commandName === "project" || interaction.commandName === "budget"
+    ? interaction.options.getSubcommand(false)
+    : null
   if (requiresOwner(interaction.commandName, sub) && !deps.isOwner?.(interaction)) {
     await interaction.reply(noMentions("This command is owner-only.", { flags: 64 })); return
   }
@@ -238,6 +246,18 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         budget > 0 ? `budget: ${formatCost(budget)}/session` : "budget: off",
       ].filter(Boolean)
       return void await interaction.editReply(noMentions(lines.join("\n")))
+    }
+    if (interaction.commandName === "budget") {
+      const channelId = commandProjectChannel(interaction, deps.db)
+      if (!channelId) return void await interaction.editReply(noMentions("this channel is not a project"))
+      if (sub === "set") {
+        const usd = interaction.options.getNumber("usd", true)
+        if (typeof usd !== "number" || !Number.isFinite(usd) || usd < 0) return void await interaction.editReply(noMentions("error: usd must be a number >= 0"))
+        deps.db.settings.set(`budget_usd:${channelId}`, String(usd))
+        return void await interaction.editReply(noMentions(`budget set to ${formatCost(usd)} per session`))
+      }
+      const budget = resolveBudget(deps.db.settings, channelId, deps.sessionBudgetUsd ?? 0)
+      return void await interaction.editReply(noMentions(budget > 0 ? `session budget: ${formatCost(budget)}` : "session budget: off"))
     }
     await interaction.editReply(noMentions("not implemented in this build"))
   } catch (e) {
