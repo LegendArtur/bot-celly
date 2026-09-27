@@ -747,16 +747,18 @@ test("task declares add, list, and remove subcommands", () => {
   expect(add.options.map((o: any) => o.name)).toEqual(["channel", "prompt", "every_minutes"])
 })
 
-test("task add schedules a prompt in a project channel", async () => {
+test("task add schedules a prompt in a project channel and audits it", async () => {
   const db = fresh()
   db.projects.insertProvisioning({ ...proj, channelId: "c", name: "demo" })
+  const audits: any[] = []
   const i = taskInteraction({ sub: "add", channels: { channel: { id: "c" } }, strings: { prompt: "standup" }, integers: { every_minutes: 60 } })
-  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true, audit: (e: any) => audits.push(e) })
   const tasks = db.tasks.list()
   expect(tasks).toHaveLength(1)
   expect(tasks[0]).toMatchObject({ channelId: "c", prompt: "standup", everyMinutes: 60, enabled: true })
   expect(editOf(i)).toContain("scheduled task")
   expect(editOf(i)).toContain("every 60m")
+  expect(audits).toEqual([{ kind: "task", channelId: "c", threadId: "c", actorId: "u1", detail: `add:${tasks[0]!.id} every 60m`, decision: "add" }])
 })
 
 test("task add rejects a channel that is not a project", async () => {
@@ -767,19 +769,24 @@ test("task add rejects a channel that is not a project", async () => {
   expect(editOf(i)).toBe("channel is not a project")
 })
 
-test("task list renders tasks and remove deletes by id", async () => {
+test("task list renders tasks and remove deletes by id with audit entries", async () => {
   const db = fresh()
   const id = db.tasks.add({ channelId: "c", prompt: "standup", everyMinutes: 60, nextRunAt: 1000, createdAt: 1 })
   const list = taskInteraction({ sub: "list" })
   await handleCommand(list, { projects: {} as any, runner: {} as any, db, authorized: () => true })
   expect(editOf(list)).toContain(`#${id}`)
+  const audits: any[] = []
   const remove = taskInteraction({ sub: "remove", integers: { id } })
-  await handleCommand(remove, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true })
+  await handleCommand(remove, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true, audit: (e: any) => audits.push(e) })
   expect(editOf(remove)).toBe(`removed task ${id}`)
   expect(db.tasks.list()).toEqual([])
   const missing = taskInteraction({ sub: "remove", integers: { id } })
-  await handleCommand(missing, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true })
+  await handleCommand(missing, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true, audit: (e: any) => audits.push(e) })
   expect(editOf(missing)).toBe(`task ${id} not found`)
+  expect(audits).toEqual([
+    { kind: "task", channelId: "c", threadId: "c", actorId: "u1", detail: `remove:${id}`, decision: "remove" },
+    { kind: "task", channelId: "c", threadId: "c", actorId: "u1", detail: `remove:${id}`, decision: "missing" },
+  ])
 })
 
 test("requiresOwner covers task add and remove only", () => {

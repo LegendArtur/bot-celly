@@ -531,6 +531,7 @@ async function main(): Promise<void> {
     prompt: (threadId, text, actor) => runnerSvc.prompt(threadId, text, actor),
     ensureThread: async (channelId) => (await createThreadForProject({ channelId, title: "scheduled task" })).threadId,
     log: { warn: (message, fields) => log.warn(message, fields) },
+    audit,
   })
   taskRunner.start()
 

@@ -359,6 +359,7 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         const everyMinutes = interaction.options.getInteger("every_minutes", true)
         const now = Date.now()
         const id = deps.db.tasks.add({ channelId: project.channelId, prompt, everyMinutes, nextRunAt: now + everyMinutes * 60_000, createdAt: now })
+        deps.audit?.({ kind: "task", channelId: project.channelId, threadId: interaction.channelId, actorId: interaction.user?.id ?? "unknown", detail: `add:${id} every ${everyMinutes}m`, decision: "add" })
         return void await interaction.editReply(noMentions(`scheduled task ${id} every ${everyMinutes}m in <#${project.channelId}>`))
       }
       if (sub === "list") {
@@ -367,7 +368,9 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       }
       if (sub === "remove") {
         const id = interaction.options.getInteger("id", true)
+        const existing = deps.db.tasks.list().find((t) => t.id === id)
         const removed = deps.db.tasks.remove(id)
+        deps.audit?.({ kind: "task", channelId: existing?.channelId ?? interaction.channelId, threadId: interaction.channelId, actorId: interaction.user?.id ?? "unknown", detail: `remove:${id}`, decision: removed ? "remove" : "missing" })
         return void await interaction.editReply(noMentions(removed ? `removed task ${id}` : `task ${id} not found`))
       }
     }

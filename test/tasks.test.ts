@@ -30,6 +30,33 @@ test("tick prompts the most recent thread for each due task and advances next_ru
   expect(db.tasks.list()[0]?.id).toBe(id)
 })
 
+test("tick records a run audit entry for each due task", async () => {
+  const db = setup()
+  db.threads.upsert(threadRow("t1", 10))
+  db.tasks.add({ channelId: "c1", prompt: "standup", everyMinutes: 60, nextRunAt: 0, createdAt: 1 })
+  const entries: any[] = []
+  const runner = createTaskRunner({ db, now: () => 100, everyMs: 0,
+    prompt: async () => undefined,
+    ensureThread: async () => "t1",
+    audit: (entry) => entries.push(entry) })
+  await runner.tick()
+  expect(entries).toEqual([{ kind: "task", channelId: "c1", threadId: "t1", actorId: "scheduler", detail: "standup", decision: "run" }])
+})
+
+test("tick truncates the audited prompt detail to 200 chars", async () => {
+  const db = setup()
+  db.threads.upsert(threadRow("t1", 10))
+  const prompt = "x".repeat(500)
+  db.tasks.add({ channelId: "c1", prompt, everyMinutes: 60, nextRunAt: 0, createdAt: 1 })
+  const entries: any[] = []
+  const runner = createTaskRunner({ db, now: () => 100, everyMs: 0,
+    prompt: async () => undefined,
+    ensureThread: async () => "t1",
+    audit: (entry) => entries.push(entry) })
+  await runner.tick()
+  expect(entries[0]?.detail).toHaveLength(200)
+})
+
 test("tick skips disabled and not-yet-due tasks", async () => {
   const db = setup()
   const id = db.tasks.add({ channelId: "c1", prompt: "later", everyMinutes: 5, nextRunAt: 10_000, createdAt: 1 })
