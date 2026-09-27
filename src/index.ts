@@ -16,7 +16,7 @@ import { Runner } from "./runner.js"
 import { EventRouter } from "./events.js"
 import { Renderer, renderPayload, sanitizeThreadName } from "./render.js"
 import { resolveBaseUrl, resolveClient } from "./opencode.js"
-import { startProviderLogin } from "./oauth.js"
+import { finishProviderLogin, startProviderLogin } from "./oauth.js"
 import { runShell } from "./shell.js"
 import { ingestAttachments } from "./attachments.js"
 import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
@@ -403,6 +403,12 @@ async function main(): Promise<void> {
       if (!project) throw new Error(`unknown project channel ${channelId}`)
       await projects.ensureReady(channelId)
       return startProviderLogin({ client: resolveClient(project), log: (msg, fields) => log.info(msg, fields) }, providerId)
+    },
+    finishLogin: async (channelId, providerId, code) => {
+      const project = db.projects.getByChannel(channelId)
+      if (!project) throw new Error(`unknown project channel ${channelId}`)
+      await projects.ensureReady(channelId)
+      await finishProviderLogin({ client: resolveClient(project), log: (msg, fields) => log.info(msg, fields) }, providerId, code)
     },
     postConnected: async (channelId, projectName) => {
       const channel = await client.channels.fetch(channelId).catch(() => null)

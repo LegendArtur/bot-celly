@@ -41,3 +41,12 @@ export async function startProviderLogin(deps: OAuthDeps, providerId: string): P
   deps.log("provider login started", { providerId, flow })
   return { providerId, method, url: authorization.url, flow, instructions: authorization.instructions ?? "" }
 }
+
+export async function finishProviderLogin(deps: OAuthDeps, providerId: string, code: string): Promise<void> {
+  const methods = unwrap(await deps.client.provider.auth()) as Record<string, ProviderAuthMethod[]> | undefined
+  const method = selectOAuthMethod(methods?.[providerId])
+  if (method < 0) throw new Error(`no oauth method for ${providerId}`)
+  const ok = unwrap(await deps.client.provider.oauth.callback({ path: { id: providerId }, body: { method, code } }))
+  if (ok !== true) throw new Error(`oauth callback for ${providerId} failed`)
+  deps.log("provider login completed", { providerId })
+}

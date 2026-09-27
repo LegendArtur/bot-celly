@@ -1,6 +1,6 @@
 // test/oauth.test.ts
 import { expect, test } from "vitest"
-import { selectOAuthMethod, startProviderLogin } from "../src/oauth.ts"
+import { finishProviderLogin, selectOAuthMethod, startProviderLogin } from "../src/oauth.ts"
 import type { OAuthClient } from "../src/oauth.ts"
 
 function fakeClient(over: any = {}) {
@@ -39,4 +39,32 @@ test("startProviderLogin recognizes auto-method flows", async () => {
 test("startProviderLogin errors when the provider has no oauth method", async () => {
   const { client } = fakeClient({ authResponse: { anthropic: [{ type: "api", label: "API key" }] } })
   await expect(startProviderLogin({ client, log: () => {} }, "anthropic")).rejects.toThrow("no oauth method for anthropic")
+})
+
+test("finishProviderLogin exchanges the code and reports success", async () => {
+  const { client, calls } = fakeClient()
+  await finishProviderLogin({ client, log: () => {} }, "anthropic", "the-code")
+  expect(calls).toEqual([
+    { op: "callback", o: { path: { id: "anthropic" }, body: { method: 0, code: "the-code" } } },
+  ])
+})
+
+test("finishProviderLogin errors when the callback reports failure", async () => {
+  const { client } = fakeClient({ callbackResponse: { data: false } })
+  await expect(finishProviderLogin({ client, log: () => {} }, "anthropic", "the-code")).rejects.toThrow("oauth callback for anthropic failed")
+})
+
+test("finishProviderLogin errors when the provider has no oauth method", async () => {
+  const { client } = fakeClient({ authResponse: { anthropic: [{ type: "api", label: "API key" }] } })
+  await expect(finishProviderLogin({ client, log: () => {} }, "anthropic", "the-code")).rejects.toThrow("no oauth method for anthropic")
+})
+
+test("provider login never logs credentials", async () => {
+  const lines: string[] = []
+  const log = (msg: string, fields?: Record<string, unknown>) => { lines.push(JSON.stringify({ msg, fields })) }
+  const { client } = fakeClient()
+  await startProviderLogin({ client, log }, "anthropic")
+  await finishProviderLogin({ client, log }, "anthropic", "FAKE_CODE")
+  expect(lines.length).toBeGreaterThan(0)
+  expect(lines.join("\n")).not.toMatch(/FAKE_(REFRESH|ACCESS)_TOKEN|FAKE_CODE/)
 })

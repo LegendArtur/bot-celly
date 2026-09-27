@@ -326,6 +326,30 @@ test("/login is owner-only", async () => {
   expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only." } })
 })
 
+test("/login-code completes the flow and confirms", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const finished: Array<[string, string, string]> = []
+  const i = interaction({ commandName: "login-code", channelId: "c", strings: { provider: "anthropic", code: "abc123" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
+    finishLogin: async (channelId, providerId, code) => { finished.push([channelId, providerId, code]) } })
+  expect(finished).toEqual([["c", "anthropic", "abc123"]])
+  expect(editOf(i)).toBe("logged in to anthropic")
+})
+
+test("/login-code replies error when the callback fails", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const i = interaction({ commandName: "login-code", channelId: "c", strings: { provider: "anthropic", code: "abc123" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
+    finishLogin: async () => { throw new Error("oauth callback for anthropic failed") } })
+  expect(editOf(i)).toBe("error: oauth callback for anthropic failed")
+})
+
+test("/login-code is owner-only", async () => {
+  const i = interaction({ commandName: "login-code", channelId: "c", strings: { provider: "anthropic", code: "abc123" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => false })
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only." } })
+})
+
 test("requiresOwner covers the new owner-only commands", () => {
   expect(requiresOwner("budget", "show")).toBe(true)
   expect(requiresOwner("budget", "set")).toBe(true)

@@ -282,6 +282,15 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       ].filter(Boolean)
       return void await interaction.editReply(noMentions(lines.join("\n")))
     }
+    if (interaction.commandName === "login-code") {
+      const channelId = commandProjectChannel(interaction, deps.db)
+      if (!channelId) return void await interaction.editReply(noMentions("this channel is not a project"))
+      const providerId = interaction.options.getString("provider", true)
+      const code = interaction.options.getString("code", true)
+      if (!deps.finishLogin) return void await interaction.editReply(noMentions("login unavailable"))
+      await deps.finishLogin(channelId, providerId, code)
+      return void await interaction.editReply(noMentions(`logged in to ${providerId}`))
+    }
     await interaction.editReply(noMentions("not implemented in this build"))
   } catch (e) {
     await interaction.editReply(noMentions(`error: ${(e as Error).message}`))
