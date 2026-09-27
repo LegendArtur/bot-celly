@@ -1,6 +1,8 @@
 import { mkdirSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
+import { APPROVAL_MODES, isApprovalMode } from "./mode.js"
+import type { ApprovalMode } from "./mode.ts"
 
 export interface Config {
   discordToken: string; guildId: string; projectsRoot: string
@@ -8,6 +10,7 @@ export interface Config {
   sandboxTemplate: string; sandboxCpus: number; sandboxMemory: string
   portRangeStart: number; portRangeEnd: number
   defaultModel?: string; defaultAgent?: string
+  approvalMode: ApprovalMode
   bootTimeoutMs: number; healthTimeoutMs: number; editIntervalMs: number
   attachmentMaxBytes: number; maxQueue: number; maxConcurrentRuns: number
   dataDir: string; logLevel: "debug" | "info" | "warn" | "error"
@@ -32,10 +35,11 @@ export function loadDotEnv(path = ".env", loader: (p: string) => void = (p) => {
  */
 export function seedSettings(
   db: { settings: { get(key: string): string | undefined; set(key: string, value: string): void } },
-  cfg: { defaultModel?: string; defaultAgent?: string },
+  cfg: { defaultModel?: string; defaultAgent?: string; approvalMode?: string },
 ): void {
   if (cfg.defaultModel && db.settings.get("default_model") === undefined) db.settings.set("default_model", cfg.defaultModel)
   if (cfg.defaultAgent && db.settings.get("default_agent") === undefined) db.settings.set("default_agent", cfg.defaultAgent)
+  if (cfg.approvalMode && db.settings.get("approval_mode") === undefined) db.settings.set("approval_mode", cfg.approvalMode)
 }
 
 const str = (e: NodeJS.ProcessEnv, k: string) => e[k]?.trim() || undefined
@@ -61,6 +65,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   if (portRangeEnd <= portRangeStart) throw new Error("PORT_RANGE_END must exceed PORT_RANGE_START")
   const level = str(env, "LOG_LEVEL") ?? "info"
   if (!["debug", "info", "warn", "error"].includes(level)) throw new Error(`LOG_LEVEL invalid: ${level}`)
+  const approvalMode = str(env, "APPROVAL_MODE") ?? "buttons"
+  if (!isApprovalMode(approvalMode)) throw new Error(`APPROVAL_MODE must be one of ${APPROVAL_MODES.join(", ")}, got "${approvalMode}"`)
   return {
     discordToken: str(env, "DISCORD_TOKEN")!, guildId: str(env, "DISCORD_GUILD_ID")!,
     projectsRoot: str(env, "PROJECTS_ROOT") ?? defaultProjectsRoot(),
@@ -71,6 +77,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     sandboxCpus: int(env, "SANDBOX_CPUS", 2, 1), sandboxMemory: str(env, "SANDBOX_MEMORY") ?? "4g",
     portRangeStart, portRangeEnd,
     defaultModel: str(env, "DEFAULT_MODEL"), defaultAgent: str(env, "DEFAULT_AGENT"),
+    approvalMode,
     bootTimeoutMs: int(env, "BOOT_TIMEOUT_MS", 120000, 1), healthTimeoutMs: int(env, "HEALTH_TIMEOUT_MS", 30000, 1),
     editIntervalMs: int(env, "EDIT_INTERVAL_MS", 1200, 1),
     attachmentMaxBytes: int(env, "ATTACHMENT_MAX_BYTES", 102400, 1),

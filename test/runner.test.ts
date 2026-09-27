@@ -1,6 +1,6 @@
 // test/runner.test.ts
 import { expect, test, vi } from "vitest"
-import { evaluatePermission, normalizeCommand, Runner } from "../src/runner.ts"
+import { decidePermission, evaluatePermission, normalizeCommand, Runner } from "../src/runner.ts"
 import { Renderer } from "../src/render.ts"
 
 test("rejects deny-listed bash patterns", () => {
@@ -711,4 +711,27 @@ test("handleProjectDown finalizes and idles active threads, freeing the concurre
   expect(states).toContain("idle")
   expect(pushed.some((p) => p.finalize)).toBe(true)
   expect(pushed.some((p) => p.kind === "text" && /stopped/.test(p.text))).toBe(true)
+})
+
+test("decidePermission keeps today's policy under auto", () => {
+  expect(decidePermission("auto", { tool: "bash", patterns: ["npm test"] })).toBe("once")
+  expect(decidePermission("auto", { tool: "bash", patterns: ["git push origin main"] })).toBe("reject")
+})
+
+test("decidePermission plan allows only read-only tools", () => {
+  for (const tool of ["read", "glob", "grep", "list", "find"]) {
+    expect(decidePermission("plan", { tool, patterns: [] }), tool).toBe("once")
+  }
+  for (const tool of ["bash", "edit", "write", "patch", "external_directory", "webfetch", "task", "totally_unknown_tool"]) {
+    expect(decidePermission("plan", { tool, patterns: [] }), tool).toBe("reject")
+  }
+  expect(decidePermission("plan", { tool: "read", patterns: ["/root/.config/celly/opencode.env"] })).toBe("reject")
+})
+
+test("decidePermission buttons auto-allows read-only tools, asks for mutations, and still rejects deny-listed or unknown tools", () => {
+  expect(decidePermission("buttons", { tool: "read", patterns: [] })).toBe("once")
+  expect(decidePermission("buttons", { tool: "bash", patterns: ["npm test"] })).toBe("ask")
+  expect(decidePermission("buttons", { tool: "edit", patterns: ["src/a.ts"] })).toBe("ask")
+  expect(decidePermission("buttons", { tool: "bash", patterns: ["git push origin main"] })).toBe("reject")
+  expect(decidePermission("buttons", { tool: "totally_unknown_tool", patterns: [] })).toBe("reject")
 })

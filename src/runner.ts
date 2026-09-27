@@ -1,5 +1,7 @@
 import { bashDenyPatterns } from "./opencode.js"
+import { PLAN_READ_ONLY_TOOLS } from "./mode.js"
 import type { OpencodeClient } from "./opencode.ts"
+import type { ApprovalMode } from "./mode.ts"
 import { partToEvent } from "./events.js"
 import type { NormalizedEvent } from "./events.ts"
 import type { Renderer } from "./render.ts"
@@ -11,7 +13,7 @@ const DEFAULT_DENY = bashDenyPatterns()
 // ids older builds surfaced (patch/todoread/multiedit). Anything outside this
 // list is default-rejected rather than silently allowed.
 const ALLOWED_TOOLS = new Set([
-  "bash", "edit", "write", "read", "glob", "grep", "list",
+  "bash", "edit", "write", "read", "glob", "grep", "list", "find",
   "webfetch", "websearch", "task", "skill", "lsp", "doom_loop",
   "todowrite", "todoread", "patch", "multiedit",
 ])
@@ -150,6 +152,13 @@ export function evaluatePermission(req: { tool: string; patterns: string[] }, de
     if (normalizedDeny.some((d) => matches(d, normalized))) return "reject"
   }
   return "once"
+}
+
+export function decidePermission(mode: ApprovalMode, req: { tool: string; patterns: string[] }): "once" | "always" | "reject" | "ask" {
+  if (mode === "auto") return evaluatePermission(req)
+  if (evaluatePermission(req) === "reject") return "reject"
+  if (PLAN_READ_ONLY_TOOLS.has(req.tool)) return "once"
+  return mode === "plan" ? "reject" : "ask"
 }
 
 export interface RunnerDeps {
