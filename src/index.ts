@@ -64,6 +64,7 @@ async function main(): Promise<void> {
         db, dir: join(cfg.dataDir, "backups"),
         intervalMs: cfg.backupIntervalHours * 3_600_000,
         keep: cfg.backupKeep, now: () => Date.now(),
+        warn: (message, fields) => log.warn(message, fields),
       })
     : undefined
   backups?.start()

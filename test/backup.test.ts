@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite"
 import { mkdtempSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, relative } from "node:path"
 import { expect, test } from "vitest"
 import { createBackupScheduler } from "../src/backup.ts"
 import { openDb } from "../src/db.ts"
@@ -42,6 +42,30 @@ test("a quote in the backup directory path is escaped", async () => {
   } finally {
     db.close()
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("resolves a relative backup dir against cwd and prunes backups", async () => {
+  const base = mkdtempSync(join(tmpdir(), "celly-rel-backup-"))
+  const db = openDb(join(base, "bot.db"))
+  db.migrate()
+  db.projects.insertProvisioning(proj)
+  try {
+    const relDir = relative(process.cwd(), join(base, "backups"))
+    let clock = 1_700_000_000_000
+    const scheduler = createBackupScheduler({ db, dir: relDir, intervalMs: 0, keep: 2, now: () => clock })
+    clock += 1000; const first = await scheduler.tick()
+    expect(first).toBe(join(base, "backups", "bot-2023-11-14T22-13-21-000Z.db"))
+    const backup = new DatabaseSync(first!)
+    expect((backup.prepare("SELECT name FROM projects").get() as any).name).toBe("demo")
+    backup.close()
+    clock += 1000; await scheduler.tick()
+    clock += 1000; await scheduler.tick()
+    const names = readdirSync(join(base, "backups")).sort()
+    expect(names).toHaveLength(2)
+  } finally {
+    db.close()
+    rmSync(base, { recursive: true, force: true })
   }
 })
 

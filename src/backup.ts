@@ -1,5 +1,5 @@
 import { mkdirSync, readdirSync, rmSync } from "node:fs"
-import { isAbsolute, join } from "node:path"
+import { join, resolve } from "node:path"
 import type { Db } from "./db.ts"
 
 export interface BackupSchedulerDeps {
@@ -8,6 +8,7 @@ export interface BackupSchedulerDeps {
   intervalMs: number
   keep: number
   now(): number
+  warn?(message: string, fields?: Record<string, unknown>): void
 }
 
 export interface BackupScheduler {
@@ -27,18 +28,22 @@ function prune(dir: string, keep: number): void {
 export function createBackupScheduler(deps: BackupSchedulerDeps): BackupScheduler {
   let timer: ReturnType<typeof setInterval> | undefined
   const tick = async (): Promise<string | undefined> => {
-    mkdirSync(deps.dir, { recursive: true })
-    const file = join(deps.dir, `bot-${new Date(deps.now()).toISOString().replace(/[:.]/g, "-")}.db`)
-    if (!isAbsolute(file) || file.includes("\0")) throw new Error(`invalid backup path: ${file}`)
+    if (deps.dir.includes("\0")) throw new Error(`invalid backup path: ${deps.dir}`)
+    const dir = resolve(deps.dir)
+    mkdirSync(dir, { recursive: true })
+    const file = resolve(dir, `bot-${new Date(deps.now()).toISOString().replace(/[:.]/g, "-")}.db`)
+    if (file.includes("\0")) throw new Error(`invalid backup path: ${file}`)
     deps.db.backupTo(file)
-    prune(deps.dir, deps.keep)
+    prune(dir, deps.keep)
     return file
   }
   return {
     tick,
     start() {
       if (timer !== undefined || deps.intervalMs <= 0) return
-      timer = setInterval(() => { void tick().catch(() => {}) }, deps.intervalMs)
+      timer = setInterval(() => {
+        void tick().catch((e) => deps.warn?.("backup tick failed", { error: String(e) }))
+      }, deps.intervalMs)
       if (typeof (timer as any).unref === "function") (timer as any).unref()
     },
     stop() {
