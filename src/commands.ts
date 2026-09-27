@@ -1,11 +1,11 @@
-import { ActionRowBuilder, ApplicationCommandOptionType, ComponentType, ModalBuilder, TextInputBuilder, TextInputStyle } from "discord.js"
+import { ActionRowBuilder, ApplicationCommandOptionType, ButtonStyle, ComponentType, ModalBuilder, TextInputBuilder, TextInputStyle } from "discord.js"
 import { ANSWER_ACTION, APPROVAL_ACTION, REJECT_QUESTION_ACTION, answerCustomId } from "./approvals.js"
 import { APPROVAL_MODES, isApprovalMode } from "./mode.js"
 import type { ApprovalManager } from "./approvals.ts"
 import type { AuditDraft } from "./audit.ts"
 import type { Db } from "./db.ts"
 import type { ProjectService } from "./projects.ts"
-import type { Runner } from "./runner.ts"
+import type { QueuedPrompt, Runner } from "./runner.ts"
 
 export function commandData(): any[] {
   const project = { name: "project", description: "Manage Celly projects", options: [
@@ -29,6 +29,7 @@ export function commandData(): any[] {
     { name: "abort", description: "Abort the current run" },
     { name: "model", description: "Choose the model for this thread" },
     { name: "agent", description: "Choose the agent for this thread" },
+    { name: "queue", description: "Show and manage this thread's queued prompts" },
     { name: "mode", description: "Set the approval mode for this session's project channel", options: [
       { type: ApplicationCommandOptionType.String, name: "mode", description: "How permission requests are handled", required: true,
         choices: APPROVAL_MODES.map((mode) => ({ name: mode, value: mode })) } ] } ]
@@ -61,8 +62,13 @@ export const RESUME_SELECT = "resume"
 export const MODEL_PROVIDER_SELECT = "model-provider"
 export const MODEL_SELECT = "model"
 export const AGENT_SELECT = "agent"
+export const QUEUE_REMOVE = "queue-remove"
+export const QUEUE_CLEAR = "queue-clear"
 
 export function selectCustomId(action: string, id: string): string { return `celly:${action}:${id}` }
+export function buttonCustomId(action: string, id: string, extra?: string): string {
+  return extra === undefined ? `celly:${action}:${id}` : `celly:${action}:${id}:${extra}`
+}
 export function parseCustomId(customId: string): { action: string; id?: string } {
   const { action, id } = parseCustomIdFull(customId)
   return { action, id }
@@ -121,6 +127,28 @@ export function sanitizeSelectOptions(options: { label?: unknown; value?: unknow
 
 function selectRow(customId: string, placeholder: string, options: { label: string; value: string }[]): any {
   return { type: ComponentType.ActionRow, components: [{ type: ComponentType.StringSelect, custom_id: customId, placeholder, min_values: 1, max_values: 1, options: sanitizeSelectOptions(options) }] }
+}
+
+function queueMessage(threadId: string, entries: QueuedPrompt[]): any {
+  if (!entries.length) return noMentions("queue is empty")
+  const shown = entries.slice(0, 10)
+  const content = `Queued (${entries.length}):\n` + shown.map((entry, i) => `${i + 1}. ${entry.text.slice(0, 100)}`).join("\n")
+  const rows: any[] = []
+  for (let i = 0; i < shown.length; i += 5) {
+    rows.push({ type: ComponentType.ActionRow, components: shown.slice(i, i + 5).map((_, j) => ({
+      type: ComponentType.Button,
+      style: ButtonStyle.Secondary,
+      custom_id: buttonCustomId(QUEUE_REMOVE, threadId, String(i + j)),
+      label: `Remove #${i + j + 1}`,
+    })) })
+  }
+  rows.push({ type: ComponentType.ActionRow, components: [{
+    type: ComponentType.Button,
+    style: ButtonStyle.Danger,
+    custom_id: buttonCustomId(QUEUE_CLEAR, threadId),
+    label: "Clear",
+  }] })
+  return { content, components: rows, allowedMentions: { parse: [] } }
 }
 
 const OWNER_ONLY_PROJECT_SUBS = new Set(["add", "create", "start", "stop", "remove"])
@@ -245,6 +273,11 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       for (const threadId of threadIds) await deps.runner.abort(threadId)
       return void await interaction.editReply(noMentions("aborted"))
     }
+    if (interaction.commandName === "queue") {
+      const thread = deps.db.threads.get(interaction.channelId)
+      if (!thread) return void await interaction.editReply(noMentions("use /queue inside a thread"))
+      return void await interaction.editReply(queueMessage(thread.threadId, deps.runner.queuedFor(thread.threadId)))
+    }
     if (interaction.commandName === "mode") {
       const requested = interaction.options.getString("mode", true)
       if (!isApprovalMode(requested)) return void await interaction.editReply(noMentions(`unknown mode: ${requested}`))
@@ -304,6 +337,33 @@ export async function handleSelect(interaction: any, deps: CommandDeps): Promise
   }
 }
 
+export async function handleQueueButton(interaction: any, deps: CommandDeps): Promise<void> {
+  if (!deps.authorized(interaction)) { await interaction.reply(noMentions("You are not authorized.", { flags: 64 })); return }
+  const { action, id: threadId, extra } = parseCustomIdFull(interaction.customId ?? "")
+  try {
+    await interaction.deferUpdate()
+    if (action === QUEUE_REMOVE) {
+      if (!threadId) return void await interaction.editReply(noMentions("unknown queue button"))
+      const index = Number(extra)
+      if (!Number.isInteger(index) || !deps.runner.removeQueued(threadId, index)) {
+        return void await interaction.editReply({ content: "queue changed; run /queue again", components: [], allowedMentions: { parse: [] } })
+      }
+      return void await interaction.editReply(queueMessage(threadId, deps.runner.queuedFor(threadId)))
+    }
+    if (action === QUEUE_CLEAR) {
+      if (!threadId) return void await interaction.editReply(noMentions("unknown queue button"))
+      const cleared = deps.runner.clearQueued(threadId)
+      const content = cleared > 0 ? `cleared ${cleared} queued prompt${cleared === 1 ? "" : "s"}` : "queue is empty"
+      return void await interaction.editReply({ content, components: [], allowedMentions: { parse: [] } })
+    }
+    return void await interaction.editReply({ content: "unknown button", components: [], allowedMentions: { parse: [] } })
+  } catch (e) {
+    const content = `error: ${(e as Error).message}`
+    if (interaction.deferred || interaction.replied) return void await interaction.editReply(noMentions(content))
+    await interaction.reply(noMentions(content, { flags: 64 }))
+  }
+}
+
 function stale(interaction: any): Promise<void> {
   return interaction.reply(noMentions("this request is no longer active", { flags: 64 }))
 }
@@ -324,6 +384,7 @@ export function customAnswerModal(requestId: string, questionIndex: number): any
 export async function handleButton(interaction: any, deps: CommandDeps): Promise<void> {
   if (!deps.authorized(interaction)) { await interaction.reply(noMentions("You are not authorized.", { flags: 64 })); return }
   const { action } = parseCustomIdFull(interaction.customId ?? "")
+  if (action === QUEUE_REMOVE || action === QUEUE_CLEAR) return handleQueueButton(interaction, deps)
   if (action === APPROVAL_ACTION) return handleApprovalButton(interaction, deps)
   if (action === ANSWER_ACTION) return handleAnswerButton(interaction, deps)
   if (action === REJECT_QUESTION_ACTION) return handleRejectQuestionButton(interaction, deps)

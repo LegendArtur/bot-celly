@@ -56,7 +56,7 @@ const editOf = (i: any) => {
 
 test("declares the v1 command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "mode", "model", "new", "project", "resume"])
+  expect(names).toEqual(["abort", "agent", "mode", "model", "new", "project", "queue", "resume"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -598,4 +598,79 @@ test("non-owner mode is rejected before defer", async () => {
   await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => false })
   expect(i.calls).toHaveLength(1)
   expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only.", flags: 64 } })
+})
+
+test("queue lists queued prompts with remove and clear buttons", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const entries = [
+    { text: "first", actor: "u1", createdAt: 1 },
+    { text: "second", actor: "u2", createdAt: 2 },
+  ]
+  const i = interaction({ commandName: "queue", channelId: "t1" })
+  await handleCommand(i, { projects: {} as any, runner: { queuedFor: () => entries } as any, db, authorized: () => true })
+  const edit = editOf(i)
+  expect(edit.content).toContain("Queued (2)")
+  expect(edit.content).toContain("1. first")
+  expect(edit.content).toContain("2. second")
+  const rows = edit.components
+  expect(rows[0].components.map((b: any) => b.custom_id)).toEqual([
+    "celly:queue-remove:t1:0",
+    "celly:queue-remove:t1:1",
+  ])
+  expect(rows[0].components[0].label).toBe("Remove #1")
+  expect(rows[1].components[0].custom_id).toBe("celly:queue-clear:t1")
+  expect(rows[1].components[0].label).toBe("Clear")
+})
+
+test("queue outside a thread is rejected and an empty queue says so", async () => {
+  const outside = interaction({ commandName: "queue", channelId: "c" })
+  await handleCommand(outside, { projects: {} as any, runner: { queuedFor: () => [] } as any, db: fresh(), authorized: () => true })
+  expect(editOf(outside)).toBe("use /queue inside a thread")
+
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const empty = interaction({ commandName: "queue", channelId: "t1" })
+  await handleCommand(empty, { projects: {} as any, runner: { queuedFor: () => [] } as any, db, authorized: () => true })
+  expect(editOf(empty)).toBe("queue is empty")
+})
+
+test("queue remove button removes the index and refreshes the list", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const state = [
+    { text: "first", actor: "u", createdAt: 1 },
+    { text: "second", actor: "u", createdAt: 2 },
+  ]
+  const removed: number[] = []
+  const i = button({ customId: "celly:queue-remove:t1:0" })
+  await handleButton(i, { projects: {} as any, db, authorized: () => true, runner: {
+    removeQueued: (_threadId: string, index: number) => { removed.push(index); state.splice(index, 1); return true },
+    queuedFor: () => state,
+  } as any })
+  expect(removed).toEqual([0])
+  const edit = editOf(i)
+  expect(edit.content).toContain("Queued (1)")
+  expect(edit.content).toContain("1. second")
+  expect(edit.components[0].components[0].custom_id).toBe("celly:queue-remove:t1:0")
+})
+
+test("queue remove with a stale index reports the queue changed", async () => {
+  const i = button({ customId: "celly:queue-remove:t1:9" })
+  await handleButton(i, { projects: {} as any, db: fresh(), authorized: () => true,
+    runner: { removeQueued: () => false } as any })
+  expect(editOf(i).content).toBe("queue changed; run /queue again")
+})
+
+test("queue clear button clears and reports the count", async () => {
+  const i = button({ customId: "celly:queue-clear:t1" })
+  await handleButton(i, { projects: {} as any, db: fresh(), authorized: () => true,
+    runner: { clearQueued: () => 3 } as any })
+  const edit = editOf(i)
+  expect(edit.content).toBe("cleared 3 queued prompts")
+  expect(edit.components).toEqual([])
+})
+
+test("unauthorized queue buttons are rejected before deferUpdate", async () => {
+  const i = button({ customId: "celly:queue-clear:t1" })
+  await handleButton(i, { projects: {} as any, db: fresh(), authorized: () => false, runner: {} as any })
+  expect(i.calls).toHaveLength(1)
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "You are not authorized.", flags: 64, allowedMentions: { parse: [] } } })
 })
