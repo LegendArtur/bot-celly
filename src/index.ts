@@ -29,7 +29,7 @@ import { EventRouter } from "./events.js"
 import { Renderer, renderPayload, sanitizeThreadName } from "./render.js"
 import { resolveBaseUrl, resolveClient, resolveV2Client } from "./opencode.js"
 import { createSessionOps } from "./session-utils.js"
-import { finishProviderLogin, listOAuthProviders, startProviderLogin, waitForOAuthCompletion } from "./oauth.js"
+import { finishProviderLogin, listOAuthProviders, startProviderLogin, waitForSandboxAuth } from "./oauth.js"
 import { createValueCache } from "./list-cache.js"
 import type { ValueCache } from "./list-cache.js"
 import { runShell } from "./shell.js"
@@ -638,9 +638,10 @@ async function main(): Promise<void> {
     try {
       const project = db.projects.getByChannel(channelId)
       if (!project) return
-      const completed = await waitForOAuthCompletion(resolveClient(project), providerId, { timeoutMs: AUTO_LOGIN_TIMEOUT_MS, intervalMs: 3_000 })
+      const exec = (script: string) => sbxRunner.run(["exec", project.sandboxName, "bash", "-lc", script], { timeoutMs: 15_000 })
+      const completed = await waitForSandboxAuth(exec, providerId, { timeoutMs: AUTO_LOGIN_TIMEOUT_MS, intervalMs: 3_000 })
       if (!completed) {
-        log.warn("provider login not detected in time; run /project start after finishing the browser step", { channelId, providerId })
+        log.warn(`provider login not detected in sandbox ${project.sandboxName}; its auth.json was not updated — run /login again (device codes expire)`, { channelId, providerId, sandboxName: project.sandboxName })
         return
       }
       if (!(await waitForNoActiveRuns(channelId))) {
@@ -682,6 +683,7 @@ async function main(): Promise<void> {
       await projects.ensureReady(channelId)
       await finishProviderLogin({ client: resolveClient(project), log: (msg, fields) => log.info(msg, fields) }, providerId, code)
       await projects.restartServer(channelId)
+      log.info("provider login applied", { channelId, providerId })
     },
     listLogin,
     postConnected: async (channelId, projectName) => {

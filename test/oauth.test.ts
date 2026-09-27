@@ -1,6 +1,6 @@
 // test/oauth.test.ts
 import { expect, test } from "vitest"
-import { finishProviderLogin, listOAuthProviders, selectOAuthMethod, startProviderLogin, waitForOAuthCompletion } from "../src/oauth.ts"
+import { finishProviderLogin, isSafeProviderId, listOAuthProviders, selectOAuthMethod, startProviderLogin, waitForSandboxAuth } from "../src/oauth.ts"
 import type { OAuthClient } from "../src/oauth.ts"
 
 function fakeClient(over: any = {}) {
@@ -107,40 +107,42 @@ test("finishProviderLogin errors when the provider has no oauth method", async (
   await expect(finishProviderLogin({ client, log: () => {} }, "anthropic", "the-code")).rejects.toThrow("no oauth method for anthropic")
 })
 
-test("waitForOAuthCompletion resolves once the provider's oauth method disappears", async () => {
+test("isSafeProviderId accepts provider ids and rejects shell metacharacters", () => {
+  expect(isSafeProviderId("openai")).toBe(true)
+  expect(isSafeProviderId("github-copilot")).toBe(true)
+  expect(isSafeProviderId("a.b_c-1")).toBe(true)
+  expect(isSafeProviderId("")).toBe(false)
+  expect(isSafeProviderId("-leading")).toBe(false)
+  expect(isSafeProviderId("openai; rm -rf /")).toBe(false)
+  expect(isSafeProviderId("a".repeat(65))).toBe(false)
+})
+
+test("waitForSandboxAuth resolves once the sandbox auth store lists the provider", async () => {
   let calls = 0
-  const client: OAuthClient = {
-    provider: {
-      auth: async () => (++calls < 3 ? { anthropic: [{ type: "oauth", label: "Claude Pro" }] } : {}),
-      oauth: { authorize: async () => ({}), callback: async () => ({}) },
-    },
+  const scripts: string[] = []
+  const exec = async (script: string) => {
+    scripts.push(script)
+    return { code: ++calls < 3 ? 1 : 0 }
   }
-  await expect(waitForOAuthCompletion(client, "anthropic", { timeoutMs: 2000, intervalMs: 5 })).resolves.toBe(true)
+  await expect(waitForSandboxAuth(exec, "openai", { timeoutMs: 2000, intervalMs: 5 })).resolves.toBe(true)
   expect(calls).toBe(3)
+  expect(scripts[0]).toContain("~/.local/share/opencode/auth.json")
+  expect(scripts[0]).toContain('\\"openai\\"')
 })
 
-test("waitForOAuthCompletion resolves when the provider keeps a non-oauth method", async () => {
+test("waitForSandboxAuth returns false when the provider never lands in the auth store", async () => {
   let calls = 0
-  const client: OAuthClient = {
-    provider: {
-      auth: async () => { calls += 1; return { anthropic: [{ type: "api", label: "API key" }] } },
-      oauth: { authorize: async () => ({}), callback: async () => ({}) },
-    },
-  }
-  await expect(waitForOAuthCompletion(client, "anthropic", { timeoutMs: 2000, intervalMs: 5 })).resolves.toBe(true)
-  expect(calls).toBe(1)
-})
-
-test("waitForOAuthCompletion returns false when the oauth method never clears", async () => {
-  let calls = 0
-  const client: OAuthClient = {
-    provider: {
-      auth: async () => { calls += 1; return { anthropic: [{ type: "oauth", label: "Claude Pro" }] } },
-      oauth: { authorize: async () => ({}), callback: async () => ({}) },
-    },
-  }
-  await expect(waitForOAuthCompletion(client, "anthropic", { timeoutMs: 30, intervalMs: 5 })).resolves.toBe(false)
+  const exec = async () => { calls += 1; return { code: 1 } }
+  await expect(waitForSandboxAuth(exec, "openai", { timeoutMs: 30, intervalMs: 5 })).resolves.toBe(false)
   expect(calls).toBeGreaterThanOrEqual(1)
+})
+
+test("waitForSandboxAuth rejects a malformed provider id without running the script", async () => {
+  let calls = 0
+  const exec = async () => { calls += 1; return { code: 0 } }
+  await expect(waitForSandboxAuth(exec, "openai; rm -rf /", { timeoutMs: 30, intervalMs: 5 })).resolves.toBe(false)
+  await expect(waitForSandboxAuth(exec, "", { timeoutMs: 30, intervalMs: 5 })).resolves.toBe(false)
+  expect(calls).toBe(0)
 })
 
 test("provider login never logs credentials", async () => {

@@ -80,16 +80,21 @@ export async function finishProviderLogin(deps: OAuthDeps, providerId: string, c
   deps.log("provider login completed", { providerId })
 }
 
-export async function waitForOAuthCompletion(
-  client: OAuthClient,
+export function isSafeProviderId(id: string): boolean {
+  return /^[a-z0-9][a-z0-9._-]{0,63}$/i.test(id)
+}
+
+export async function waitForSandboxAuth(
+  exec: (script: string) => Promise<{ code: number }>,
   providerId: string,
   opts: { timeoutMs: number; intervalMs: number },
 ): Promise<boolean> {
+  if (!isSafeProviderId(providerId)) return false
+  const script = `test -f ~/.local/share/opencode/auth.json && grep -q "\\"${providerId}\\"" ~/.local/share/opencode/auth.json`
   const deadline = Date.now() + opts.timeoutMs
   for (;;) {
-    const methods = unwrap(await client.provider.auth()) as Record<string, ProviderAuthMethod[]> | undefined
-    const pending = (methods?.[providerId] ?? []).some((m) => m?.type === "oauth")
-    if (!pending) return true
+    const { code } = await exec(script)
+    if (code === 0) return true
     const remaining = deadline - Date.now()
     if (remaining <= 0) return false
     await delay(Math.min(opts.intervalMs, remaining))
