@@ -67,6 +67,8 @@ export interface CommandDeps {
   listAgents?(channelId: string): Promise<{ id: string; name: string }[]>
   setThreadModel?(threadId: string, model: string | null): void
   setThreadAgent?(threadId: string, agent: string | null): void
+  setChannelModel?(channelId: string, model: string | null): void
+  setChannelAgent?(channelId: string, agent: string | null): void
   sessions?: SessionOps
   suggest?(interaction: any, query: string): Promise<AutocompleteChoice[]>
   approvals?: ApprovalManager
@@ -270,17 +272,26 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
     }
     if (interaction.commandName === "model" || interaction.commandName === "agent") {
       const thread = deps.db.threads.get(interaction.channelId)
-      if (!thread) return void await interaction.editReply(noMentions(`use /${interaction.commandName} inside a thread`))
+      const channelProject = thread ? undefined : deps.db.projects.getByChannel(interaction.channelId)
+      const scope = thread ? thread.threadId : channelProject ? interaction.channelId : undefined
+      if (!scope) return void await interaction.editReply(noMentions("this channel is not a project"))
       // Spec §9: wake the sandbox before asking it for models/agents.
-      await deps.projects.ensureReady?.(thread.channelId)
+      await deps.projects.ensureReady?.(thread?.channelId ?? interaction.channelId)
       const direct = interaction.options.getString(interaction.commandName, false)
       if (direct) {
-        if (interaction.commandName === "model") deps.setThreadModel?.(thread.threadId, direct)
-        else deps.setThreadAgent?.(thread.threadId, direct)
-        return void await interaction.editReply(noMentions(`${interaction.commandName} set to ${direct}`))
+        if (thread) {
+          if (interaction.commandName === "model") deps.setThreadModel?.(scope, direct)
+          else deps.setThreadAgent?.(scope, direct)
+        } else if (interaction.commandName === "model") {
+          deps.setChannelModel?.(scope, direct)
+        } else {
+          deps.setChannelAgent?.(scope, direct)
+        }
+        const label = thread ? interaction.commandName : `channel ${interaction.commandName}`
+        return void await interaction.editReply(noMentions(`${label} set to ${direct}`))
       }
       if (interaction.commandName === "model") {
-        const models = (await deps.listModels?.(thread.channelId)) ?? []
+        const models = (await deps.listModels?.(thread?.channelId ?? interaction.channelId)) ?? []
         if (!models.length) return void await interaction.editReply(noMentions("no models available"))
         // Discord select menus cap at 25 options, and a flattened model list
         // across every provider overflows it. Offer providers first, then that
@@ -295,12 +306,14 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         }
         const options = [...providers.entries()].map(([provider, count]) => ({ label: `${provider} (${count})`, value: provider }))
         if (!options.length) return void await interaction.editReply(noMentions("no models available"))
-        return void await interaction.editReply({ content: "Choose a provider for this thread:", components: [selectRow(selectCustomId(MODEL_PROVIDER_SELECT, thread.threadId), "Select a provider", options)], allowedMentions: { parse: [] } })
+        const where = thread ? "thread" : "channel"
+        return void await interaction.editReply({ content: `Choose a provider for this ${where}:`, components: [selectRow(selectCustomId(MODEL_PROVIDER_SELECT, scope), "Select a provider", options)], allowedMentions: { parse: [] } })
       }
-      const agents = (await deps.listAgents?.(thread.channelId)) ?? []
+      const agents = (await deps.listAgents?.(thread?.channelId ?? interaction.channelId)) ?? []
       if (!agents.length) return void await interaction.editReply(noMentions("no agents available"))
       const options = agents.slice(0, 25).map((a) => ({ label: (a.name || a.id).slice(0, 100), value: a.id }))
-      return void await interaction.editReply({ content: "Choose an agent for this thread:", components: [selectRow(selectCustomId(AGENT_SELECT, thread.threadId), "Select an agent", options)], allowedMentions: { parse: [] } })
+      const where = thread ? "thread" : "channel"
+      return void await interaction.editReply({ content: `Choose an agent for this ${where}:`, components: [selectRow(selectCustomId(AGENT_SELECT, scope), "Select an agent", options)], allowedMentions: { parse: [] } })
     }
     if (interaction.commandName === "abort") {
       const isThread = interaction.channel?.isThread?.() === true
@@ -405,12 +418,22 @@ export async function handleSelect(interaction: any, deps: CommandDeps): Promise
       return void await interaction.editReply({ content: `Choose a ${value} model:`, components: [selectRow(selectCustomId(MODEL_SELECT, id), "Select a model", options)], allowedMentions: { parse: [] } })
     }
     if (action === MODEL_SELECT) {
-      deps.setThreadModel?.(id ?? interaction.channelId, value ?? null)
-      return void await interaction.editReply({ content: `model set to ${value ?? "default"}`, components: [], allowedMentions: { parse: [] } })
+      const scope = id ?? interaction.channelId
+      if (deps.db.threads.get(scope)) {
+        deps.setThreadModel?.(scope, value ?? null)
+        return void await interaction.editReply({ content: `model set to ${value ?? "default"}`, components: [], allowedMentions: { parse: [] } })
+      }
+      deps.setChannelModel?.(scope, value ?? null)
+      return void await interaction.editReply({ content: `channel model set to ${value ?? "default"}`, components: [], allowedMentions: { parse: [] } })
     }
     if (action === AGENT_SELECT) {
-      deps.setThreadAgent?.(id ?? interaction.channelId, value ?? null)
-      return void await interaction.editReply({ content: `agent set to ${value ?? "default"}`, components: [], allowedMentions: { parse: [] } })
+      const scope = id ?? interaction.channelId
+      if (deps.db.threads.get(scope)) {
+        deps.setThreadAgent?.(scope, value ?? null)
+        return void await interaction.editReply({ content: `agent set to ${value ?? "default"}`, components: [], allowedMentions: { parse: [] } })
+      }
+      deps.setChannelAgent?.(scope, value ?? null)
+      return void await interaction.editReply({ content: `channel agent set to ${value ?? "default"}`, components: [], allowedMentions: { parse: [] } })
     }
     return void await interaction.editReply({ content: "unknown selection", components: [], allowedMentions: { parse: [] } })
   } catch (e) {

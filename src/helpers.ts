@@ -40,6 +40,16 @@ export function buildPromptText(text: string, attachmentPaths: string[]): string
   return [text, ...attachmentPaths.map((p) => `[attachment] ${p}`)].filter((part) => part.trim().length > 0).join("\n\n")
 }
 
+export function seedThreadDefaults(
+  get: (key: string) => string | undefined,
+  channelId: string,
+): { model: string | null; agent: string | null } {
+  return {
+    model: get(`default_model:${channelId}`) ?? get("default_model") ?? null,
+    agent: get(`default_agent:${channelId}`) ?? get("default_agent") ?? null,
+  }
+}
+
 export const CHANNEL_NAME_MAX = 90
 export function sanitizeChannelName(name: string): string {
   const cleaned = name

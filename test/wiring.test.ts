@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url"
 import { expect, test } from "vitest"
 import { ChannelType } from "discord.js"
-import { buildPromptText, createSubscriptionGate, findCategoryId, isMainModule, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "../src/index.ts"
+import { buildPromptText, createSubscriptionGate, findCategoryId, isMainModule, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, uniqueChannelName } from "../src/index.ts"
 
 test("findCategoryId prefers the configured category", () => {
   expect(findCategoryId({ channels: { cache: new Map() } }, "configured")).toBe("configured")
@@ -76,4 +76,16 @@ test("the project subscription gate starts at most one subscription and can resu
   gate.release("c1")
   expect(gate.has("c1")).toBe(false)
   expect(gate.claim("c1")).toBe(true)
+})
+
+test("seedThreadDefaults prefers the channel default then the global default", () => {
+  const settings: Record<string, string> = {
+    default_model: "global/model",
+    default_agent: "global-agent",
+    "default_model:c1": "channel/model",
+    "default_agent:c1": "channel-agent",
+  }
+  expect(seedThreadDefaults((key) => settings[key], "c1")).toEqual({ model: "channel/model", agent: "channel-agent" })
+  expect(seedThreadDefaults((key) => settings[key], "c2")).toEqual({ model: "global/model", agent: "global-agent" })
+  expect(seedThreadDefaults(() => undefined, "c1")).toEqual({ model: null, agent: null })
 })

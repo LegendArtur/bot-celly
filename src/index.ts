@@ -28,9 +28,9 @@ import { ingestAttachments } from "./attachments.js"
 import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
 import { SessionRoutes } from "./routing.js"
 import { createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "./handlers.js"
-import { buildPromptText, channelIdForBucket, createSubscriptionGate, describeDiscordStartupError, findCategoryId, formatStartupBanner, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
+import { buildPromptText, channelIdForBucket, createSubscriptionGate, describeDiscordStartupError, findCategoryId, formatStartupBanner, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
-export { buildPromptText, createSubscriptionGate, findCategoryId, projectForChannel, sanitizeChannelName, sessionIdFrom, uniqueChannelName } from "./helpers.js"
+export { buildPromptText, createSubscriptionGate, findCategoryId, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
 async function main(): Promise<void> {
   loadDotEnv()
@@ -200,9 +200,10 @@ async function main(): Promise<void> {
   }
   const registerThread = (project: Project, threadId: string, title: string, sessionId: string): Thread => {
     const now = Date.now()
+    const defaults = seedThreadDefaults((key) => db.settings.get(key), project.channelId)
     const record: Thread = {
       threadId, channelId: project.channelId, sessionId, title,
-      model: db.settings.get("default_model") ?? null, agent: db.settings.get("default_agent") ?? null,
+      model: defaults.model, agent: defaults.agent,
       worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: now, lastActiveAt: now,
     }
     db.threads.upsert(record)
@@ -508,6 +509,14 @@ async function main(): Promise<void> {
   }
   const setThreadModel = (threadId: string, model: string | null): void => { if (db.threads.get(threadId)) db.threads.setModel(threadId, model) }
   const setThreadAgent = (threadId: string, agent: string | null): void => { if (db.threads.get(threadId)) db.threads.setAgent(threadId, agent) }
+  const setChannelModel = (channelId: string, model: string | null): void => {
+    if (!model || !db.projects.getByChannel(channelId)) return
+    db.settings.set(`default_model:${channelId}`, model)
+  }
+  const setChannelAgent = (channelId: string, agent: string | null): void => {
+    if (!agent || !db.projects.getByChannel(channelId)) return
+    db.settings.set(`default_agent:${channelId}`, agent)
+  }
 
   const commandDeps: CommandDeps = {
     projects, runner: runnerSvc, db,
@@ -518,7 +527,7 @@ async function main(): Promise<void> {
     stopSubscription, startSubscription,
     createThread: createThreadForProject,
     listSessions, listModels, listAgents,
-    setThreadModel, setThreadAgent,
+    setThreadModel, setThreadAgent, setChannelModel, setChannelAgent,
     sessions, suggest,
     postConnected: async (channelId, projectName) => {
       const channel = await client.channels.fetch(channelId).catch(() => null)

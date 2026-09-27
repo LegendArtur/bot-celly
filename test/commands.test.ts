@@ -309,12 +309,6 @@ test("model and agent ensureReady the sandbox before listing", async () => {
   }
 })
 
-test("model outside a thread is rejected", async () => {
-  const i = interaction({ commandName: "model", channelId: "c" })
-  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
-  expect(editOf(i)).toBe("use /model inside a thread")
-})
-
 test("project start resubscribes before waking the sandbox", async () => {
   const i = interaction({ sub: "start", strings: { name: "demo" } })
   const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
@@ -348,6 +342,7 @@ test("selecting a model updates the thread", async () => {
 
 test("selecting an agent updates the thread", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert(threadRow("t1"))
   const i = select({ customId: "celly:agent:t1", values: ["build"] })
   let set: any
   await handleSelect(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
@@ -865,4 +860,52 @@ test("resume with a direct session id creates the thread without a select", asyn
     createThread: async (input: any) => { captured = input; return { threadId: "t9", sessionId: "s9" } } })
   expect(captured).toMatchObject({ channelId: "c", sessionId: "s9" })
   expect(editOf(i)).toBe("resumed in <#t9>")
+})
+
+test("model in a project channel offers a channel-scoped provider select", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const i = interaction({ commandName: "model", channelId: "c" })
+  await handleCommand(i, { projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
+    listModels: async () => [{ id: "anthropic/claude", name: "Claude" }] })
+  const edit = editOf(i)
+  expect(edit.content).toBe("Choose a provider for this channel:")
+  expect(edit.components[0].components[0].custom_id).toBe("celly:model-provider:c")
+})
+
+test("selecting a channel model stores it as a channel default", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const i = select({ customId: "celly:model:c", values: ["openai/gpt"] })
+  let set: any
+  await handleSelect(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    setChannelModel: (id: string, model: string | null) => { set = [id, model] } })
+  expect(set).toEqual(["c", "openai/gpt"])
+  expect(i.calls[1].c).toMatchObject({ content: "channel model set to openai/gpt", components: [] })
+})
+
+test("selecting a channel agent stores it as a channel default", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const i = select({ customId: "celly:agent:c", values: ["build"] })
+  let set: any
+  await handleSelect(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    setChannelAgent: (id: string, agent: string | null) => { set = [id, agent] } })
+  expect(set).toEqual(["c", "build"])
+  expect(i.calls[1].c).toMatchObject({ content: "channel agent set to build", components: [] })
+})
+
+test("model and agent in a non-project channel are rejected", async () => {
+  for (const commandName of ["model", "agent"] as const) {
+    const i = interaction({ commandName, channelId: "c" })
+    await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
+    expect(editOf(i)).toBe("this channel is not a project")
+  }
+})
+
+test("model in a project channel with a direct value sets the channel default", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const i = interaction({ commandName: "model", channelId: "c", strings: { model: "anthropic/claude" } })
+  let set: any
+  await handleCommand(i, { projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
+    setChannelModel: (id: string, model: string | null) => { set = [id, model] } })
+  expect(set).toEqual(["c", "anthropic/claude"])
+  expect(editOf(i)).toBe("channel model set to anthropic/claude")
 })
