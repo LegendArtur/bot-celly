@@ -61,6 +61,7 @@
   "background": {
     "color": {
       "light": "#D9D9D9"
-    }
+    },
+    "decoration": "gradient"
   }
 }
