@@ -41,6 +41,18 @@ node scripts/smoke.mjs C:\path\to\project    # create → prompt → abort → r
 Run `npm run build` first; the scripts import from `dist/`. See the spike notes
 in the repository for recorded results and open items.
 
+## Changesets
+
+Every pull request that changes behavior should add a changeset:
+
+```bash
+npx changeset        # pick patch/minor/major and write a short summary
+```
+
+Changesets live in `.changeset/`. On release, `npm run changeset:version` bumps
+the version, updates `CHANGELOG.md`, and regenerates the [changelog](/changelog)
+page from it (`npm run changelog:sync`).
+
 ## Docs
 
 The documentation site lives in `docs-site/`. Preview and validate it locally:

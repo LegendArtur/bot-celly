@@ -4,7 +4,9 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "engines": { "node": ">=24 <25" },
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
@@ -13,6 +15,9 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke.mjs",
+    "changeset": "changeset",
+    "changeset:version": "changeset version && npm run changelog:sync",
+    "changelog:sync": "node scripts/sync-changelog.mjs",
     "docs:dev": "cd docs-site && npx -y mint@latest dev",
     "docs:validate": "cd docs-site && npx -y mint@latest validate",
     "docs:links": "cd docs-site && npx -y mint@latest broken-links"
@@ -22,6 +27,7 @@
     "discord.js": "14.27.0"
   },
   "devDependencies": {
+    "@changesets/cli": "^3.0.3",
     "@types/node": "^24.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0",
