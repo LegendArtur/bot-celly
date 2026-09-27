@@ -1,0 +1,67 @@
+// test/audit.test.ts
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { expect, test } from "vitest"
+import { createAuditLog } from "../src/audit.ts"
+
+function withTempDir(fn: (dir: string) => void): void {
+  const dir = mkdtempSync(join(tmpdir(), "celly-audit-"))
+  try { fn(dir) } finally { rmSync(dir, { recursive: true, force: true }) }
+}
+
+test("creates the audit file with mode 0600", () => {
+  withTempDir((dir) => {
+    const file = join(dir, "audit.jsonl")
+    createAuditLog({ file })
+    expect(readFileSync(file, "utf8")).toBe("")
+    if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600)
+  })
+})
+
+test("appends one JSON object per line with the injected clock", () => {
+  withTempDir((dir) => {
+    const file = join(dir, "audit.jsonl")
+    const audit = createAuditLog({ file, clock: () => Date.parse("2026-01-02T03:04:05.000Z") })
+    audit.append({ kind: "permission", channelId: "c1", threadId: "t1", actorId: "u1", detail: "bash git push", decision: "reject" })
+    audit.append({ kind: "mode", threadId: "c1", actorId: "u2", detail: "approval_mode:c1", decision: "buttons" })
+    const lines = readFileSync(file, "utf8").trim().split("\n").map((line) => JSON.parse(line))
+    expect(lines).toEqual([
+      { ts: "2026-01-02T03:04:05.000Z", channelId: "c1", threadId: "t1", actorId: "u1", kind: "permission", detail: "bash git push", decision: "reject" },
+      { ts: "2026-01-02T03:04:05.000Z", channelId: "c1", threadId: "c1", actorId: "u2", kind: "mode", detail: "approval_mode:c1", decision: "buttons" },
+    ])
+  })
+})
+
+test("tail returns the last N entries oldest-first and ignores malformed lines", () => {
+  withTempDir((dir) => {
+    const file = join(dir, "audit.jsonl")
+    const audit = createAuditLog({ file, clock: () => 0 })
+    audit.append({ kind: "shell", channelId: "c1", threadId: "c1", actorId: "u1", detail: "echo one", decision: "run" })
+    audit.append({ kind: "shell", channelId: "c1", threadId: "c1", actorId: "u1", detail: "echo two", decision: "run" })
+    const raw = readFileSync(file, "utf8")
+    rmSync(file)
+    writeFileSync(file, `not json\n${raw}`)
+    expect(audit.tail(1).map((e) => e.detail)).toEqual(["echo two"])
+    expect(audit.tail(10).map((e) => e.detail)).toEqual(["echo one", "echo two"])
+    expect(audit.tail(0)).toEqual([])
+  })
+})
+
+test("tail on a missing file returns an empty list", () => {
+  withTempDir((dir) => {
+    const audit = createAuditLog({ file: join(dir, "audit.jsonl") })
+    rmSync(join(dir, "audit.jsonl"))
+    expect(audit.tail(5)).toEqual([])
+  })
+})
+
+test("append never throws when the file is unwritable", () => {
+  withTempDir((dir) => {
+    const file = join(dir, "audit.jsonl")
+    const audit = createAuditLog({ file })
+    rmSync(file)
+    mkdirSync(file)
+    expect(() => audit.append({ kind: "shell", channelId: "c1", threadId: "c1", actorId: "u1", detail: "x", decision: "run" })).not.toThrow()
+  })
+})
