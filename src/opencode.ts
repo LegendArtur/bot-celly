@@ -30,8 +30,23 @@ export function createV2Client(baseUrl: string, password: string): OpencodeV2Cli
 export function resolveV2Client(p: Project): OpencodeV2Client {
   return createV2Client(resolveBaseUrl(p), p.serverPassword)
 }
+export const AUTH_ENV_BY_PROVIDER: Record<string, string> = {
+  openai: "OPENAI_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY",
+  google: "GOOGLE_GENERATIVE_AI_API_KEY",
+  xai: "XAI_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+  groq: "GROQ_API_KEY",
+}
+
+export const OPENCODE_AUTH_PATH = "$HOME/.local/share/opencode/auth.json"
+
 export function buildServeArgs(): string[] {
-  const payload = "set -a; . ~/.config/celly/opencode.env; set +a; exec opencode serve --port 4096 --hostname 0.0.0.0"
+  const unsets = Object.entries(AUTH_ENV_BY_PROVIDER)
+    .map(([id, env]) => `grep -q "\\"${id}\\"" "$auth" && unset ${env}`)
+    .join("; ")
+  const payload = `set -a; . ~/.config/celly/opencode.env; set +a; auth="${OPENCODE_AUTH_PATH}"; if [ -f "$auth" ]; then ${unsets}; fi; exec opencode serve --port 4096 --hostname 0.0.0.0`
   return ["bash", "-lc", payload]
 }
 

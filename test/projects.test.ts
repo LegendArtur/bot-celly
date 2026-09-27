@@ -522,6 +522,37 @@ test("a crash of a replacement child still marks the project degraded", async ()
   } finally { await new Promise<void>((r) => server.close(() => r())) }
 })
 
+test("restartServer kills the child and boots a fresh server for the same project", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, children } = fakes()
+  let healthy = true
+  const server = createServer((_, res) => {
+    if (healthy) res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true }))
+    else res.writeHead(503).end()
+  })
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+  const port = (server.address() as any).port
+  const baseExecStream = sbx.execStream
+  sbx.execStream = () => {
+    const c = baseExecStream()
+    healthy = true
+    const kill = c.kill
+    c.kill = () => { kill(); healthy = false }
+    return c
+  }
+  try {
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(port, port), log: logger(),
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {}, killTimeoutMs: 1000,
+      applyPolicy: async () => {} } as any)
+    await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
+    expect(children).toHaveLength(1)
+    await svc.restartServer("chan-demo")
+    expect(children[0].killed).toBe(1)
+    expect(children).toHaveLength(2)
+    expect(svc.childFor("chan-demo")).toBe(children[1])
+    expect(db.projects.getByChannel("chan-demo")?.status).toBe("ready")
+  } finally { await new Promise<void>((r) => server.close(() => r())) }
+})
+
 test("an unexpected child exit marks the project degraded", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner, children } = fakes()
   const server = await healthServer(true)

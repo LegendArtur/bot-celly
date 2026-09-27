@@ -1,6 +1,7 @@
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { realpathSync } from "node:fs"
 import { join } from "node:path"
+import { setTimeout as delay } from "node:timers/promises"
 import { createAdminServer } from "./admin.js"
 import type { AdminServer } from "./admin.js"
 import { createBackupScheduler } from "./backup.js"
@@ -28,7 +29,7 @@ import { EventRouter } from "./events.js"
 import { Renderer, renderPayload, sanitizeThreadName } from "./render.js"
 import { resolveBaseUrl, resolveClient, resolveV2Client } from "./opencode.js"
 import { createSessionOps } from "./session-utils.js"
-import { finishProviderLogin, listOAuthProviders, startProviderLogin } from "./oauth.js"
+import { finishProviderLogin, listOAuthProviders, startProviderLogin, waitForOAuthCompletion } from "./oauth.js"
 import { createValueCache } from "./list-cache.js"
 import type { ValueCache } from "./list-cache.js"
 import { runShell } from "./shell.js"
@@ -620,6 +621,39 @@ async function main(): Promise<void> {
     db.settings.set(`default_agent:${channelId}`, agent)
   }
 
+  const AUTO_LOGIN_TIMEOUT_MS = 5 * 60_000
+  const AUTO_LOGIN_RUN_WAIT_MS = 2 * 60_000
+  const AUTO_LOGIN_POLL_MS = 5_000
+
+  const waitForNoActiveRuns = async (channelId: string): Promise<boolean> => {
+    const deadline = Date.now() + AUTO_LOGIN_RUN_WAIT_MS
+    while (runnerSvc.activeThreadsFor(channelId).length > 0) {
+      if (Date.now() >= deadline) return false
+      await delay(Math.min(AUTO_LOGIN_POLL_MS, deadline - Date.now()))
+    }
+    return true
+  }
+
+  const applyAutoLogin = async (channelId: string, providerId: string): Promise<void> => {
+    try {
+      const project = db.projects.getByChannel(channelId)
+      if (!project) return
+      const completed = await waitForOAuthCompletion(resolveClient(project), providerId, { timeoutMs: AUTO_LOGIN_TIMEOUT_MS, intervalMs: 3_000 })
+      if (!completed) {
+        log.warn("provider login not detected in time; run /project start after finishing the browser step", { channelId, providerId })
+        return
+      }
+      if (!(await waitForNoActiveRuns(channelId))) {
+        log.warn("provider login detected but runs are still active; run /project start to reload", { channelId, providerId })
+        return
+      }
+      await projects.restartServer(channelId)
+      log.info("provider login applied", { channelId, providerId })
+    } catch (e) {
+      log.warn("provider login apply failed; run /project start to reload", { channelId, providerId, error: String(e) })
+    }
+  }
+
   const commandDeps: CommandDeps = {
     projects, runner: runnerSvc, db,
     approvals,
@@ -638,13 +672,16 @@ async function main(): Promise<void> {
       const project = db.projects.getByChannel(channelId)
       if (!project) throw new Error(`unknown project channel ${channelId}`)
       await projects.ensureReady(channelId)
-      return startProviderLogin({ client: resolveClient(project), log: (msg, fields) => log.info(msg, fields) }, providerId)
+      const login = await startProviderLogin({ client: resolveClient(project), log: (msg, fields) => log.info(msg, fields) }, providerId)
+      if (login.flow === "auto") void applyAutoLogin(channelId, providerId)
+      return login
     },
     finishLogin: async (channelId, providerId, code) => {
       const project = db.projects.getByChannel(channelId)
       if (!project) throw new Error(`unknown project channel ${channelId}`)
       await projects.ensureReady(channelId)
       await finishProviderLogin({ client: resolveClient(project), log: (msg, fields) => log.info(msg, fields) }, providerId, code)
+      await projects.restartServer(channelId)
     },
     listLogin,
     postConnected: async (channelId, projectName) => {

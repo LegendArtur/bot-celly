@@ -1,6 +1,6 @@
 // test/oauth.test.ts
 import { expect, test } from "vitest"
-import { finishProviderLogin, listOAuthProviders, selectOAuthMethod, startProviderLogin } from "../src/oauth.ts"
+import { finishProviderLogin, listOAuthProviders, selectOAuthMethod, startProviderLogin, waitForOAuthCompletion } from "../src/oauth.ts"
 import type { OAuthClient } from "../src/oauth.ts"
 
 function fakeClient(over: any = {}) {
@@ -105,6 +105,42 @@ test("finishProviderLogin errors when the callback reports failure", async () =>
 test("finishProviderLogin errors when the provider has no oauth method", async () => {
   const { client } = fakeClient({ authResponse: { anthropic: [{ type: "api", label: "API key" }] } })
   await expect(finishProviderLogin({ client, log: () => {} }, "anthropic", "the-code")).rejects.toThrow("no oauth method for anthropic")
+})
+
+test("waitForOAuthCompletion resolves once the provider's oauth method disappears", async () => {
+  let calls = 0
+  const client: OAuthClient = {
+    provider: {
+      auth: async () => (++calls < 3 ? { anthropic: [{ type: "oauth", label: "Claude Pro" }] } : {}),
+      oauth: { authorize: async () => ({}), callback: async () => ({}) },
+    },
+  }
+  await expect(waitForOAuthCompletion(client, "anthropic", { timeoutMs: 2000, intervalMs: 5 })).resolves.toBe(true)
+  expect(calls).toBe(3)
+})
+
+test("waitForOAuthCompletion resolves when the provider keeps a non-oauth method", async () => {
+  let calls = 0
+  const client: OAuthClient = {
+    provider: {
+      auth: async () => { calls += 1; return { anthropic: [{ type: "api", label: "API key" }] } },
+      oauth: { authorize: async () => ({}), callback: async () => ({}) },
+    },
+  }
+  await expect(waitForOAuthCompletion(client, "anthropic", { timeoutMs: 2000, intervalMs: 5 })).resolves.toBe(true)
+  expect(calls).toBe(1)
+})
+
+test("waitForOAuthCompletion returns false when the oauth method never clears", async () => {
+  let calls = 0
+  const client: OAuthClient = {
+    provider: {
+      auth: async () => { calls += 1; return { anthropic: [{ type: "oauth", label: "Claude Pro" }] } },
+      oauth: { authorize: async () => ({}), callback: async () => ({}) },
+    },
+  }
+  await expect(waitForOAuthCompletion(client, "anthropic", { timeoutMs: 30, intervalMs: 5 })).resolves.toBe(false)
+  expect(calls).toBeGreaterThanOrEqual(1)
 })
 
 test("provider login never logs credentials", async () => {

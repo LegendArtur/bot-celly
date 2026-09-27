@@ -112,6 +112,17 @@ needs a host spike on `sbx secret ls/set-custom` output and stdin behavior; unti
 then, register credentials on the host as described above.
 </Note>
 
+### OAuth inside sandboxes
+
+Inside an `sbx` sandbox the forward proxy injects placeholder environment
+variables (for example `OPENAI_API_KEY=proxy-managed`) so provider SDKs look
+configured. A placeholder would shadow a real OAuth credential, so the project
+server unsets a provider's placeholder env var automatically whenever
+`~/.local/share/opencode/auth.json` contains that provider id. After a login
+completes, Celly restarts the project's server so it re-reads the env and
+`auth.json` and the new credential takes effect. `sbx secret` remains the path
+for API-key providers.
+
 ## Verify
 
 After configuring a provider, ask the agent something in a thread. If replies

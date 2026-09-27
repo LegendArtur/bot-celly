@@ -1,4 +1,5 @@
 import type { ProviderAuthAuthorization, ProviderAuthMethod } from "@opencode-ai/sdk"
+import { setTimeout as delay } from "node:timers/promises"
 
 export interface OAuthClient {
   provider: {
@@ -77,4 +78,20 @@ export async function finishProviderLogin(deps: OAuthDeps, providerId: string, c
   const ok = unwrap(await deps.client.provider.oauth.callback({ path: { id: providerId }, body: { method, code } }))
   if (ok !== true) throw new Error(`oauth callback for ${providerId} failed`)
   deps.log("provider login completed", { providerId })
+}
+
+export async function waitForOAuthCompletion(
+  client: OAuthClient,
+  providerId: string,
+  opts: { timeoutMs: number; intervalMs: number },
+): Promise<boolean> {
+  const deadline = Date.now() + opts.timeoutMs
+  for (;;) {
+    const methods = unwrap(await client.provider.auth()) as Record<string, ProviderAuthMethod[]> | undefined
+    const pending = (methods?.[providerId] ?? []).some((m) => m?.type === "oauth")
+    if (!pending) return true
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) return false
+    await delay(Math.min(opts.intervalMs, remaining))
+  }
 }

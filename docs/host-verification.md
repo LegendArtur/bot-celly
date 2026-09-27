@@ -106,13 +106,20 @@ the repo root unless a step says otherwise.
    should appear immediately.
    Expected: an ephemeral message with an authorization URL and instructions.
 2. Open the URL in a browser, complete the flow.
-   - Code flow: run `/login-code provider:<id> code:<code>`.
-   - Auto flow: finish in the browser.
-   Expected: `logged in to <provider>`.
+   - Code flow: run `/login-code provider:<id> code:<code>`. The bot restarts
+     the project's server as soon as the code is accepted.
+   - Auto flow: finish in the browser. The bot polls for a few minutes, waits
+     for active runs to finish, then restarts the project's server on its own.
+   Expected: `logged in to <provider>` (code flow); after the restart the bot
+   log shows `provider login applied`. If it does not appear within about five
+   minutes, run `/project start` to reload the server.
 3. `/model` → your provider appears; pick a model; send a prompt.
    Expected: a normal reply **without** any `sbx secret` setup.
-4. Record: provider, flow type, success/failure, and the exact error text if it
-   fails.
+4. Check the live server config (command from step 1) for the provider's
+   `"source"`: expect `"api"` rather than `"env"` (the proxy placeholder env
+   var is unset automatically when the credential lives in `auth.json`).
+5. Record: provider, flow type, success/failure, the `/config` `source` value,
+   and the exact error text if it fails.
 
 ## 7. Cost and budget
 

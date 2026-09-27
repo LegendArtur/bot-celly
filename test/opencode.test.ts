@@ -1,7 +1,7 @@
 // test/opencode.test.ts
 import { createServer } from "node:http"
 import { expect, test } from "vitest"
-import { applyAndAssertCellyPolicy, BASH_DENY, basicAuth, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, createV2Client, enableQuestionPermissionV2, resolveBaseUrl, resolveClient, resolveV2Client, waitForHealth } from "../src/opencode.ts"
+import { applyAndAssertCellyPolicy, AUTH_ENV_BY_PROVIDER, BASH_DENY, basicAuth, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, createV2Client, enableQuestionPermissionV2, OPENCODE_AUTH_PATH, resolveBaseUrl, resolveClient, resolveV2Client, waitForHealth } from "../src/opencode.ts"
 
 test("basicAuth encodes the opencode user and password", () => {
   expect(basicAuth("pw")).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
@@ -9,8 +9,18 @@ test("basicAuth encodes the opencode user and password", () => {
 
 test("serve args source the sandbox env and never contain a password", () => {
   const args = buildServeArgs()
-  expect(args).toEqual(["bash", "-lc", "set -a; . ~/.config/celly/opencode.env; set +a; exec opencode serve --port 4096 --hostname 0.0.0.0"])
+  expect(args).toEqual(["bash", "-lc", `set -a; . ~/.config/celly/opencode.env; set +a; auth="$HOME/.local/share/opencode/auth.json"; if [ -f "$auth" ]; then grep -q "\\"openai\\"" "$auth" && unset OPENAI_API_KEY; grep -q "\\"anthropic\\"" "$auth" && unset ANTHROPIC_API_KEY; grep -q "\\"deepseek\\"" "$auth" && unset DEEPSEEK_API_KEY; grep -q "\\"google\\"" "$auth" && unset GOOGLE_GENERATIVE_AI_API_KEY; grep -q "\\"xai\\"" "$auth" && unset XAI_API_KEY; grep -q "\\"openrouter\\"" "$auth" && unset OPENROUTER_API_KEY; grep -q "\\"groq\\"" "$auth" && unset GROQ_API_KEY; fi; exec opencode serve --port 4096 --hostname 0.0.0.0`])
   expect(args.join(" ")).not.toContain("OPENCODE_SERVER_PASSWORD=")
+})
+
+test("serve args unset proxy placeholder envs only for providers present in auth.json", () => {
+  const payload = buildServeArgs()[2]!
+  expect(payload).toContain(OPENCODE_AUTH_PATH)
+  expect(payload).toContain('if [ -f "$auth" ]')
+  for (const [id, env] of Object.entries(AUTH_ENV_BY_PROVIDER)) {
+    expect(payload).toContain(`grep -q "\\"${id}\\"" "$auth" && unset ${env}`)
+  }
+  expect(payload).not.toContain("OPENCODE_SERVER_PASSWORD=")
 })
 
 test("the celly policy matches spec section 8 and disables share", () => {

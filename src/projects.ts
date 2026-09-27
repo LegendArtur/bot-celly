@@ -457,6 +457,11 @@ export class ProjectService {
     return this.inflight.get(channelId)
   }
 
+  async restartServer(channelId: string): Promise<void> {
+    this.killChild(channelId)
+    await this.ensureReady(channelId)
+  }
+
   async health(channelId: string, timeoutMs = 3000): Promise<boolean> {
     const p = this.deps.db.projects.getByChannel(channelId)
     if (!p) return false
