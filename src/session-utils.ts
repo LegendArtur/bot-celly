@@ -10,6 +10,8 @@ export interface SessionOps {
   undo(threadId: string): Promise<"reverted" | "nothing">
   redo(threadId: string): Promise<"redone">
   diff(threadId: string): Promise<FileDiff[]>
+  share(threadId: string): Promise<string>
+  unshare(threadId: string): Promise<void>
 }
 
 export interface SessionOpsDeps {
@@ -77,6 +79,17 @@ export function createSessionOps(deps: SessionOpsDeps): SessionOps {
       const args = argsFor(deps, threadId)
       const files = unwrap<unknown>(await deps.clientFor(threadId).session.diff(args))
       return Array.isArray(files) ? (files as FileDiff[]) : []
+    },
+    async share(threadId) {
+      const args = argsFor(deps, threadId)
+      const session = unwrap<{ share?: { url?: unknown } }>(await deps.clientFor(threadId).session.share(args))
+      const url = session?.share?.url
+      if (typeof url !== "string" || !url) throw new Error("session share returned no url")
+      return url
+    },
+    async unshare(threadId) {
+      const args = argsFor(deps, threadId)
+      await deps.clientFor(threadId).session.unshare(args)
     },
   }
 }

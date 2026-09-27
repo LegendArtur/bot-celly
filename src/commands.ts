@@ -36,6 +36,8 @@ export function commandData(): any[] {
     { name: "undo", description: "Revert the session to its last user message" },
     { name: "redo", description: "Restore messages reverted by the last /undo" },
     { name: "diff", description: "List changed files in this session" },
+    { name: "share", description: "Share the session and post the URL" },
+    { name: "unshare", description: "Stop sharing the session" },
     { name: "mode", description: "Set the approval mode for this session's project channel", options: [
       { type: ApplicationCommandOptionType.String, name: "mode", description: "How permission requests are handled", required: true,
         choices: APPROVAL_MODES.map((mode) => ({ name: mode, value: mode })) } ] } ]
@@ -309,6 +311,17 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (!deps.sessions) return void await interaction.editReply(noMentions("session utilities unavailable"))
       const files = await deps.sessions.diff(thread.threadId)
       return void await replyChunks(interaction, formatDiff(files))
+    }
+    if (interaction.commandName === "share" || interaction.commandName === "unshare") {
+      const thread = deps.db.threads.get(interaction.channelId)
+      if (!thread) return void await interaction.editReply(noMentions(`use /${interaction.commandName} inside a thread`))
+      if (!deps.sessions) return void await interaction.editReply(noMentions("session utilities unavailable"))
+      if (interaction.commandName === "share") {
+        const url = await deps.sessions.share(thread.threadId)
+        return void await interaction.editReply(noMentions(`shared: ${url}`))
+      }
+      await deps.sessions.unshare(thread.threadId)
+      return void await interaction.editReply(noMentions("unshared"))
     }
     if (interaction.commandName === "mode") {
       const requested = interaction.options.getString("mode", true)

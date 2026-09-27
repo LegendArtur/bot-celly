@@ -56,7 +56,7 @@ const editOf = (i: any) => {
 
 test("declares the v1 command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "diff", "mode", "model", "new", "project", "queue", "redo", "resume", "undo"])
+  expect(names).toEqual(["abort", "agent", "diff", "mode", "model", "new", "project", "queue", "redo", "resume", "share", "undo", "unshare"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -731,4 +731,21 @@ test("diff chunks long file lists into a follow-up", async () => {
   for (const call of i.calls) {
     if (call.kind === "followUp") expect(call.c.flags).toBe(64)
   }
+})
+
+test("share posts the share url and unshare confirms", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const shared: string[] = []
+  const sharedInteraction = interaction({ commandName: "share", channelId: "t1" })
+  await handleCommand(sharedInteraction, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { share: async (threadId: string) => { shared.push(threadId); return "https://opncd.ai/s/abc" } } as any })
+  expect(shared).toEqual(["t1"])
+  expect(editOf(sharedInteraction)).toBe("shared: https://opncd.ai/s/abc")
+
+  const unshared: string[] = []
+  const unshareInteraction = interaction({ commandName: "unshare", channelId: "t1" })
+  await handleCommand(unshareInteraction, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { unshare: async (threadId: string) => { unshared.push(threadId) } } as any })
+  expect(unshared).toEqual(["t1"])
+  expect(editOf(unshareInteraction)).toBe("unshared")
 })

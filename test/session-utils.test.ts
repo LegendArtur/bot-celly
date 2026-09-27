@@ -93,3 +93,25 @@ test("diff calls the session diff endpoint and returns the files", async () => {
   expect(await ops.diff("t1")).toEqual(FIXTURE_DIFF)
   expect(calls).toEqual([{ path: { id: "s1" }, query: { directory: "/w" } }])
 })
+
+test("share returns the session share url with the exact payload", async () => {
+  const calls: any[] = []
+  const client = fakeClient({ session: { share: async (args: any) => { calls.push(args); return { data: { id: "s1", share: { url: "https://opncd.ai/s/abc" } } } } } })
+  const ops = createSessionOps({ targetFor: () => ({ sessionId: "s1" }), clientFor: () => client })
+  expect(await ops.share("t1")).toBe("https://opncd.ai/s/abc")
+  expect(calls).toEqual([{ path: { id: "s1" } }])
+})
+
+test("share throws when the session has no url", async () => {
+  const client = fakeClient({ session: { share: async () => ({ data: { id: "s1" } }) } })
+  const ops = createSessionOps({ targetFor: () => ({ sessionId: "s1" }), clientFor: () => client })
+  await expect(ops.share("t1")).rejects.toThrow("session share returned no url")
+})
+
+test("unshare posts the unshare endpoint", async () => {
+  const calls: any[] = []
+  const client = fakeClient({ session: { unshare: async (args: any) => { calls.push(args); return {} } } })
+  const ops = createSessionOps({ targetFor: () => ({ sessionId: "s1", directory: "/w" }), clientFor: () => client })
+  await expect(ops.unshare("t1")).resolves.toBeUndefined()
+  expect(calls).toEqual([{ path: { id: "s1" }, query: { directory: "/w" } }])
+})
