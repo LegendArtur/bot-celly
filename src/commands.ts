@@ -6,6 +6,7 @@ import type { AuditDraft } from "./audit.ts"
 import type { Db } from "./db.ts"
 import type { ProjectService } from "./projects.ts"
 import type { QueuedPrompt, Runner } from "./runner.ts"
+import type { SessionOps } from "./session-utils.ts"
 
 export function commandData(): any[] {
   const project = { name: "project", description: "Manage Celly projects", options: [
@@ -30,6 +31,8 @@ export function commandData(): any[] {
     { name: "model", description: "Choose the model for this thread" },
     { name: "agent", description: "Choose the agent for this thread" },
     { name: "queue", description: "Show and manage this thread's queued prompts" },
+    { name: "undo", description: "Revert the session to its last user message" },
+    { name: "redo", description: "Restore messages reverted by the last /undo" },
     { name: "mode", description: "Set the approval mode for this session's project channel", options: [
       { type: ApplicationCommandOptionType.String, name: "mode", description: "How permission requests are handled", required: true,
         choices: APPROVAL_MODES.map((mode) => ({ name: mode, value: mode })) } ] } ]
@@ -54,6 +57,7 @@ export interface CommandDeps {
   listAgents?(channelId: string): Promise<{ id: string; name: string }[]>
   setThreadModel?(threadId: string, model: string | null): void
   setThreadAgent?(threadId: string, agent: string | null): void
+  sessions?: SessionOps
   approvals?: ApprovalManager
   audit?(entry: AuditDraft): void
 }
@@ -277,6 +281,17 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       const thread = deps.db.threads.get(interaction.channelId)
       if (!thread) return void await interaction.editReply(noMentions("use /queue inside a thread"))
       return void await interaction.editReply(queueMessage(thread.threadId, deps.runner.queuedFor(thread.threadId)))
+    }
+    if (interaction.commandName === "undo" || interaction.commandName === "redo") {
+      const thread = deps.db.threads.get(interaction.channelId)
+      if (!thread) return void await interaction.editReply(noMentions(`use /${interaction.commandName} inside a thread`))
+      if (!deps.sessions) return void await interaction.editReply(noMentions("session utilities unavailable"))
+      if (interaction.commandName === "undo") {
+        const result = await deps.sessions.undo(thread.threadId)
+        return void await interaction.editReply(noMentions(result === "reverted" ? "reverted the last message" : "nothing to undo"))
+      }
+      await deps.sessions.redo(thread.threadId)
+      return void await interaction.editReply(noMentions("redone"))
     }
     if (interaction.commandName === "mode") {
       const requested = interaction.options.getString("mode", true)

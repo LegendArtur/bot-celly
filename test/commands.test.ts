@@ -56,7 +56,7 @@ const editOf = (i: any) => {
 
 test("declares the v1 command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "mode", "model", "new", "project", "queue", "resume"])
+  expect(names).toEqual(["abort", "agent", "mode", "model", "new", "project", "queue", "redo", "resume", "undo"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -673,4 +673,36 @@ test("unauthorized queue buttons are rejected before deferUpdate", async () => {
   await handleButton(i, { projects: {} as any, db: fresh(), authorized: () => false, runner: {} as any })
   expect(i.calls).toHaveLength(1)
   expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "You are not authorized.", flags: 64, allowedMentions: { parse: [] } } })
+})
+
+test("undo reverts the thread's last user message", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const calls: string[] = []
+  const i = interaction({ commandName: "undo", channelId: "t1" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { undo: async (threadId: string) => { calls.push(threadId); return "reverted" } } as any })
+  expect(calls).toEqual(["t1"])
+  expect(editOf(i)).toBe("reverted the last message")
+})
+
+test("undo outside a thread is rejected and nothing to undo is reported", async () => {
+  const outside = interaction({ commandName: "undo", channelId: "c" })
+  await handleCommand(outside, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, sessions: {} as any })
+  expect(editOf(outside)).toBe("use /undo inside a thread")
+
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const empty = interaction({ commandName: "undo", channelId: "t1" })
+  await handleCommand(empty, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { undo: async () => "nothing" } as any })
+  expect(editOf(empty)).toBe("nothing to undo")
+})
+
+test("redo unreverts the thread", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const calls: string[] = []
+  const i = interaction({ commandName: "redo", channelId: "t1" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    sessions: { redo: async (threadId: string) => { calls.push(threadId); return "redone" } } as any })
+  expect(calls).toEqual(["t1"])
+  expect(editOf(i)).toBe("redone")
 })

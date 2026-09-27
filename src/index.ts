@@ -20,6 +20,7 @@ import { Runner } from "./runner.js"
 import { EventRouter } from "./events.js"
 import { Renderer, renderPayload, sanitizeThreadName } from "./render.js"
 import { resolveBaseUrl, resolveClient, resolveV2Client } from "./opencode.js"
+import { createSessionOps } from "./session-utils.js"
 import { runShell } from "./shell.js"
 import { ingestAttachments } from "./attachments.js"
 import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
@@ -152,6 +153,17 @@ async function main(): Promise<void> {
     if (!project) throw new Error(`unknown project for thread ${threadId}`)
     return resolveClient(project)
   }
+
+  const directoryFor = (threadId: string): string | undefined => db.threads.get(threadId)?.worktreePath ?? undefined
+  const sessions = createSessionOps({
+    targetFor: (threadId) => {
+      const thread = db.threads.get(threadId)
+      if (!thread) return undefined
+      const directory = directoryFor(threadId)
+      return directory ? { sessionId: thread.sessionId, directory } : { sessionId: thread.sessionId }
+    },
+    clientFor,
+  })
 
   const projectForThread = (threadId: string): Project => {
     const thread = db.threads.get(threadId)
@@ -462,6 +474,7 @@ async function main(): Promise<void> {
     createThread: createThreadForProject,
     listSessions, listModels, listAgents,
     setThreadModel, setThreadAgent,
+    sessions,
     postConnected: async (channelId, projectName) => {
       const channel = await client.channels.fetch(channelId).catch(() => null)
       if (channel && "send" in channel) {
