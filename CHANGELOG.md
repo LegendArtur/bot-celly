@@ -21,10 +21,9 @@
 - 0364586: Multi-guild support: `DISCORD_GUILD_IDS` accepts a comma-separated list (with
   `DISCORD_GUILD_ID` still supported) and Celly deploys its commands, boot
   subscription, and thread reconcile across every configured guild.
-- b879cf3: Add per-session usage and cost tracking (`/cost`), per-channel session budgets
-  (`/budget`, `SESSION_BUDGET_USD`), and owner-only provider OAuth login from
-  Discord (`/login`, `/login-code`). Provider `sbx secret` management from Discord
-  remains deferred and host-only.
+- b879cf3: Add per-session usage and cost tracking (`/cost`) and per-channel session
+  budgets (`/budget`, `SESSION_BUDGET_USD`). Provider `sbx secret` management from
+  Discord remains deferred and host-only.
 - 806baac: Add `/attach` and `/session-id` for driving the same OpenCode session from a terminal inside the sandbox, and add the optional `ATTACH_AUTO_THREAD` setting to auto-create Discord threads for terminal-started sessions.
 - 495681b: Add per-thread git worktrees (`/worktree status|new|merge|remove`), session
   forks (`/fork`, `/btw`), ephemeral `/last-sessions`, and `clone:`/`branch:`

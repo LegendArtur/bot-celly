@@ -73,11 +73,6 @@ export function commandData(): any[] {
       { type: ApplicationCommandOptionType.Subcommand, name: "set", description: "Set the channel session budget in USD", options: [
         { type: ApplicationCommandOptionType.Number, name: "usd", description: "Budget in USD; 0 disables", required: true } ] },
     ] },
-    { name: "login", description: "Authorize a provider with OAuth (owner-only)", options: [
-      { type: ApplicationCommandOptionType.String, name: "provider", description: "Provider id (e.g. openai); omit to pick from a list", required: false } ] },
-    { name: "login-code", description: "Finish OAuth login with an authorization code (owner-only)", options: [
-      { type: ApplicationCommandOptionType.String, name: "provider", description: "Provider id (e.g. openai)", required: true },
-      { type: ApplicationCommandOptionType.String, name: "code", description: "Authorization code", required: true } ] },
     { name: "mode", description: "Set the approval mode for this session's project channel", options: [
       { type: ApplicationCommandOptionType.String, name: "mode", description: "How permission requests are handled", required: true,
         choices: APPROVAL_MODES.map((mode) => ({ name: mode, value: mode })) } ] },
@@ -154,16 +149,12 @@ export interface CommandDeps {
   audit?(entry: AuditDraft): void
   worktree?: WorktreeCommands
   sessionBudgetUsd?: number
-  startLogin?(channelId: string, providerId: string): Promise<{ url: string; instructions: string; flow: "auto" | "code" }>
-  finishLogin?(channelId: string, providerId: string, code: string): Promise<void>
-  listLogin?(channelId: string): Promise<string[]>
 }
 
 export const RESUME_SELECT = "resume"
 export const MODEL_PROVIDER_SELECT = "model-provider"
 export const MODEL_SELECT = "model"
 export const AGENT_SELECT = "agent"
-export const LOGIN_PROVIDER_SELECT = "login-provider"
 export const QUEUE_REMOVE = "queue-remove"
 export const QUEUE_CLEAR = "queue-clear"
 
@@ -268,24 +259,12 @@ export function requiresOwner(commandName: string, sub: string | null | undefine
   if (commandName === "project") return !!sub && OWNER_ONLY_PROJECT_SUBS.has(sub)
   if (commandName === "task") return !!sub && OWNER_ONLY_TASK_SUBS.has(sub)
   if (commandName === "worktree") return !!sub && OWNER_ONLY_WORKTREE_SUBS.has(sub)
-  return commandName === "budget" || commandName === "login" || commandName === "login-code"
+  return commandName === "budget"
 }
 
 function commandProjectChannel(interaction: any, db: Db): string | undefined {
   if (interaction.channel?.isThread?.() === true) return db.threads.get(interaction.channelId)?.channelId
   return db.projects.getByChannel(interaction.channelId) ? interaction.channelId : undefined
-}
-
-function loginInstructions(providerId: string, login: { url: string; instructions: string; flow: "auto" | "code" }): string {
-  const lines = [
-    `Authorize ${providerId}:`,
-    login.url,
-    login.instructions,
-    login.flow === "auto"
-      ? `Finish in the browser, then send a prompt in this thread. If replies still fail, use \`/attach\` and run \`opencode auth login\` in the sandbox.`
-      : `Then run \`/login-code ${providerId} <code>\` with the code shown by the provider.`,
-  ].filter(Boolean)
-  return lines.join("\n")
 }
 
 export async function handleCommand(interaction: any, deps: CommandDeps): Promise<void> {
@@ -591,33 +570,6 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       const budget = resolveBudget(deps.db.settings, channelId, deps.sessionBudgetUsd ?? 0)
       return void await interaction.editReply(noMentions(budget > 0 ? `session budget: ${formatCost(budget)}` : "session budget: off"))
     }
-    if (interaction.commandName === "login") {
-      const channelId = commandProjectChannel(interaction, deps.db)
-      if (!channelId) return void await interaction.editReply(noMentions("this channel is not a project"))
-      const providerId = interaction.options.getString("provider", false)
-      if (!providerId) {
-        if (!deps.listLogin) return void await interaction.editReply(noMentions("login unavailable"))
-        const providers = await deps.listLogin(channelId)
-        if (!providers.length) return void await interaction.editReply(noMentions("no OAuth providers available"))
-        return void await interaction.editReply({
-          content: "Choose a provider to authorize:",
-          components: [selectRow(selectCustomId(LOGIN_PROVIDER_SELECT, channelId), "Select a provider", providers.map((id) => ({ label: id, value: id })))],
-          allowedMentions: { parse: [] },
-        })
-      }
-      if (!deps.startLogin) return void await interaction.editReply(noMentions("login unavailable"))
-      const login = await deps.startLogin(channelId, providerId)
-      return void await interaction.editReply(noMentions(loginInstructions(providerId, login)))
-    }
-    if (interaction.commandName === "login-code") {
-      const channelId = commandProjectChannel(interaction, deps.db)
-      if (!channelId) return void await interaction.editReply(noMentions("this channel is not a project"))
-      const providerId = interaction.options.getString("provider", true)
-      const code = interaction.options.getString("code", true)
-      if (!deps.finishLogin) return void await interaction.editReply(noMentions("login unavailable"))
-      await deps.finishLogin(channelId, providerId, code)
-      return void await interaction.editReply(noMentions(`logged in to ${providerId}`))
-    }
     await interaction.editReply(noMentions("not implemented in this build"))
   } catch (e) {
     const content = `error: ${(e as Error).message}`
@@ -667,12 +619,6 @@ export async function handleSelect(interaction: any, deps: CommandDeps): Promise
       }
       deps.setChannelAgent?.(scope, value ?? null)
       return void await interaction.editReply({ content: `channel agent set to ${value ?? "default"}`, components: [], allowedMentions: { parse: [] } })
-    }
-    if (action === LOGIN_PROVIDER_SELECT) {
-      if (!id || !value) return void await interaction.editReply({ content: "no provider selected", components: [], allowedMentions: { parse: [] } })
-      if (!deps.startLogin) return void await interaction.editReply({ content: "login unavailable", components: [], allowedMentions: { parse: [] } })
-      const login = await deps.startLogin(id, value)
-      return void await interaction.editReply(noMentions(loginInstructions(value, login), { components: [] }))
     }
     return void await interaction.editReply({ content: "unknown selection", components: [], allowedMentions: { parse: [] } })
   } catch (e) {

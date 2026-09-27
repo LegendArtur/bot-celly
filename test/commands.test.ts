@@ -65,7 +65,7 @@ const editOf = (i: any) => {
 
 test("declares the providers and cost command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "attach", "btw", "budget", "compact", "context-usage", "cost", "diff", "fork", "last-sessions", "login", "login-code", "mode", "model", "new", "project", "queue", "redo", "resume", "session-id", "share", "task", "undo", "unshare", "worktree"])
+  expect(names).toEqual(["abort", "agent", "attach", "btw", "budget", "compact", "context-usage", "cost", "diff", "fork", "last-sessions", "mode", "model", "new", "project", "queue", "redo", "resume", "session-id", "share", "task", "undo", "unshare", "worktree"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -304,108 +304,15 @@ test("/budget is owner-only", async () => {
   expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only.", flags: 64, allowedMentions: { parse: [] } } })
 })
 
-test("/login posts the authorization URL and the code hint", async () => {
-  const db = fresh(); db.projects.insertProvisioning(proj)
-  const i = interaction({ commandName: "login", channelId: "c", strings: { provider: "anthropic" } })
-  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
-    startLogin: async () => ({ url: "https://example.test/auth", instructions: "Paste the code", flow: "code" }) })
-  expect(editOf(i)).toBe("Authorize anthropic:\nhttps://example.test/auth\nPaste the code\nThen run `/login-code anthropic <code>` with the code shown by the provider.")
-})
-
-test("/login tells the user to finish an auto flow in the browser and prompt", async () => {
-  const db = fresh(); db.projects.insertProvisioning(proj)
-  const i = interaction({ commandName: "login", channelId: "c", strings: { provider: "anthropic" } })
-  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
-    startLogin: async () => ({ url: "https://example.test/auth", instructions: "A browser window opened", flow: "auto" }) })
-  expect(editOf(i)).toContain("Finish in the browser, then send a prompt in this thread.")
-  expect(editOf(i)).toContain("use `/attach` and run `opencode auth login` in the sandbox")
-})
-
-test("/login without a provider posts a provider select", async () => {
-  const db = fresh(); db.projects.insertProvisioning(proj)
-  const i = interaction({ commandName: "login", channelId: "c" })
-  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
-    listLogin: async () => ["github", "openai"] })
-  const edit = editOf(i)
-  expect(edit.content).toBe("Choose a provider to authorize:")
-  const menu = edit.components[0].components[0]
-  expect(menu.custom_id).toBe("celly:login-provider:c")
-  expect(menu.options).toEqual([
-    { label: "github", value: "github" },
-    { label: "openai", value: "openai" },
-  ])
-})
-
-test("selecting an oauth provider starts the login and edits to the authorization text", async () => {
-  const db = fresh(); db.projects.insertProvisioning(proj)
-  const i = select({ customId: "celly:login-provider:c", values: ["github"] })
-  const started: Array<[string, string]> = []
-  await handleSelect(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
-    startLogin: async (channelId: string, providerId: string) => { started.push([channelId, providerId]); return { url: "https://example.test/auth", instructions: "Paste the code", flow: "code" } } })
-  expect(started).toEqual([["c", "github"]])
-  expect(i.calls[1].c).toMatchObject({
-    content: "Authorize github:\nhttps://example.test/auth\nPaste the code\nThen run `/login-code github <code>` with the code shown by the provider.",
-    components: [],
-  })
-})
-
 test("selecting for an unknown action still answers unknown selection", async () => {
   const i = select({ customId: "celly:nope:c", values: ["x"] })
   await handleSelect(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
   expect(i.calls[1].c).toMatchObject({ content: "unknown selection", components: [] })
 })
 
-test("/login without a provider reports when none are available", async () => {
-  const db = fresh(); db.projects.insertProvisioning(proj)
-  const i = interaction({ commandName: "login", channelId: "c" })
-  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
-    listLogin: async () => [] })
-  expect(editOf(i)).toBe("no OAuth providers available")
-})
-
-test("/login surfaces the no-oauth error", async () => {
-  const db = fresh(); db.projects.insertProvisioning(proj)
-  const i = interaction({ commandName: "login", channelId: "c", strings: { provider: "anthropic" } })
-  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
-    startLogin: async () => { throw new Error("no oauth method for anthropic") } })
-  expect(editOf(i)).toBe("error: no oauth method for anthropic")
-})
-
-test("/login is owner-only", async () => {
-  const i = interaction({ commandName: "login", channelId: "c", strings: { provider: "anthropic" } })
-  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => false })
-  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only." } })
-})
-
-test("/login-code completes the flow and confirms", async () => {
-  const db = fresh(); db.projects.insertProvisioning(proj)
-  const finished: Array<[string, string, string]> = []
-  const i = interaction({ commandName: "login-code", channelId: "c", strings: { provider: "anthropic", code: "abc123" } })
-  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
-    finishLogin: async (channelId, providerId, code) => { finished.push([channelId, providerId, code]) } })
-  expect(finished).toEqual([["c", "anthropic", "abc123"]])
-  expect(editOf(i)).toBe("logged in to anthropic")
-})
-
-test("/login-code replies error when the callback fails", async () => {
-  const db = fresh(); db.projects.insertProvisioning(proj)
-  const i = interaction({ commandName: "login-code", channelId: "c", strings: { provider: "anthropic", code: "abc123" } })
-  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
-    finishLogin: async () => { throw new Error("oauth callback for anthropic failed") } })
-  expect(editOf(i)).toBe("error: oauth callback for anthropic failed")
-})
-
-test("/login-code is owner-only", async () => {
-  const i = interaction({ commandName: "login-code", channelId: "c", strings: { provider: "anthropic", code: "abc123" } })
-  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => false })
-  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only." } })
-})
-
-test("requiresOwner covers the new owner-only commands", () => {
+test("requiresOwner covers the owner-only commands", () => {
   expect(requiresOwner("budget", "show")).toBe(true)
   expect(requiresOwner("budget", "set")).toBe(true)
-  expect(requiresOwner("login", null)).toBe(true)
-  expect(requiresOwner("login-code", null)).toBe(true)
   expect(requiresOwner("cost", null)).toBe(false)
 })
 

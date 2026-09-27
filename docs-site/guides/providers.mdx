@@ -77,34 +77,12 @@ thread; a thread with neither set uses the `DEFAULT_MODEL` / `DEFAULT_AGENT`
 seeded at first boot.
 </Note>
 
-## Login from Discord
+## Login inside the sandbox
 
-Owner-only `/login <provider>` asks the sandbox's OpenCode server for that
-provider's auth methods, starts the **oauth** method, and posts the
-authorization URL. The `provider` option is a picker: run `/login` with no
-provider to choose from a select of the OAuth-capable providers. The OAuth
-provider list is loaded at startup (per project) and cached with a 60-second
-refresh, so the `/login` picker opens instantly and stays current; on opencode
-1.18.32 that is `azure`, `cloudflare-ai-gateway`,
-`cloudflare-workers-ai`, `digitalocean`, `github-copilot`, `gitlab`, `openai`,
-`poe`, `snowflake-cortex`, and `xai`. Complete the browser step, then:
-
-- if the flow returned a `code` method, run `/login-code <provider> <code>` with
-  the code the provider showed;
-- if it returned `auto`, finish in the browser and send a prompt in the thread.
-  There is no separate "verify" step: if replies still fail, use `/attach` and
-  run `opencode auth login` in the sandbox.
-
-Authorization codes and tokens go straight to the sandbox server over the
-loopback API. Celly never logs, audits, or echoes them. A provider with no OAuth
-method answers `error: no oauth method for <provider>; oauth providers: <list>`;
-use `sbx secret` on the host for that provider.
-
-Anthropic and DeepSeek-style providers are API-key only — they have no OAuth
-method, so register them with `sbx secret` (see above). A provider whose OAuth
-method requires extra setup input (a non-empty `prompts` list) is not supported
-by this simple flow; `/login` rejects it and points at `/attach` plus
-`opencode auth login` in the sandbox.
+`sbx secret` is the supported path for API keys. If a provider offers its own
+subscription login flow, run it inside the sandbox: open a terminal with
+`/attach` and run `opencode auth login`. Authorization codes and tokens stay
+inside the microVM; Celly never sees, logs, audits, or echoes them.
 
 <Note>
 Managing `sbx secret` from Discord is **deferred and host-only**. Doing it safely
@@ -112,16 +90,16 @@ needs a host spike on `sbx secret ls/set-custom` output and stdin behavior; unti
 then, register credentials on the host as described above.
 </Note>
 
-### OAuth inside sandboxes
+### Provider placeholder env vars
 
 Inside an `sbx` sandbox the forward proxy injects placeholder environment
 variables (for example `OPENAI_API_KEY=proxy-managed`) so provider SDKs look
-configured. A placeholder would shadow a real OAuth credential, so the project
-server unsets a provider's placeholder env var automatically whenever
-`~/.local/share/opencode/auth.json` contains that provider id. After a login
-completes, Celly restarts the project's server so it re-reads the env and
-`auth.json` and the new credential takes effect. `sbx secret` remains the path
-for API-key providers.
+configured. A placeholder would shadow credentials stored in the sandbox's
+`~/.local/share/opencode/auth.json`, so the project server unsets a provider's
+placeholder env var automatically whenever `auth.json` already contains that
+provider id. Restart the project (`/project stop` then `/project start`) after
+completing an in-sandbox login so the server re-reads the env and `auth.json`.
+`sbx secret` remains the path for API-key providers.
 
 ## Verify
 

@@ -99,29 +99,7 @@ the repo root unless a step says otherwise.
    best-effort and never fails boot, so the actual behavior decides the next
    step for the question bridge.
 
-## 6. OAuth login (`/login`)
-
-1. Run `/login` and pick the provider you use from the select. The provider
-   list is warmed at startup and refreshed every 60 seconds, so the select
-   should appear immediately.
-   Expected: an ephemeral message with an authorization URL and instructions.
-2. Open the URL in a browser, complete the flow.
-   - Code flow: run `/login-code provider:<id> code:<code>`. The bot restarts
-     the project's server as soon as the code is accepted.
-   - Auto flow: finish in the browser. The bot polls for a few minutes, waits
-     for active runs to finish, then restarts the project's server on its own.
-   Expected: `logged in to <provider>` (code flow); after the restart the bot
-   log shows `provider login applied`. If it does not appear within about five
-   minutes, run `/project start` to reload the server.
-3. `/model` → your provider appears; pick a model; send a prompt.
-   Expected: a normal reply **without** any `sbx secret` setup.
-4. Check the live server config (command from step 1) for the provider's
-   `"source"`: expect `"api"` rather than `"env"` (the proxy placeholder env
-   var is unset automatically when the credential lives in `auth.json`).
-5. Record: provider, flow type, success/failure, the `/config` `source` value,
-   and the exact error text if it fails.
-
-## 7. Cost and budget
+## 6. Cost and budget
 
 1. After a few prompts run `/cost`.
    Expected: session and channel cost/token lines and a budget line
@@ -132,7 +110,7 @@ the repo root unless a step says otherwise.
    Expected: a `[budget]` line in the reply and a channel warning; the run
    aborts. `/budget set 0` restores unlimited.
 
-## 8. Idle auto-stop
+## 7. Idle auto-stop
 
 1. Set `IDLE_STOP_MINUTES=2` in `.env`, restart the bot.
 2. Restart the bot while a project is awake (send a message first).
@@ -144,7 +122,7 @@ the repo root unless a step says otherwise.
 4. Send a message in the project channel.
    Expected: the project wakes and replies normally.
 
-## 9. Admin page
+## 8. Admin page
 
 1. With `ADMIN_PORT=4560` (default) open `http://127.0.0.1:4560/` in a browser.
    Expected: the status page loads.
@@ -156,7 +134,7 @@ the repo root unless a step says otherwise.
    Expected: JSON; `/api/audit` returns entries after step 4 (no 404).
 3. `/api/logs/<channelId>?lines=20` returns recent project log lines.
 
-## 10. Multi-guild (only if you use more than one guild)
+## 9. Multi-guild (only if you use more than one guild)
 
 1. Set `DISCORD_GUILD_IDS=guild1,guild2` in `.env`, restart.
    Expected: the banner lists both; commands work in both guilds; a message in
@@ -164,7 +142,7 @@ the repo root unless a step says otherwise.
 2. Note: access control (role IDs) is still global across guilds — per-guild
    roles are a follow-up.
 
-## 11. What to send back
+## 10. What to send back
 
 For each failed step, paste:
 

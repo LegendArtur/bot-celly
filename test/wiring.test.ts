@@ -92,10 +92,9 @@ test("index wires log rotation, backups, tasks, and the admin server into boot",
   expect(source).toContain("admin?.close()")
 })
 
-test("index warms the provider, model, and agent caches in the boot subscribe path", () => {
+test("index warms the model and agent caches in the boot subscribe path", () => {
   const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8")
   expect(source).toContain("warmLists(project.channelId)")
-  expect(source).toContain("`providers:${channelId}`")
   expect(source).toContain("`models:${channelId}`")
   expect(source).toContain("`agents:${channelId}`")
 })
@@ -106,16 +105,6 @@ test("index only wires the idle sweeper when IDLE_STOP_MINUTES is positive", () 
   expect(source).toContain("createIdleSweeper({")
   expect(source).toContain("idleSweeper.start()")
   expect(source).toContain("idle auto-stop disabled")
-})
-
-test("index watches the sandbox auth store for post-login reloads", () => {
-  const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8")
-  expect(source).not.toContain("waitForOAuthCompletion")
-  expect(source).toContain("waitForSandboxAuth")
-  expect(source).toContain(`["exec", project.sandboxName, "bash", "-lc", script]`)
-  expect(source).toContain("auth.json")
-  const oauth = readFileSync(new URL("../src/oauth.ts", import.meta.url), "utf8")
-  expect(oauth).toContain("auth.json")
 })
 
 test("touchAfterWake records activity after ensureReady, and not if the wake fails", async () => {

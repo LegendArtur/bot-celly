@@ -97,16 +97,14 @@ longer active"; pending requests are not persisted across restarts.
 | `/cost` | authorized | Show this thread's and channel's accumulated cost, tokens, and the session budget (ephemeral). |
 | `/budget show` | owner | Show this channel's session budget (ephemeral). |
 | `/budget set usd:<usd>` | owner | Set this channel's session budget in USD; `0` disables it (ephemeral). |
-| `/login [provider:<id>]` | owner | Start a provider OAuth flow and post the authorization URL (ephemeral); omit `provider` to pick from a select of OAuth-capable providers (for example `openai`). |
-| `/login-code provider:<id> code:<code>` | owner | Finish an OAuth flow with the provider's authorization code (ephemeral). |
 
-`/login` only works for providers that expose an OAuth method (for example
-`openai`). Anthropic and DeepSeek-style providers are API-key only; register
-them with `sbx secret` instead.
+Register provider credentials with `sbx secret` on the host. Alternately, a
+provider's own login flow (for example `opencode auth login`) can be run inside
+the sandbox over the terminal opened by `/attach`.
 
-The OAuth-provider, model, and agent lists behind the `/login`, `/model`, and
-`/agent` pickers are warmed at startup and refreshed every 60 seconds, so the
-pickers open from cache rather than fetching on demand.
+The model and agent lists behind the `/model` and `/agent` pickers are warmed at
+startup and refreshed every 60 seconds, so the pickers open from cache rather
+than fetching on demand.
 
 ## Messages and shell
 

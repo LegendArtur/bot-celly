@@ -64,8 +64,6 @@ core idea (channels as projects, threads as sessions) and runs each project in a
   and env-file inspection, and is re-asserted after every wake.
 - **Cost tracking and budgets.** `/cost` reports per-thread and per-channel
   usage, and a session budget (env or `/budget`) stops a run that exceeds it.
-- **Provider OAuth login.** Owner-only `/login` and `/login-code` complete
-  provider authorization without leaving Discord.
 
 ## Architecture
 
@@ -170,8 +168,6 @@ is documented in
 | `/last-sessions [count]` | channel or thread | List recent threads (ephemeral, max 10). |
 | `/cost` | thread or channel | Show accumulated cost, tokens, and the session budget. |
 | `/budget show\|set <usd>` | channel (owner) | Show or set the per-channel session budget. |
-| `/login <provider>` | channel or thread (owner) | Start a provider OAuth flow. |
-| `/login-code <provider> <code>` | channel or thread (owner) | Finish a provider OAuth flow. |
 | `/mode <auto\|buttons\|plan>` | project channel or thread (owner) | Set the channel approval mode. |
 | `/task add <channel> <prompt> <every_minutes>` | guild (owner) | Schedule a recurring prompt in a project channel. |
 | `/task list` | guild | List scheduled tasks. |

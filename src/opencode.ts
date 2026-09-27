@@ -43,6 +43,9 @@ export const AUTH_ENV_BY_PROVIDER: Record<string, string> = {
 export const OPENCODE_AUTH_PATH = "$HOME/.local/share/opencode/auth.json"
 
 export function buildServeArgs(): string[] {
+  // Unset a provider's proxy placeholder env var when that provider already has
+  // credentials in auth.json, so credentials stored by `opencode auth login` in
+  // the sandbox are not shadowed by the proxy placeholder.
   const unsets = Object.entries(AUTH_ENV_BY_PROVIDER)
     .map(([id, env]) => `grep -q "\\"${id}\\"" "$auth" && unset ${env}`)
     .join("; ")
