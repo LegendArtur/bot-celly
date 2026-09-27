@@ -10,6 +10,7 @@ import type { ChildProcess } from "./sbx.js"
 import { applyAndAssertCellyPolicy, BOOTSTRAP_PREPARE, BOOTSTRAP_VERIFY, buildBootstrapInstallScript, buildServeArgs, createClient, waitForHealth } from "./opencode.js"
 import type { OpencodeClient } from "./opencode.js"
 import { redact } from "./log.js"
+import { rotateIfNeeded } from "./rotate.js"
 
 export interface ProjectDeps {
   sbx: Sbx; runner: SbxRunner; db: Db; config: Config
@@ -328,8 +329,17 @@ export class ProjectService {
     try { mkdirSync(dirname(logFile), { recursive: true }) } catch {}
     try { chmodSync(logFile, 0o600) } catch {}
     const logSecrets = [project.serverPassword]
+    let writtenSinceRotate = 0
     const appendLog = (prefix: string, data: unknown): void => {
-      try { appendFileSync(logFile, redact(`[${prefix}] ${String(data)}`, logSecrets), { mode: 0o600 }) } catch {}
+      try {
+        const line = redact(`[${prefix}] ${String(data)}`, logSecrets)
+        writtenSinceRotate += Buffer.byteLength(line)
+        if (this.deps.config.logMaxBytes && this.deps.config.logMaxFiles && writtenSinceRotate >= this.deps.config.logMaxBytes) {
+          writtenSinceRotate = 0
+          rotateIfNeeded(logFile, { maxBytes: this.deps.config.logMaxBytes, maxFiles: this.deps.config.logMaxFiles })
+        }
+        appendFileSync(logFile, line, { mode: 0o600 })
+      } catch {}
     }
     child.stdout?.on("data", (d) => { appendLog("out", d); this.deps.log.debug("project server stdout", { channelId, line: String(d) }) })
     child.stderr?.on("data", (d) => { appendLog("err", d); this.deps.log.warn("project server stderr", { channelId, line: String(d) }) })

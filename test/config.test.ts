@@ -111,3 +111,37 @@ test("loadDotEnv loads a real .env into process.env", () => {
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test("parses log rotation settings and defaults", () => {
+  const c = loadConfig({ ...base, LOG_MAX_BYTES: "1024", LOG_MAX_FILES: "2" })
+  expect(c.logMaxBytes).toBe(1024)
+  expect(c.logMaxFiles).toBe(2)
+  const d = loadConfig(base)
+  expect(d.logMaxBytes).toBe(5_000_000)
+  expect(d.logMaxFiles).toBe(3)
+})
+
+test("rejects invalid log rotation settings", () => {
+  expect(() => loadConfig({ ...base, LOG_MAX_BYTES: "0" })).toThrow(/LOG_MAX_BYTES/)
+  expect(() => loadConfig({ ...base, LOG_MAX_FILES: "0" })).toThrow(/LOG_MAX_FILES/)
+})
+
+test("parses backup settings and defaults", () => {
+  const c = loadConfig({ ...base, BACKUP_INTERVAL_HOURS: "0", BACKUP_KEEP: "3" })
+  expect(c.backupIntervalHours).toBe(0)
+  expect(c.backupKeep).toBe(3)
+  const d = loadConfig(base)
+  expect(d.backupIntervalHours).toBe(24)
+  expect(d.backupKeep).toBe(7)
+})
+
+test("rejects invalid backup settings", () => {
+  expect(() => loadConfig({ ...base, BACKUP_INTERVAL_HOURS: "-1" })).toThrow(/BACKUP_INTERVAL_HOURS/)
+  expect(() => loadConfig({ ...base, BACKUP_KEEP: "0" })).toThrow(/BACKUP_KEEP/)
+})
+
+test("admin port defaults to 4560 and accepts 0 to disable", () => {
+  expect(loadConfig(base).adminPort).toBe(4560)
+  expect(loadConfig({ ...base, ADMIN_PORT: "0" }).adminPort).toBe(0)
+  expect(() => loadConfig({ ...base, ADMIN_PORT: "-1" })).toThrow(/ADMIN_PORT/)
+})

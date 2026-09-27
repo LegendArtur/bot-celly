@@ -714,3 +714,22 @@ test("the supervised child's output is written to data/logs/<sandbox>.log", asyn
     rmSync(dataDir, { recursive: true, force: true })
   }
 })
+
+test("project server logs rotate when they exceed logMaxBytes", async () => {
+  const db = openDb(":memory:"); db.migrate()
+  const { sbx, runner, children } = fakes()
+  const server = await healthServer(true)
+  const cfg = makeCfg(server.port, server.port)
+  cfg.logMaxBytes = 200
+  cfg.logMaxFiles = 1
+  try {
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: cfg, log: logger(),
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
+    await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
+    for (let i = 0; i < 5; i++) children[0].emitStdout("x".repeat(100))
+    expect(existsSync(join(cfg.dataDir, "logs", "celly-demo.log.1"))).toBe(true)
+  } finally {
+    await server.close()
+    rmSync(cfg.dataDir, { recursive: true, force: true })
+  }
+})

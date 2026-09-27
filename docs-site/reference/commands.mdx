@@ -37,6 +37,14 @@ with block checked first.
 | `/attach` | thread | Show the exact `sbx exec` + `opencode attach` command for this thread's session (ephemeral). |
 | `/session-id` | thread | Show this thread's session id and the attach command behind a spoiler (ephemeral). |
 
+## Scheduled tasks
+
+| Command | Access | Behavior |
+| --- | --- | --- |
+| `/task add channel:<#channel> prompt:<text> every_minutes:<n>` | owner | Schedule a recurring prompt in a project channel (minimum 1 minute). |
+| `/task list` | authorized | List scheduled tasks with their next run. |
+| `/task remove id:<n>` | owner | Remove a scheduled task by id. |
+
 ## Messages and shell
 
 | Input | Where | Behavior |
@@ -62,9 +70,14 @@ Commands: `/project restart`, `/share`, `/diff`, `/undo`, `/redo`,
 
 Features: worktree-per-thread, `/btw` forks, queue UI (`. queue`),
 permission-approval buttons, `question` rendered as Discord components, voice
+<<<<<<< HEAD
 messages, image attachments, tunnels/screenshare, multi-guild,
 cloud sandboxes, `--clone` sandbox mode, OAuth subscription login, and
 Linux/macOS deployment docs.
+=======
+messages, image attachments, OpenCode web UI, tunnels/screenshare, multi-guild,
+cloud sandboxes, `--clone` sandbox mode, OAuth subscription login.
+>>>>>>> feat/admin-and-ops
 
 The OpenCode web UI is intentionally not published (the sandbox server stays
 loopback-only); attach from a terminal instead — see the

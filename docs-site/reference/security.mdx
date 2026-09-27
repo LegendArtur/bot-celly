@@ -81,6 +81,15 @@ per-project password is written to `~/.config/celly/opencode.env` (mode `0600`)
 inside the sandbox and stored in the bot database. It rotates when a sandbox is
 recreated.
 
+## Admin and backup surfaces
+
+- The admin page binds `127.0.0.1:ADMIN_PORT` only and has no authentication. It
+  must never be exposed through a tunnel or port-forward.
+- It exposes project names/status, start/stop actions, and redacted log tails.
+  Log redaction reuses the same `redact` path as `bot.log`.
+- Backups are written under `DATA_DIR/backups` (`VACUUM INTO` output) and stay
+  in the host trust domain, alongside `bot.db`.
+
 ## Bot-enforced permission policy
 
 The sandbox config sets a default-deny policy, and the bot re-asserts it at the

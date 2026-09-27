@@ -1,5 +1,10 @@
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { realpathSync } from "node:fs"
+import { join } from "node:path"
+import { createAdminServer } from "./admin.js"
+import type { AdminServer } from "./admin.js"
+import { createBackupScheduler } from "./backup.js"
+import { createTaskRunner } from "./tasks.js"
 import { ChannelType, Events, PermissionFlagsBits } from "discord.js"
 import type { Guild, Interaction, Message } from "discord.js"
 import type { Project, Thread } from "./types.ts"
@@ -34,11 +39,20 @@ async function main(): Promise<void> {
   ensureDataDir(cfg.projectsRoot)
   const lock = await acquireLock(4555)
   const secrets = [cfg.discordToken]
-  const log = createLogger({ level: cfg.logLevel, file: `${cfg.dataDir}/bot.log`, secrets, truncate: true })
+  const log = createLogger({ level: cfg.logLevel, file: `${cfg.dataDir}/bot.log`, secrets, truncate: true, maxBytes: cfg.logMaxBytes, maxFiles: cfg.logMaxFiles })
   const db = openDb(`${cfg.dataDir}/bot.db`)
   db.migrate()
   for (const project of db.projects.list()) secrets.push(project.serverPassword)
   seedSettings(db, cfg)
+
+  const backups = cfg.backupIntervalHours > 0
+    ? createBackupScheduler({
+        db, dir: join(cfg.dataDir, "backups"),
+        intervalMs: cfg.backupIntervalHours * 3_600_000,
+        keep: cfg.backupKeep, now: () => Date.now(),
+      })
+    : undefined
+  backups?.start()
 
   const sbxRunner = new SbxRunner()
   const sbx = new Sbx(sbxRunner, cfg.sandboxTemplate)
@@ -315,6 +329,30 @@ async function main(): Promise<void> {
     if (project) subscribeProject(project)
   }
 
+  let admin: AdminServer | undefined
+  if (cfg.adminPort > 0) {
+    try {
+      admin = await createAdminServer({
+        port: cfg.adminPort,
+        db,
+        secrets,
+        logFileFor: (channelId) => {
+          const project = db.projects.getByChannel(channelId)
+          return project ? join(cfg.dataDir, "logs", `${project.sandboxName}.log`) : undefined
+        },
+        start: async (channelId) => { startSubscription(channelId); await projects.start(channelId) },
+        stop: async (channelId) => {
+          await runnerSvc.resetChannel(channelId, { notify: true })
+          stopSubscription(channelId)
+          await projects.stop(channelId)
+        },
+      })
+      log.info("admin server listening", { port: admin.port })
+    } catch (e) {
+      log.warn("admin server failed to start", { port: cfg.adminPort, error: String(e) })
+    }
+  }
+
   const createThreadForProject = async (input: CreateThreadInput): Promise<{ threadId: string; sessionId: string; notice?: string }> => {
     const project = db.projects.getByChannel(input.channelId)
     if (!project) throw new Error(`unknown project channel ${input.channelId}`)
@@ -347,6 +385,16 @@ async function main(): Promise<void> {
     createThread: createThreadForProject,
     log,
   })
+
+  const taskRunner = createTaskRunner({
+    db,
+    now: () => Date.now(),
+    everyMs: 30_000,
+    prompt: (threadId, text, actor) => runnerSvc.prompt(threadId, text, actor),
+    ensureThread: async (channelId) => (await createThreadForProject({ channelId, title: "scheduled task" })).threadId,
+    log: { warn: (message, fields) => log.warn(message, fields) },
+  })
+  taskRunner.start()
 
   const listSessions = async (channelId: string): Promise<{ id: string; title: string }[]> => {
     const project = db.projects.getByChannel(channelId)
@@ -446,9 +494,13 @@ async function main(): Promise<void> {
   const shutdown = createShutdown({
     log,
     abortControllers: () => controllers.values(),
-    stopProjects: async () => { for (const project of db.projects.list()) await projects.stop(project.channelId).catch(() => {}) },
+    stopProjects: async () => {
+      taskRunner.stop()
+      backups?.stop()
+      for (const project of db.projects.list()) await projects.stop(project.channelId).catch(() => {})
+    },
     destroyClient: () => client.destroy(),
-    closeDb: () => db.close(),
+    closeDb: () => { admin?.close(); db.close() },
     releaseLock: () => lock.release(),
     exit: (code) => process.exit(code),
   })

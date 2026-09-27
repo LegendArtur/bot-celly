@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createLogger, redact } from "../src/log.ts"
@@ -103,6 +103,21 @@ test("truncate clears an existing log file at construction", () => {
     const contents = readFileSync(file, "utf8")
     expect(contents).not.toContain("old line")
     expect(contents).toContain("first")
+  } finally {
+    info.mockRestore()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("logger rotates the file once appends pass maxBytes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "celly-log-rotate-"))
+  const file = join(dir, "bot.log")
+  const info = vi.spyOn(console, "info").mockImplementation(() => {})
+  try {
+    const log = createLogger({ level: "info", file, maxBytes: 200, maxFiles: 2 })
+    for (let i = 0; i < 12; i++) log.info("line", { i })
+    expect(existsSync(`${file}.1`)).toBe(true)
+    expect(readFileSync(`${file}.1`, "utf8")).toContain('"msg":"line"')
   } finally {
     info.mockRestore()
     rmSync(dir, { recursive: true, force: true })

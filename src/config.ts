@@ -13,6 +13,9 @@ export interface Config {
   attachAutoThread: boolean
   idleStopMinutes: number
   dataDir: string; logLevel: "debug" | "info" | "warn" | "error"
+  logMaxBytes: number; logMaxFiles: number
+  backupIntervalHours: number; backupKeep: number
+  adminPort: number
 }
 /** Create DATA_DIR (and parents) before the logger or SQLite file is opened. */
 export function ensureDataDir(dir: string): void {
@@ -58,6 +61,11 @@ const bool = (e: NodeJS.ProcessEnv, k: string, d: boolean): boolean => {
   if (raw === "false" || raw === "0") return false
   throw new Error(`${k} must be a boolean, got "${e[k]}"`)
 }
+const nonNegative = (e: NodeJS.ProcessEnv, k: string, d: number) => {
+  const n = num(e, k, d)
+  if (n < 0) throw new Error(`${k} must be >= 0, got "${e[k]}"`)
+  return n
+}
 export function defaultProjectsRoot(): string {
   return join(homedir(), "Celly", "projects")
 }
@@ -88,5 +96,10 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     idleStopMinutes: int(env, "IDLE_STOP_MINUTES", 30, 0),
     dataDir: str(env, "DATA_DIR") ?? "./data",
     logLevel: level as Config["logLevel"],
+    logMaxBytes: int(env, "LOG_MAX_BYTES", 5000000, 1),
+    logMaxFiles: int(env, "LOG_MAX_FILES", 3, 1),
+    backupIntervalHours: nonNegative(env, "BACKUP_INTERVAL_HOURS", 24),
+    backupKeep: int(env, "BACKUP_KEEP", 7, 1),
+    adminPort: int(env, "ADMIN_PORT", 4560, 0),
   }
 }

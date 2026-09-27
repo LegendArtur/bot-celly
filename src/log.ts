@@ -1,4 +1,5 @@
 import { appendFileSync, writeFileSync } from "node:fs"
+import { rotateIfNeeded } from "./rotate.js"
 const SECRET_KEY = /("(?:authorization|password|token|secret)"\s*:\s*)("(?:[^"\\]|\\.)*"|true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/gi
 const AUTH_HEADER = /(authorization\s*:\s*)(?:bearer|basic)\s+[^\s"]+/gi
 export function redact(text: string, secrets: string[]): string {
@@ -34,10 +35,18 @@ export interface Logger {
   error(msg: string, fields?: Record<string, unknown>): void
   child(fields: Record<string, unknown>): Logger
 }
-export function createLogger(opts: { level: string; file?: string; secrets?: string[]; truncate?: boolean }): Logger {
+export function createLogger(opts: { level: string; file?: string; secrets?: string[]; truncate?: boolean; maxBytes?: number; maxFiles?: number }): Logger {
   const min = (order[opts.level as Level] ?? 1)
   if (opts.truncate && opts.file) {
     try { writeFileSync(opts.file, "") } catch (err) { console.error(`log truncate failed: ${String(err)}`) }
+  }
+  let writtenSinceRotate = 0
+  const rotateForAppend = (bytes: number): void => {
+    if (!opts.file || !opts.maxBytes || !opts.maxFiles) return
+    writtenSinceRotate += bytes
+    if (writtenSinceRotate < opts.maxBytes) return
+    writtenSinceRotate = 0
+    try { rotateIfNeeded(opts.file, { maxBytes: opts.maxBytes, maxFiles: opts.maxFiles }) } catch (err) { console.error(`log rotate failed: ${String(err)}`) }
   }
   const build = (bound: Record<string, unknown>): Logger => {
     const emit = (level: Level, msg: string, fields?: Record<string, unknown>) => {
@@ -49,7 +58,10 @@ export function createLogger(opts: { level: string; file?: string; secrets?: str
         line = redact(JSON.stringify({ ts: new Date().toISOString(), level, msg, error: "unserializable fields" }), opts.secrets ?? [])
       }
       console[level === "debug" ? "log" : level](line)
-      if (opts.file) try { appendFileSync(opts.file, line + "\n") } catch (err) { console.error(`log append failed: ${String(err)}`) }
+      if (opts.file) {
+        rotateForAppend(Buffer.byteLength(line) + 1)
+        try { appendFileSync(opts.file, line + "\n") } catch (err) { console.error(`log append failed: ${String(err)}`) }
+      }
     }
     return {
       debug: (m, f) => emit("debug", m, f), info: (m, f) => emit("info", m, f),

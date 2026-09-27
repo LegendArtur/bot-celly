@@ -43,6 +43,11 @@ DISCORD_GUILD_ID=your-guild-id
 | `IDLE_STOP_MINUTES` | `30` | Stop a project after this many minutes without activity. `0` disables. |
 | `DATA_DIR` | `./data` | SQLite database, logs, and lock file. |
 | `LOG_LEVEL` | `info` | One of `debug`, `info`, `warn`, `error`. |
+| `ADMIN_PORT` | `4560` | Loopback-only admin page; `0` disables. |
+| `LOG_MAX_BYTES` | `5000000` | Rotate a log file after this many bytes. |
+| `LOG_MAX_FILES` | `3` | Rotated log copies kept (`.1`…`.N`). |
+| `BACKUP_INTERVAL_HOURS` | `24` | SQLite backup cadence; `0` disables. |
+| `BACKUP_KEEP` | `7` | Backup files kept before pruning. |
 
 <Note>
 `DEFAULT_MODEL` and `DEFAULT_AGENT` are seeded into the `settings` table on the
@@ -89,6 +94,7 @@ Keep `DATA_DIR` outside OneDrive/Dropbox-style synced folders. Cloud-sync
 detection is not implemented in v1, so this is on you.
 </Warning>
 
+<<<<<<< HEAD
 ## Idle auto-stop
 
 With `IDLE_STOP_MINUTES` greater than `0` (default `30`), Celly stops a
@@ -97,3 +103,14 @@ activity. Projects with a run in flight and projects still provisioning are
 skipped. Celly posts a plain notice in the project channel; the next message
 wakes the project again. Set `IDLE_STOP_MINUTES=0` to keep every started
 project running.
+=======
+## Admin page, backups, and log rotation
+
+`ADMIN_PORT` starts a loopback-only HTTP status page and JSON API on
+`127.0.0.1`. It has no authentication; reach it locally or through an SSH
+tunnel, never through a public interface.
+
+Backups run every `BACKUP_INTERVAL_HOURS` hours into `DATA_DIR/backups` and keep
+`BACKUP_KEEP` files. Logs rotate at `LOG_MAX_BYTES` and keep `LOG_MAX_FILES`
+numbered copies.
+>>>>>>> feat/admin-and-ops
