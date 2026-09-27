@@ -11,8 +11,10 @@ import { openDb } from "./db.js"
 import { Sbx, SbxRunner } from "./sbx.js"
 import { ProjectService } from "./projects.js"
 import { createDiscordClient, isAuthorized, isOwner, rolesOf } from "./discord.js"
-import { commandData, handleButton, handleCommand, handleModalSubmit, handleSelect } from "./commands.js"
+import { commandData, handleAutocomplete, handleButton, handleCommand, handleModalSubmit, handleSelect } from "./commands.js"
 import type { CommandDeps, CreateThreadInput } from "./commands.js"
+import { createSuggestionCache } from "./autocomplete.js"
+import type { SuggestionCache } from "./autocomplete.js"
 import { APPROVAL_TIMEOUT_MS, ApprovalManager } from "./approvals.js"
 import { approvalModeFor } from "./mode.js"
 import { acquireLock } from "./lock.js"
@@ -477,6 +479,33 @@ async function main(): Promise<void> {
       return list.filter((a: any) => a?.mode !== "subagent").map((a: any) => ({ id: String(a.name), name: a.description ? `${a.name} — ${a.description}` : String(a.name) }))
     } catch { return [] }
   }
+  const suggestionCaches = new Map<string, SuggestionCache>()
+  const suggestionCacheFor = (key: string, load: () => Promise<string[]>): SuggestionCache => {
+    let cache = suggestionCaches.get(key)
+    if (!cache) {
+      cache = createSuggestionCache({ ttlMs: 60_000, load, now: () => Date.now() })
+      suggestionCaches.set(key, cache)
+    }
+    return cache
+  }
+  const suggest = async (interaction: any, query: string): Promise<{ name: string; value: string }[]> => {
+    if (interaction.commandName === "resume") {
+      const channelId = interaction.channelId
+      const cache = suggestionCacheFor(`resume:${channelId}`, async () => (await listSessions(channelId)).map((session) => session.id))
+      return (await cache.suggest(query)).map((value) => ({ name: value, value }))
+    }
+    const thread = db.threads.get(interaction.channelId)
+    const channelId = thread?.channelId ?? interaction.channelId
+    if (interaction.commandName === "model") {
+      const cache = suggestionCacheFor(`models:${channelId}`, async () => (await listModels(channelId)).map((model) => model.id))
+      return (await cache.suggest(query)).map((value) => ({ name: value, value }))
+    }
+    if (interaction.commandName === "agent") {
+      const cache = suggestionCacheFor(`agents:${channelId}`, async () => (await listAgents(channelId)).map((agent) => agent.id))
+      return (await cache.suggest(query)).map((value) => ({ name: value, value }))
+    }
+    return []
+  }
   const setThreadModel = (threadId: string, model: string | null): void => { if (db.threads.get(threadId)) db.threads.setModel(threadId, model) }
   const setThreadAgent = (threadId: string, agent: string | null): void => { if (db.threads.get(threadId)) db.threads.setAgent(threadId, agent) }
 
@@ -490,7 +519,7 @@ async function main(): Promise<void> {
     createThread: createThreadForProject,
     listSessions, listModels, listAgents,
     setThreadModel, setThreadAgent,
-    sessions,
+    sessions, suggest,
     postConnected: async (channelId, projectName) => {
       const channel = await client.channels.fetch(channelId).catch(() => null)
       if (channel && "send" in channel) {
@@ -519,6 +548,7 @@ async function main(): Promise<void> {
       // Buttons and modals are dispatched through the shared handlers owned by
       // this feature; later plans add their own `handle*` branch inside
       // `handleButton` rather than redefining the dispatcher (spec §3.1).
+      if (interaction.isAutocomplete()) { await handleAutocomplete(interaction, commandDeps); return }
       if (interaction.isButton()) { await handleButton(interaction, commandDeps); return }
       if (interaction.isModalSubmit()) { await handleModalSubmit(interaction, commandDeps); return }
       if (interaction.isStringSelectMenu()) { await handleSelect(interaction, commandDeps); return }

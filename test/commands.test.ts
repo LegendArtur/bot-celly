@@ -1,8 +1,8 @@
 // test/commands.test.ts
 import { readFileSync } from "node:fs"
-import { expect, test } from "vitest"
+import { expect, test, vi } from "vitest"
 import { ApplicationCommandOptionType, ComponentType } from "discord.js"
-import { ANSWER_MODAL_INPUT, SELECT_OPTION_MAX, SELECT_OPTIONS_MAX, commandData, handleApprovalButton, handleButton, handleCommand, handleModalSubmit, handleRejectQuestionButton, handleSelect, parseCustomIdFull, requiresOwner, sanitizeSelectOptions } from "../src/commands.ts"
+import { ANSWER_MODAL_INPUT, AUTOCOMPLETE_BUDGET_MS, SELECT_OPTION_MAX, SELECT_OPTIONS_MAX, commandData, handleApprovalButton, handleAutocomplete, handleButton, handleCommand, handleModalSubmit, handleRejectQuestionButton, handleSelect, parseCustomIdFull, requiresOwner, sanitizeSelectOptions } from "../src/commands.ts"
 import { isOwner } from "../src/discord.ts"
 import { openDb } from "../src/db.ts"
 
@@ -774,4 +774,95 @@ test("context-usage renders the usage bar and the no-usage message", async () =>
   await handleCommand(empty, { projects: {} as any, runner: {} as any, db, authorized: () => true,
     sessions: { contextUsage: async () => "no-usage" } as any })
   expect(editOf(empty)).toBe("no usage recorded for this thread yet")
+})
+
+function autocompleteInteraction(over: any = {}) {
+  const calls: any[] = []
+  const i: any = {
+    commandName: over.commandName ?? "model",
+    channelId: over.channelId ?? "t1",
+    options: { getFocused: () => over.focused ?? "" },
+    user: { id: "u1" },
+    calls,
+    respond: async (choices: any) => { calls.push({ kind: "respond", choices }) },
+    reply: async (c: any) => { calls.push({ kind: "reply", c }) },
+  }
+  return i
+}
+
+test("autocomplete options are declared for resume, model, and agent", () => {
+  const commands = commandData()
+  expect(commands.find((c: any) => c.name === "resume").options[0]).toMatchObject({ name: "session", autocomplete: true })
+  expect(commands.find((c: any) => c.name === "model").options[0]).toMatchObject({ name: "model", autocomplete: true })
+  expect(commands.find((c: any) => c.name === "agent").options[0]).toMatchObject({ name: "agent", autocomplete: true })
+})
+
+test("autocomplete responds with sanitized choices from suggest", async () => {
+  const i = autocompleteInteraction({ commandName: "model", focused: "anth" })
+  let captured: any
+  await handleAutocomplete(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true,
+    suggest: async (interaction: any, query: string) => { captured = { command: interaction.commandName, query }; return [
+      { name: "anthropic/claude", value: "anthropic/claude" },
+      { name: "", value: "dup" },
+      { name: "dup", value: "dup" },
+      { name: "x".repeat(150), value: "y".repeat(150) },
+    ] } })
+  expect(captured).toEqual({ command: "model", query: "anth" })
+  expect(i.calls[0].choices).toEqual([
+    { name: "anthropic/claude", value: "anthropic/claude" },
+    { name: "dup", value: "dup" },
+    { name: "x".repeat(100), value: "y".repeat(100) },
+  ])
+})
+
+test("autocomplete responds [] when unauthorized or suggest rejects", async () => {
+  const denied = autocompleteInteraction()
+  await handleAutocomplete(denied, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => false,
+    suggest: async () => { throw new Error("should not run") } })
+  expect(denied.calls[0].choices).toEqual([])
+
+  const failing = autocompleteInteraction()
+  await handleAutocomplete(failing, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true,
+    suggest: async () => { throw new Error("boom") } })
+  expect(failing.calls[0].choices).toEqual([])
+})
+
+test("autocomplete responds within the budget when suggest hangs", async () => {
+  vi.useFakeTimers()
+  try {
+    const i = autocompleteInteraction()
+    const pending = handleAutocomplete(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true,
+      suggest: () => new Promise(() => {}) })
+    await vi.advanceTimersByTimeAsync(AUTOCOMPLETE_BUDGET_MS)
+    await pending
+    expect(i.calls[0].choices).toEqual([])
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test("model and agent with a direct autocompleted value set the thread override", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const calls: any[] = []
+  const modelInteraction = interaction({ commandName: "model", channelId: "t1", strings: { model: "anthropic/claude" } })
+  await handleCommand(modelInteraction, { projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
+    setThreadModel: (id: string, model: string | null) => { calls.push(["model", id, model]) } })
+  expect(calls).toEqual([["model", "t1", "anthropic/claude"]])
+  expect(editOf(modelInteraction)).toBe("model set to anthropic/claude")
+
+  const agentInteraction = interaction({ commandName: "agent", channelId: "t1", strings: { agent: "build" } })
+  await handleCommand(agentInteraction, { projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
+    setThreadAgent: (id: string, agent: string | null) => { calls.push(["agent", id, agent]) } })
+  expect(calls[1]).toEqual(["agent", "t1", "build"])
+  expect(editOf(agentInteraction)).toBe("agent set to build")
+})
+
+test("resume with a direct session id creates the thread without a select", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  const i = interaction({ commandName: "resume", channelId: "c", strings: { session: "s9" } })
+  let captured: any
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    createThread: async (input: any) => { captured = input; return { threadId: "t9", sessionId: "s9" } } })
+  expect(captured).toMatchObject({ channelId: "c", sessionId: "s9" })
+  expect(editOf(i)).toBe("resumed in <#t9>")
 })

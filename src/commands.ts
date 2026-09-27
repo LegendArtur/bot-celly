@@ -28,10 +28,13 @@ export function commandData(): any[] {
   ] }
   return [ project,
     { name: "new", description: "Start a new session", options: [{ type: ApplicationCommandOptionType.String, name: "prompt", description: "Initial prompt" }] },
-    { name: "resume", description: "Resume a session" },
+    { name: "resume", description: "Resume a session", options: [
+      { type: ApplicationCommandOptionType.String, name: "session", description: "Session to resume (autocomplete)", autocomplete: true } ] },
     { name: "abort", description: "Abort the current run" },
-    { name: "model", description: "Choose the model for this thread" },
-    { name: "agent", description: "Choose the agent for this thread" },
+    { name: "model", description: "Choose the model for this thread", options: [
+      { type: ApplicationCommandOptionType.String, name: "model", description: "provider/model (autocomplete)", autocomplete: true } ] },
+    { name: "agent", description: "Choose the agent for this thread", options: [
+      { type: ApplicationCommandOptionType.String, name: "agent", description: "Agent name (autocomplete)", autocomplete: true } ] },
     { name: "queue", description: "Show and manage this thread's queued prompts" },
     { name: "undo", description: "Revert the session to its last user message" },
     { name: "redo", description: "Restore messages reverted by the last /undo" },
@@ -65,9 +68,14 @@ export interface CommandDeps {
   setThreadModel?(threadId: string, model: string | null): void
   setThreadAgent?(threadId: string, agent: string | null): void
   sessions?: SessionOps
+  suggest?(interaction: any, query: string): Promise<AutocompleteChoice[]>
   approvals?: ApprovalManager
   audit?(entry: AuditDraft): void
 }
+
+export interface AutocompleteChoice { name: string; value: string }
+export const AUTOCOMPLETE_BUDGET_MS = 2500
+export const AUTOCOMPLETE_MAX = 25
 
 export const RESUME_SELECT = "resume"
 export const MODEL_PROVIDER_SELECT = "model-provider"
@@ -249,6 +257,12 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
     if (interaction.commandName === "resume") {
       const project = deps.db.projects.getByChannel(interaction.channelId)
       if (!project) return void await interaction.editReply(noMentions("this channel is not a project"))
+      const direct = interaction.options.getString("session", false)
+      if (direct) {
+        const existing = deps.db.threads.getBySession(direct)[0]
+        const thread = await deps.createThread?.({ channelId: project.channelId, title: existing?.title ?? `resume ${new Date().toISOString()}`, sessionId: direct, authorId: interaction.user?.id })
+        return void await interaction.editReply(noMentions(thread ? `resumed in <#${thread.threadId}>` : "resume unavailable"))
+      }
       const sessions = (await deps.listSessions?.(project.channelId)) ?? []
       if (!sessions.length) return void await interaction.editReply(noMentions("no sessions to resume"))
       const options = sessions.slice(0, 25).map((s) => ({ label: (s.title || s.id).slice(0, 100), value: s.id }))
@@ -259,6 +273,12 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (!thread) return void await interaction.editReply(noMentions(`use /${interaction.commandName} inside a thread`))
       // Spec §9: wake the sandbox before asking it for models/agents.
       await deps.projects.ensureReady?.(thread.channelId)
+      const direct = interaction.options.getString(interaction.commandName, false)
+      if (direct) {
+        if (interaction.commandName === "model") deps.setThreadModel?.(thread.threadId, direct)
+        else deps.setThreadAgent?.(thread.threadId, direct)
+        return void await interaction.editReply(noMentions(`${interaction.commandName} set to ${direct}`))
+      }
       if (interaction.commandName === "model") {
         const models = (await deps.listModels?.(thread.channelId)) ?? []
         if (!models.length) return void await interaction.editReply(noMentions("no models available"))
@@ -451,6 +471,43 @@ export async function handleButton(interaction: any, deps: CommandDeps): Promise
   if (action === APPROVAL_ACTION) return handleApprovalButton(interaction, deps)
   if (action === ANSWER_ACTION) return handleAnswerButton(interaction, deps)
   if (action === REJECT_QUESTION_ACTION) return handleRejectQuestionButton(interaction, deps)
+}
+
+export function sanitizeAutocompleteChoices(choices: AutocompleteChoice[]): AutocompleteChoice[] {
+  const seen = new Set<string>()
+  const out: AutocompleteChoice[] = []
+  for (const choice of choices) {
+    const value = choice?.value == null ? "" : String(choice.value).slice(0, SELECT_OPTION_MAX)
+    const rawName = choice?.name == null ? value : String(choice.name).slice(0, SELECT_OPTION_MAX)
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    out.push({ name: rawName || value, value })
+    if (out.length >= AUTOCOMPLETE_MAX) break
+  }
+  return out
+}
+
+function withBudget<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(undefined), ms)
+    if (typeof (timer as any).unref === "function") (timer as any).unref()
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value) },
+      () => { clearTimeout(timer); resolve(undefined) },
+    )
+  })
+}
+
+export async function handleAutocomplete(interaction: any, deps: CommandDeps): Promise<void> {
+  let choices: AutocompleteChoice[] = []
+  try {
+    if (deps.authorized(interaction) && deps.suggest) {
+      const focused = interaction.options?.getFocused?.()
+      const query = typeof focused === "string" ? focused : ""
+      choices = sanitizeAutocompleteChoices((await withBudget(deps.suggest(interaction, query), AUTOCOMPLETE_BUDGET_MS)) ?? [])
+    }
+  } catch {}
+  try { await interaction.respond(choices) } catch {}
 }
 
 export async function handleApprovalButton(interaction: any, deps: CommandDeps): Promise<void> {
