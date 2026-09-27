@@ -29,6 +29,9 @@ export function commandData(): any[] {
       { type: ApplicationCommandOptionType.Subcommand, name: "status", description: "Show this thread's worktree status" },
       { type: ApplicationCommandOptionType.Subcommand, name: "new", description: "Create a git worktree for this thread", options: [
         { type: ApplicationCommandOptionType.String, name: "name", description: "Worktree name (defaults to the thread)", required: false } ] },
+      { type: ApplicationCommandOptionType.Subcommand, name: "merge", description: "Merge the worktree branch into the project (owner-only)" },
+      { type: ApplicationCommandOptionType.Subcommand, name: "remove", description: "Remove this thread's worktree", options: [
+        { type: ApplicationCommandOptionType.Boolean, name: "force", description: "Discard uncommitted changes", required: false } ] },
     ] } ]
 }
 
@@ -39,6 +42,8 @@ export interface CreateThreadInput {
 export interface WorktreeCommands {
   status(threadId: string): Promise<string>
   create(threadId: string, name?: string): Promise<string>
+  merge(threadId: string): Promise<string>
+  remove(threadId: string, force: boolean): Promise<string>
 }
 
 export interface CommandDeps {
@@ -110,8 +115,11 @@ function selectRow(customId: string, placeholder: string, options: { label: stri
 }
 
 const OWNER_ONLY_PROJECT_SUBS = new Set(["add", "create", "start", "stop", "remove"])
+const OWNER_ONLY_WORKTREE_SUBS = new Set(["merge"])
 export function requiresOwner(commandName: string, sub: string | null | undefined): boolean {
-  return commandName === "project" && !!sub && OWNER_ONLY_PROJECT_SUBS.has(sub)
+  if (commandName === "project") return !!sub && OWNER_ONLY_PROJECT_SUBS.has(sub)
+  if (commandName === "worktree") return !!sub && OWNER_ONLY_WORKTREE_SUBS.has(sub)
+  return false
 }
 
 export async function handleCommand(interaction: any, deps: CommandDeps): Promise<void> {
@@ -240,6 +248,11 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (sub === "new") {
         const worktreeName = interaction.options.getString("name", false) ?? undefined
         return void await interaction.editReply(noMentions(await deps.worktree.create(thread.threadId, worktreeName)))
+      }
+      if (sub === "merge") return void await interaction.editReply(noMentions(await deps.worktree.merge(thread.threadId)))
+      if (sub === "remove") {
+        const force = interaction.options.getBoolean("force", false) ?? false
+        return void await interaction.editReply(noMentions(await deps.worktree.remove(thread.threadId, force)))
       }
     }
     await interaction.editReply(noMentions("not implemented in this build"))

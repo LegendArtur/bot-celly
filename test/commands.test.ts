@@ -368,6 +368,8 @@ test("unauthorized selects are rejected before deferUpdate", async () => {
 test("requiresOwner scopes project mutations", () => {
   for (const sub of ["add", "create", "start", "stop", "remove"]) expect(requiresOwner("project", sub)).toBe(true)
   for (const sub of ["list", "status"]) expect(requiresOwner("project", sub)).toBe(false)
+  expect(requiresOwner("worktree", "merge")).toBe(true)
+  for (const sub of ["status", "new", "remove"]) expect(requiresOwner("worktree", sub)).toBe(false)
   expect(requiresOwner("new", null)).toBe(false)
   expect(requiresOwner("model", "resume")).toBe(false)
 })
@@ -456,7 +458,8 @@ test("worktree status forwards the thread id", async () => {
   const i = interaction({ commandName: "worktree", sub: "status", channelId: "t1" })
   const seen: string[] = []
   await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
-    worktree: { status: async (threadId: string) => { seen.push(threadId); return "worktree: /w" }, create: async () => "" } })
+    worktree: { status: async (threadId: string) => { seen.push(threadId); return "worktree: /w" },
+      create: async () => "", merge: async () => "", remove: async () => "" } })
   expect(seen).toEqual(["t1"])
   expect(editOf(i)).toBe("worktree: /w")
 })
@@ -466,7 +469,37 @@ test("worktree new forwards the thread and optional name", async () => {
   const i = interaction({ commandName: "worktree", sub: "new", channelId: "t1", strings: { name: "feature" } })
   const seen: Array<[string, string | undefined]> = []
   await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
-    worktree: { status: async () => "", create: async (threadId: string, name?: string) => { seen.push([threadId, name]); return "created" } } })
+    worktree: { status: async () => "", create: async (threadId: string, name?: string) => { seen.push([threadId, name]); return "created" },
+      merge: async () => "", remove: async () => "" } })
   expect(seen).toEqual([["t1", "feature"]])
   expect(editOf(i)).toBe("created")
+})
+
+test("worktree merge is owner-only", async () => {
+  const i = interaction({ commandName: "worktree", sub: "merge", channelId: "t1" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => false })
+  expect(i.calls).toHaveLength(1)
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only.", flags: 64 } })
+})
+
+test("worktree merge forwards the thread id", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const i = interaction({ commandName: "worktree", sub: "merge", channelId: "t1" })
+  const seen: string[] = []
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
+    worktree: { status: async () => "", create: async () => "",
+      merge: async (threadId: string) => { seen.push(threadId); return "merged celly/t1 into the project root" }, remove: async () => "" } })
+  expect(seen).toEqual(["t1"])
+  expect(editOf(i)).toBe("merged celly/t1 into the project root")
+})
+
+test("worktree remove forwards the force flag", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const i = interaction({ commandName: "worktree", sub: "remove", channelId: "t1", booleans: { force: true } })
+  const seen: Array<[string, boolean]> = []
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    worktree: { status: async () => "", create: async () => "", merge: async () => "",
+      remove: async (threadId: string, force: boolean) => { seen.push([threadId, force]); return "removed" } } })
+  expect(seen).toEqual([["t1", true]])
+  expect(editOf(i)).toBe("removed")
 })

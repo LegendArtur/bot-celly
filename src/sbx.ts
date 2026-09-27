@@ -180,7 +180,14 @@ export class Sbx {
     validateCreateOpts(o)
     await this.must(["create", o.template ?? this.template, o.directory, "--name", o.name, "--publish", `${o.hostPort}:4096`, "--cpus", String(o.cpus), "--memory", o.memory])
   }
-  async exec(name: string, args: string[], opts: { timeoutMs?: number } = {}) { return this.must(["exec", name, ...args], opts.timeoutMs) }
+  async execResult(name: string, args: string[], opts: { timeoutMs?: number } = {}) {
+    return this.runner.run(["exec", name, ...args], opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {})
+  }
+  async exec(name: string, args: string[], opts: { timeoutMs?: number } = {}) {
+    const r = await this.execResult(name, args, opts)
+    if (r.code !== 0) throw new SbxError(`sbx exec failed (${r.code}): ${r.stderr.trim() || r.stdout.trim()}`)
+    return r
+  }
   async execWithInput(name: string, argv: string[], input: string, opts: { timeoutMs?: number } = {}) {
     const r = await this.runner.runWithInput(["exec", "-i", name, ...argv], input, opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {})
     if (r.code !== 0) throw new SbxError(`sbx exec failed (${r.code}): ${r.stderr.trim() || r.stdout.trim()}`)

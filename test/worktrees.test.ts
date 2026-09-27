@@ -184,3 +184,86 @@ test("status without a worktree tells the user how to create one", async () => {
   const { service } = makeService()
   expect(await service.status("t1")).toBe("no worktree for this thread; run /worktree new [name]")
 })
+
+test("merge runs porcelain checks then git merge --no-ff with exact argv", async () => {
+  const worktreePath = `${ROOT}/.celly/worktrees/t1`
+  const { calls, results, service } = makeService({ thread: { worktreePath } })
+  results.set(["git", "-C", ROOT, "worktree", "list", "--porcelain"].join(" "), { code: 0, stdout: porcelainFor(worktreePath), stderr: "" })
+  expect(await service.merge("t1")).toBe("merged celly/t1 into the project root")
+  expect(calls.map((c) => c.args)).toEqual([
+    ["git", "-C", ROOT, "worktree", "list", "--porcelain"],
+    ["git", "-C", worktreePath, "status", "--porcelain"],
+    ["git", "-C", ROOT, "status", "--porcelain"],
+    ["git", "-C", ROOT, "merge", "--no-ff", "celly/t1"],
+  ])
+})
+
+test("merge refuses a dirty worktree and lists the changed files", async () => {
+  const worktreePath = `${ROOT}/.celly/worktrees/t1`
+  const { calls, results, service } = makeService({ thread: { worktreePath } })
+  results.set(["git", "-C", ROOT, "worktree", "list", "--porcelain"].join(" "), { code: 0, stdout: porcelainFor(worktreePath), stderr: "" })
+  results.set(["git", "-C", worktreePath, "status", "--porcelain"].join(" "), { code: 0, stdout: " M src/a.ts\n", stderr: "" })
+  const out = await service.merge("t1")
+  expect(out).toBe("worktree has uncommitted changes:\n- src/a.ts")
+  expect(calls.some((c) => c.args.includes("merge"))).toBe(false)
+})
+
+test("merge refuses a dirty project root and lists the changed files", async () => {
+  const worktreePath = `${ROOT}/.celly/worktrees/t1`
+  const { calls, results, service } = makeService({ thread: { worktreePath } })
+  results.set(["git", "-C", ROOT, "worktree", "list", "--porcelain"].join(" "), { code: 0, stdout: porcelainFor(worktreePath), stderr: "" })
+  results.set(["git", "-C", ROOT, "status", "--porcelain"].join(" "), { code: 0, stdout: "?? scratch.txt\n", stderr: "" })
+  const out = await service.merge("t1")
+  expect(out).toBe("project root has uncommitted changes:\n- scratch.txt")
+  expect(calls.some((c) => c.args.includes("merge"))).toBe(false)
+})
+
+test("merge reports conflicted files from the merge output", async () => {
+  const worktreePath = `${ROOT}/.celly/worktrees/t1`
+  const { results, service } = makeService({ thread: { worktreePath } })
+  results.set(["git", "-C", ROOT, "worktree", "list", "--porcelain"].join(" "), { code: 0, stdout: porcelainFor(worktreePath), stderr: "" })
+  results.set(["git", "-C", ROOT, "merge", "--no-ff", "celly/t1"].join(" "), { code: 1, stdout: "",
+    stderr: "CONFLICT (content): Merge conflict in src/a.ts\nAutomatic merge failed; fix conflicts and then commit the result." })
+  const out = await service.merge("t1")
+  expect(out).toContain("merge conflicts in:")
+  expect(out).toContain("- src/a.ts")
+})
+
+test("merge throws a hard failure when the output names no conflicts", async () => {
+  const worktreePath = `${ROOT}/.celly/worktrees/t1`
+  const { results, service } = makeService({ thread: { worktreePath } })
+  results.set(["git", "-C", ROOT, "worktree", "list", "--porcelain"].join(" "), { code: 0, stdout: porcelainFor(worktreePath), stderr: "" })
+  results.set(["git", "-C", ROOT, "merge", "--no-ff", "celly/t1"].join(" "), { code: 128, stdout: "", stderr: "fatal: refusing to merge unrelated histories" })
+  await expect(service.merge("t1")).rejects.toThrow(/unrelated histories/)
+})
+
+test("merge without a worktree is rejected", async () => {
+  const { service } = makeService()
+  await expect(service.merge("t1")).rejects.toThrow(/no worktree for this thread/)
+})
+
+test("remove runs git worktree remove with exact argv and clears the stored path", async () => {
+  const worktreePath = `${ROOT}/.celly/worktrees/t1`
+  const { calls, db, service } = makeService({ thread: { worktreePath } })
+  expect(await service.remove("t1", false)).toBe(`removed ${worktreePath}`)
+  expect(calls).toEqual([{ name: "celly-demo",
+    args: ["git", "-C", ROOT, "worktree", "remove", worktreePath], opts: { timeoutMs: 120_000 } }])
+  expect(db.threads.get("t1")?.worktreePath).toBeNull()
+})
+
+test("remove with force passes --force", async () => {
+  const worktreePath = `${ROOT}/.celly/worktrees/t1`
+  const { calls, service } = makeService({ thread: { worktreePath } })
+  await service.remove("t1", true)
+  expect(calls[0].args).toEqual(["git", "-C", ROOT, "worktree", "remove", "--force", worktreePath])
+})
+
+test("remove without force suggests force when git refuses", async () => {
+  const worktreePath = `${ROOT}/.celly/worktrees/t1`
+  const { db, results, service } = makeService({ thread: { worktreePath } })
+  results.set(["git", "-C", ROOT, "worktree", "remove", worktreePath].join(" "),
+    { code: 1, stdout: "", stderr: "fatal: '/w' contains modified or untracked files, use --force to delete it" })
+  const out = await service.remove("t1", false)
+  expect(out).toContain("use /worktree remove force:true")
+  expect(db.threads.get("t1")?.worktreePath).toBe(worktreePath)
+})

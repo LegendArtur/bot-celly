@@ -108,4 +108,42 @@ export class WorktreeService {
     const branch = entry?.branch ? ` (branch ${entry.branch})` : " (branch unknown)"
     return `worktree: ${thread.worktreePath}${branch}\nstatus: ${dirty.length ? `dirty (${dirty.length} changed)` : "clean"}`
   }
+
+  async merge(threadId: string): Promise<string> {
+    const { thread, project } = this.lookup(threadId)
+    if (!thread.worktreePath) throw new Error("no worktree for this thread")
+    if (!project.sandboxPath) throw new Error("project sandbox path is not resolved; run /project start")
+    const root = project.sandboxPath
+    const listed = await this.deps.sbx.exec(project.sandboxName, ["git", "-C", root, "worktree", "list", "--porcelain"], { timeoutMs: 30_000 })
+    const branch = parseWorktreeList(listed.stdout).find((w) => w.path === thread.worktreePath)?.branch
+    if (!branch) throw new Error("worktree is not registered with git; run /worktree status")
+    const worktreeDirty = parseStatusPorcelain((await this.deps.sbx.exec(project.sandboxName, ["git", "-C", thread.worktreePath, "status", "--porcelain"], { timeoutMs: 30_000 })).stdout)
+    if (worktreeDirty.length) return `worktree has uncommitted changes:\n${worktreeDirty.map((f) => `- ${f}`).join("\n")}`
+    const rootDirty = parseStatusPorcelain((await this.deps.sbx.exec(project.sandboxName, ["git", "-C", root, "status", "--porcelain"], { timeoutMs: 30_000 })).stdout)
+    if (rootDirty.length) return `project root has uncommitted changes:\n${rootDirty.map((f) => `- ${f}`).join("\n")}`
+    const result = await this.deps.sbx.execResult(project.sandboxName, ["git", "-C", root, "merge", "--no-ff", branch], { timeoutMs: 120_000 })
+    const outcome = mergeOutcome(result.stdout, result.stderr, result.code)
+    if (outcome.ok) return `merged ${branch} into the project root`
+    if (outcome.conflicts.length) {
+      return `merge conflicts in:\n${outcome.conflicts.map((f) => `- ${f}`).join("\n")}\nresolve them in the sandbox and commit, then run /worktree merge again`
+    }
+    const detail = (result.stderr || result.stdout).trim().split("\n")[0] ?? `exit ${result.code}`
+    throw new Error(`merge failed (${result.code}): ${detail}`)
+  }
+
+  async remove(threadId: string, force: boolean): Promise<string> {
+    const { thread, project } = this.lookup(threadId)
+    if (!thread.worktreePath) throw new Error("no worktree for this thread")
+    if (!project.sandboxPath) throw new Error("project sandbox path is not resolved; run /project start")
+    const worktreePath = thread.worktreePath
+    const args = ["git", "-C", project.sandboxPath, "worktree", "remove", ...(force ? ["--force"] : []), worktreePath]
+    const result = await this.deps.sbx.execResult(project.sandboxName, args, { timeoutMs: 120_000 })
+    if (result.code !== 0) {
+      const detail = (result.stderr || result.stdout).trim().split("\n")[0] ?? `exit ${result.code}`
+      if (!force) return `cannot remove worktree: ${detail} (use /worktree remove force:true to discard changes)`
+      throw new Error(`git worktree remove failed: ${detail}`)
+    }
+    this.deps.db.threads.setWorktree(threadId, null)
+    return `removed ${worktreePath}`
+  }
 }
