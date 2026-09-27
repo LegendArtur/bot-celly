@@ -9,7 +9,7 @@ import type { Db } from "./db.ts"
 import type { Thread } from "./types.ts"
 import type { ApprovalManager } from "./approvals.ts"
 import type { AuditDraft } from "./audit.ts"
-import { formatCost, formatUsageFooter, resolveBudget } from "./usage.js"
+import { formatCost, formatDuration, formatUsageFooter, resolveBudget } from "./usage.js"
 
 const DEFAULT_DENY = bashDenyPatterns()
 // The real opencode tool ids (see @opencode-ai/sdk PermissionConfig) plus the
@@ -366,7 +366,7 @@ export class Runner {
       db.threads.addUsage(threadId, { cost: e.cost, tokensIn: e.tokensIn, tokensOut: e.tokensOut, cacheRead: e.cacheRead, cacheWrite: e.cacheWrite })
       const totals = db.usage.thread(threadId)
       const renderer = await this.rendererFor(threadId)
-      renderer.setFooter(formatUsageFooter(totals))
+      renderer.setFooter(`${formatUsageFooter(totals)} · ${formatDuration(renderer.elapsedMs())}`)
       await renderer.tick()
       const budget = this.budgetFor(threadId)
       if (budget > 0 && totals.cost >= budget && db.threads.get(threadId)?.renderState !== "aborting") {

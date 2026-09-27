@@ -26,6 +26,15 @@ export function formatUsageFooter(t: UsageTotals): string {
   return `${formatCost(t.cost)} · ${formatTokens(t.tokensIn)} in / ${formatTokens(t.tokensOut)} out`
 }
 
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 50) return "0.0s"
+  const totalSeconds = Math.floor(ms / 1000)
+  if (totalSeconds < 60) return `${(Math.floor(ms / 100) / 10).toFixed(1)}s`
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}m ${seconds}s`
+}
+
 export function formatUsageSummary(label: string, t: UsageTotals): string {
   return `${label}: ${formatUsageFooter(t)}`
 }

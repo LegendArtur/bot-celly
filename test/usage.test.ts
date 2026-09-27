@@ -1,6 +1,6 @@
 // test/usage.test.ts
 import { expect, test } from "vitest"
-import { formatCost, formatTokens, formatUsageFooter, formatUsageSummary, resolveBudget } from "../src/usage.ts"
+import { formatCost, formatDuration, formatTokens, formatUsageFooter, formatUsageSummary, resolveBudget } from "../src/usage.ts"
 
 test("formats token counts compactly", () => {
   expect(formatTokens(0)).toBe("0")
@@ -21,6 +21,16 @@ test("builds the usage footer", () => {
     .toBe("$0.0123 · 1.2k in / 3.4k out")
   expect(formatUsageSummary("session", { cost: 0.0123, tokensIn: 1200, tokensOut: 3400, cacheRead: 0, cacheWrite: 0 }))
     .toBe("session: $0.0123 · 1.2k in / 3.4k out")
+})
+
+test("formats elapsed durations from seconds to minutes", () => {
+  expect(formatDuration(0)).toBe("0.0s")
+  expect(formatDuration(49)).toBe("0.0s")
+  expect(formatDuration(3400)).toBe("3.4s")
+  expect(formatDuration(59_999)).toBe("59.9s")
+  expect(formatDuration(60_000)).toBe("1m 0s")
+  expect(formatDuration(72_000)).toBe("1m 12s")
+  expect(formatDuration(Number.NaN)).toBe("0.0s")
 })
 
 test("resolveBudget prefers a finite non-negative channel override", () => {

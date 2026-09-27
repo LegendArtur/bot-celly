@@ -784,11 +784,11 @@ test("usage events persist totals and set the renderer footer", async () => {
   const footers: string[] = []
   const runner = new Runner({ db,
     clientFor: () => ({ session: {} }) as any,
-    createRenderer: async () => ({ push: () => {}, tick: async () => {}, finalize: async () => {}, setFooter: (t: string) => { footers.push(t) } }) as any,
+    createRenderer: async () => ({ push: () => {}, tick: async () => {}, finalize: async () => {}, setFooter: (t: string) => { footers.push(t) }, elapsedMs: () => 2500 }) as any,
     sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
   await runner.onEvent("t1", { kind: "usage", sessionId: "s1", messageId: "m1", cost: 0.0123, tokensIn: 1200, tokensOut: 3400, cacheRead: 10, cacheWrite: 20 })
   expect(usage).toMatchObject({ cost: 0.0123, tokensIn: 1200, tokensOut: 3400, cacheRead: 10, cacheWrite: 20 })
-  expect(footers).toEqual(["$0.0123 · 1.2k in / 3.4k out"])
+  expect(footers).toEqual(["$0.0123 · 1.2k in / 3.4k out · 2.5s"])
 })
 
 test("reaching the session budget stops the run, notes it, and warns the channel", async () => {
@@ -800,7 +800,7 @@ test("reaching the session budget stops the run, notes it, and warns the channel
     const aborted: string[] = []
     const runner = new Runner({ db,
       clientFor: () => ({ session: { promptAsync: async () => {}, abort: async (a: any) => { aborted.push(a.path.id) } } }) as any,
-      createRenderer: async () => ({ push: (e: any) => pushed.push(e), tick: async () => {}, finalize: async () => {}, setFooter: () => {} }) as any,
+      createRenderer: async () => ({ push: (e: any) => pushed.push(e), tick: async () => {}, finalize: async () => {}, setFooter: () => {}, elapsedMs: () => 0 }) as any,
       sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4, budgetUsd: 0.005,
       notify: (channelId, text) => { notices.push([channelId, text]) } })
     await runner.prompt("t1", "go", "u")
@@ -821,7 +821,7 @@ test("a disabled budget (0) never stops a run", async () => {
   let aborts = 0
   const runner = new Runner({ db,
     clientFor: () => ({ session: { promptAsync: async () => {}, abort: async () => { aborts++ } } }) as any,
-    createRenderer: async () => ({ push: () => {}, tick: async () => {}, finalize: async () => {}, setFooter: () => {} }) as any,
+    createRenderer: async () => ({ push: () => {}, tick: async () => {}, finalize: async () => {}, setFooter: () => {}, elapsedMs: () => 0 }) as any,
     sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
   await runner.prompt("t1", "go", "u")
   await runner.onEvent("t1", { kind: "usage", sessionId: "s1", messageId: "m1", cost: 999, tokensIn: 1, tokensOut: 1, cacheRead: 0, cacheWrite: 0 })
@@ -834,7 +834,7 @@ test("a per-channel budget setting overrides the env budget", async () => {
   const aborted: string[] = []
   const runner = new Runner({ db,
     clientFor: () => ({ session: { promptAsync: async () => {}, abort: async (a: any) => { aborted.push(a.path.id) } } }) as any,
-    createRenderer: async () => ({ push: () => {}, tick: async () => {}, finalize: async () => {}, setFooter: () => {} }) as any,
+    createRenderer: async () => ({ push: () => {}, tick: async () => {}, finalize: async () => {}, setFooter: () => {}, elapsedMs: () => 0 }) as any,
     sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4, budgetUsd: 100 })
   await runner.prompt("t1", "go", "u")
   await runner.onEvent("t1", { kind: "usage", sessionId: "s1", messageId: "m1", cost: 0.003, tokensIn: 1, tokensOut: 1, cacheRead: 0, cacheWrite: 0 })
