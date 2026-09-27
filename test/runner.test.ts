@@ -1,6 +1,6 @@
 // test/runner.test.ts
 import { expect, test, vi } from "vitest"
-import { evaluatePermission, normalizeCommand, Runner } from "../src/runner.ts"
+import { evaluatePermission, normalizeCommand, Runner, withDirectory } from "../src/runner.ts"
 import { Renderer } from "../src/render.ts"
 
 test("rejects deny-listed bash patterns", () => {
@@ -711,4 +711,50 @@ test("handleProjectDown finalizes and idles active threads, freeing the concurre
   expect(states).toContain("idle")
   expect(pushed.some((p) => p.finalize)).toBe(true)
   expect(pushed.some((p) => p.kind === "text" && /stopped/.test(p.text))).toBe(true)
+})
+
+test("withDirectory adds the query only when a directory is defined", () => {
+  expect(withDirectory("/w/t1", { body: { title: "x" } })).toEqual({ body: { title: "x" }, query: { directory: "/w/t1" } })
+  expect(withDirectory(null, { body: { title: "x" } })).toEqual({ body: { title: "x" } })
+  expect(withDirectory(undefined, { path: { id: "s1" } })).toEqual({ path: { id: "s1" } })
+})
+
+test("prompt passes the thread worktree directory as query", async () => {
+  const payloads: any[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async (a: any) => { payloads.push(a) } } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1",
+    directoryFor: (threadId: string) => (threadId === "t1" ? "/w/t1" : undefined),
+    log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.prompt("t1", "hi", "u")
+  await runner.prompt("t2", "hi", "u")
+  expect(payloads[0].query).toEqual({ directory: "/w/t1" })
+  expect(payloads[1].query).toBeUndefined()
+})
+
+test("abort passes the thread worktree directory as query", async () => {
+  const aborts: any[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async () => {}, abort: async (a: any) => { aborts.push(a) } } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", directoryFor: () => "/w/t1",
+    log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.prompt("t1", "a", "u")
+  await runner.abort("t1")
+  expect(aborts[0]).toEqual({ path: { id: "s1" }, query: { directory: "/w/t1" } })
+})
+
+test("recover passes the thread worktree directory to session.messages", async () => {
+  const payloads: any[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { messages: async (a: any) => { payloads.push(a); return { data: [] } } } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", directoryFor: () => "/w/t1",
+    log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.recover({ threadId: "t1", sessionId: "s1" })
+  expect(payloads[0]).toEqual({ path: { id: "s1" }, query: { directory: "/w/t1" } })
 })

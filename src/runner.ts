@@ -152,11 +152,17 @@ export function evaluatePermission(req: { tool: string; patterns: string[] }, de
   return "once"
 }
 
+export function withDirectory<T extends object>(directory: string | null | undefined, options: T): T & { query?: { directory: string } } {
+  if (!directory) return options
+  return { ...options, query: { directory } }
+}
+
 export interface RunnerDeps {
   db: Db
   clientFor(threadId: string): OpencodeClient
   createRenderer(threadId: string, liveMessageId?: string | null, liveMessageIds?: string[] | null): Promise<Renderer>
   sessionFor(threadId: string): Promise<string>
+  directoryFor?(threadId: string): string | undefined
   log(msg: string, fields?: Record<string, unknown>): void
   maxQueue: number
   maxConcurrentRuns: number
@@ -270,7 +276,7 @@ export class Runner {
         if (slash > 0) body.model = { providerID: thread.model.slice(0, slash), modelID: thread.model.slice(slash + 1) }
       }
       if (thread?.agent) body.agent = thread.agent
-      await client.session.promptAsync({ path: { id: sessionId }, body } as any)
+      await client.session.promptAsync(withDirectory(this.deps.directoryFor?.(threadId), { path: { id: sessionId }, body }) as any)
       return undefined
     } catch (e) {
       if (this.ownsEpoch(threadId, epoch)) {
@@ -332,7 +338,7 @@ export class Runner {
     if (typeof (timer as any).unref === "function") (timer as any).unref()
     this.abortTimers.set(threadId, timer)
     try {
-      await client.session.abort({ path: { id: sessionId } } as any)
+      await client.session.abort(withDirectory(this.deps.directoryFor?.(threadId), { path: { id: sessionId } }) as any)
     } catch (e) {
       this.deps.log("session abort failed", { threadId, error: String(e) })
     }
@@ -341,7 +347,7 @@ export class Runner {
   async recover(thread: { threadId: string; sessionId: string }): Promise<void> {
     const db = this.deps.db
     const client = this.deps.clientFor(thread.threadId)
-    const messages = await client.session.messages({ path: { id: thread.sessionId } } as any)
+    const messages = await client.session.messages(withDirectory(this.deps.directoryFor?.(thread.threadId), { path: { id: thread.sessionId } }) as any)
     const list = (messages?.data ?? []) as any[]
     this.deps.log("recovered thread", { threadId: thread.threadId, messages: list.length })
     let last: any

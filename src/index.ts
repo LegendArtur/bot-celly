@@ -12,7 +12,7 @@ import { createDiscordClient, isAuthorized, isOwner, rolesOf } from "./discord.j
 import { commandData, handleCommand, handleSelect } from "./commands.js"
 import type { CommandDeps, CreateThreadInput } from "./commands.js"
 import { acquireLock } from "./lock.js"
-import { Runner } from "./runner.js"
+import { Runner, withDirectory } from "./runner.js"
 import { EventRouter } from "./events.js"
 import { Renderer, renderPayload, sanitizeThreadName } from "./render.js"
 import { resolveBaseUrl, resolveClient } from "./opencode.js"
@@ -144,9 +144,9 @@ async function main(): Promise<void> {
     return resolveClient(project)
   }
 
-  const createSessionFor = async (project: Project, title: string): Promise<string> => {
+  const createSessionFor = async (project: Project, title: string, directory?: string | null): Promise<string> => {
     const sdk = resolveClient(project)
-    const created = await sdk.session.create({ body: { title } })
+    const created = await sdk.session.create(withDirectory(directory, { body: { title } }) as any)
     const sessionId = sessionIdFrom(created)
     if (!sessionId) throw new Error("opencode session.create returned no id")
     return sessionId
@@ -233,13 +233,14 @@ async function main(): Promise<void> {
       const project = db.projects.getByChannel(thread.channelId)
       if (!project) throw new Error(`unknown project for thread ${threadId}`)
       const sdk = resolveClient(project)
-      const created = await sdk.session.create({ body: { title: thread.title ?? undefined } })
+      const created = await sdk.session.create(withDirectory(thread.worktreePath, { body: { title: thread.title ?? undefined } }) as any)
       const sessionId = sessionIdFrom(created)
       if (!sessionId) throw new Error("opencode session.create returned no id")
       db.threads.upsert({ ...thread, sessionId })
       registerSession(threadId, sessionId)
       return sessionId
     },
+    directoryFor: (threadId) => db.threads.get(threadId)?.worktreePath ?? undefined,
     log: (message, fields) => log.info(message, fields),
     maxQueue: cfg.maxQueue,
     maxConcurrentRuns: cfg.maxConcurrentRuns,
