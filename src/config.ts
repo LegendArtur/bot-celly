@@ -3,7 +3,7 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 
 export interface Config {
-  discordToken: string; guildId: string; projectsRoot: string
+  discordToken: string; guildId: string; guildIds: string[]; projectsRoot: string
   accessRoleId?: string; blockRoleId?: string; ownerRoleId?: string; categoryId?: string
   sandboxTemplate: string; sandboxCpus: number; sandboxMemory: string
   portRangeStart: number; portRangeEnd: number
@@ -49,12 +49,31 @@ const int = (e: NodeJS.ProcessEnv, k: string, d: number, min = 1) => {
   if (!Number.isInteger(n) || n < min) throw new Error(`${k} must be an integer >= ${min}, got "${e[k]}"`)
   return n
 }
+/**
+ * Spec §4.4: `DISCORD_GUILD_IDS` (comma-separated) wins when set; the singular
+ * `DISCORD_GUILD_ID` remains supported. Entries are trimmed, blanks dropped,
+ * and duplicates collapsed in first-seen order.
+ */
+export function parseGuildIds(env: NodeJS.ProcessEnv): string[] | undefined {
+  const plural = str(env, "DISCORD_GUILD_IDS")
+  if (plural !== undefined) {
+    const ids = [...new Set(plural.split(",").map((id) => id.trim()).filter((id) => id.length > 0))]
+    if (ids.length === 0) throw new Error("DISCORD_GUILD_IDS must contain at least one non-empty guild id")
+    return ids
+  }
+  const single = str(env, "DISCORD_GUILD_ID")
+  return single ? [single] : undefined
+}
 export function defaultProjectsRoot(): string {
   return join(homedir(), "Celly", "projects")
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
-  const missing = ["DISCORD_TOKEN", "DISCORD_GUILD_ID"].filter((k) => !str(env, k))
+  const guildIds = parseGuildIds(env)
+  const missing = [
+    ...(str(env, "DISCORD_TOKEN") ? [] : ["DISCORD_TOKEN"]),
+    ...(guildIds ? [] : ["DISCORD_GUILD_ID or DISCORD_GUILD_IDS"]),
+  ]
   if (missing.length) throw new Error(`Missing required env: ${missing.join(", ")}`)
   const portRangeStart = int(env, "PORT_RANGE_START", 4300, 1)
   const portRangeEnd = int(env, "PORT_RANGE_END", 4399, 1)
@@ -62,7 +81,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const level = str(env, "LOG_LEVEL") ?? "info"
   if (!["debug", "info", "warn", "error"].includes(level)) throw new Error(`LOG_LEVEL invalid: ${level}`)
   return {
-    discordToken: str(env, "DISCORD_TOKEN")!, guildId: str(env, "DISCORD_GUILD_ID")!,
+    discordToken: str(env, "DISCORD_TOKEN")!, guildId: guildIds![0]!, guildIds: guildIds!,
     projectsRoot: str(env, "PROJECTS_ROOT") ?? defaultProjectsRoot(),
     accessRoleId: str(env, "ACCESS_ROLE_ID"), blockRoleId: str(env, "BLOCK_ROLE_ID"),
     ownerRoleId: str(env, "OWNER_ROLE_ID"),
