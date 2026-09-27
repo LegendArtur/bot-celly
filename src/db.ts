@@ -5,7 +5,7 @@ export interface Db {
   migrate(): void
   close(): void
   projects: {
-    insertProvisioning(p: Omit<Project, "status">): void
+    insertProvisioning(p: Omit<Project, "status" | "lastActiveAt">): void
     setReady(channelId: string, sandboxPath: string): void
     setStatus(channelId: string, s: ProjectStatus): void
     setHostPort(channelId: string, port: number): void
@@ -14,6 +14,8 @@ export interface Db {
     getByName(name: string): Project | undefined
     list(): Project[]
     remove(channelId: string): void
+    touch(channelId: string, at: number): void
+    idleSince(at: number): Project[]
   }
   threads: {
     upsert(t: Thread): void
@@ -63,6 +65,7 @@ const MIGRATIONS: { version: number; up(raw: DatabaseSync): void }[] = [
   { version: 2, up: (raw) => raw.exec(SCHEMA_V2) },
   { version: 3, up: (raw) => raw.exec("ALTER TABLE threads ADD COLUMN live_message_ids TEXT") },
   { version: 4, up: (raw) => raw.exec("CREATE INDEX IF NOT EXISTS idx_threads_channel ON threads(channel_id)") },
+  { version: 5, up: (raw) => raw.exec("ALTER TABLE projects ADD COLUMN last_active_at INTEGER NOT NULL DEFAULT 0") },
 ]
 function userVersion(raw: DatabaseSync): number {
   const row = raw.prepare("PRAGMA user_version").get() as { user_version?: number } | undefined
@@ -72,6 +75,7 @@ const rowToProject = (r: any): Project => ({
   channelId: r.channel_id, guildId: r.guild_id, name: r.name, directory: r.directory,
   sandboxPath: r.sandbox_path ?? null, sandboxName: r.sandbox_name, hostPort: r.host_port,
   serverPassword: r.server_password, status: r.status, createdAt: r.created_at,
+  lastActiveAt: r.last_active_at ?? 0,
 })
 const rowToThread = (r: any): Thread => ({
   threadId: r.thread_id, channelId: r.channel_id, sessionId: r.session_id, title: r.title,
@@ -112,6 +116,8 @@ export function openDb(path: string): Db {
       getByName(name) { const r = raw.prepare(`SELECT * FROM projects WHERE name=?`).get(name); return r ? rowToProject(r) : undefined },
       list() { return raw.prepare(`SELECT * FROM projects ORDER BY created_at`).all().map(rowToProject) },
       remove(channelId) { raw.prepare(`DELETE FROM projects WHERE channel_id=?`).run(channelId) },
+      touch(channelId, at) { raw.prepare(`UPDATE projects SET last_active_at=? WHERE channel_id=?`).run(at, channelId) },
+      idleSince(at) { return raw.prepare(`SELECT * FROM projects WHERE last_active_at <= ? ORDER BY last_active_at, created_at`).all(at).map(rowToProject) },
     },
     threads: {
       upsert(t) {

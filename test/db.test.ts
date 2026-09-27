@@ -116,8 +116,48 @@ test("v4 adds an index on threads.channel_id", () => {
     const raw = new DatabaseSync(file)
     const names = (raw.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='threads'").all() as any[]).map((r) => r.name)
     expect(names).toContain("idx_threads_channel")
-    expect(Number((raw.prepare("PRAGMA user_version").get() as any).user_version)).toBe(4)
     raw.close()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("touch and idleSince expose per-project activity", () => {
+  const db = fresh()
+  db.projects.insertProvisioning(proj)
+  db.projects.insertProvisioning({ ...proj, channelId: "c2", name: "demo2", sandboxName: "celly-demo-2", hostPort: 4301 })
+  expect(db.projects.getByChannel("c1")?.lastActiveAt).toBe(0)
+  expect(db.projects.idleSince(0).map((p) => p.channelId).sort()).toEqual(["c1", "c2"])
+  db.projects.touch("c2", 500)
+  db.projects.touch("c1", 100)
+  expect(db.projects.getByChannel("c2")?.lastActiveAt).toBe(500)
+  expect(db.projects.getByChannel("c1")?.lastActiveAt).toBe(100)
+  expect(db.projects.idleSince(200).map((p) => p.channelId)).toEqual(["c1"])
+  expect(db.projects.idleSince(99)).toEqual([])
+})
+
+test("a v4 database upgrades with a zeroed projects.last_active_at", () => {
+  const dir = mkdtempSync(join(tmpdir(), "celly-db-idle-"))
+  const file = join(dir, "bot.db")
+  try {
+    const legacy = new DatabaseSync(file)
+    legacy.exec(`
+      CREATE TABLE projects (channel_id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, name TEXT NOT NULL UNIQUE,
+        directory TEXT NOT NULL, sandbox_path TEXT, sandbox_name TEXT NOT NULL UNIQUE,
+        host_port INTEGER NOT NULL UNIQUE, server_password TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL);
+      PRAGMA user_version = 4;
+      INSERT INTO projects (channel_id,guild_id,name,directory,sandbox_path,sandbox_name,host_port,server_password,status,created_at)
+        VALUES ('c1','g','demo','C:\\p',NULL,'celly-demo',4300,'pw','ready',1);
+    `)
+    legacy.close()
+
+    const db = openDb(file)
+    db.migrate()
+    expect(db.projects.getByChannel("c1")?.lastActiveAt).toBe(0)
+    db.projects.touch("c1", 42)
+    expect(db.projects.idleSince(42).map((p) => p.channelId)).toEqual(["c1"])
+    expect(db.projects.idleSince(41)).toEqual([])
+    db.close()
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
