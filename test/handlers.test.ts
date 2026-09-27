@@ -230,6 +230,17 @@ test("ready handler subscribes then reconciles", async () => {
   expect(order).toEqual(["subscribe", "reconcile"])
 })
 
+test("ready handler runs subscribe and reconcile only once", async () => {
+  const subscribe = vi.fn()
+  const reconcile = vi.fn(async () => {})
+  const ready = createReadyHandler({ log: silent, subscribeReadyProjects: subscribe, reconcileThreads: reconcile })
+  ready()
+  ready()
+  await new Promise((r) => setTimeout(r, 0))
+  expect(subscribe).toHaveBeenCalledTimes(1)
+  expect(reconcile).toHaveBeenCalledTimes(1)
+})
+
 test("boot reconcile recovers live runs and resets stale states", async () => {
   const db = fresh()
   db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
@@ -298,12 +309,22 @@ test("describeDiscordStartupError passes through unknown errors", () => {
   expect(describeDiscordStartupError(new Error("boom"))).toBe("boom")
 })
 
-test("formatStartupBanner summarizes the run and flags missing permissions", () => {
-  const ok = formatStartupBanner({ guild: "g", projects: 2, dataDir: "./data", model: "anthropic/x", missingPermissions: [] })
+test("formatStartupBanner lists every guild and flags its missing permissions", () => {
+  const ok = formatStartupBanner({
+    guilds: [
+      { id: "g1", name: "Guild One", missingPermissions: [] },
+      { id: "g2", name: "Guild Two", missingPermissions: [] },
+    ],
+    projects: 2, dataDir: "./data", model: "anthropic/x",
+  })
   expect(ok).toContain("Celly is running")
   expect(ok).toContain("Projects: 2")
-  expect(ok).toContain("all required present")
-  const bad = formatStartupBanner({ guild: "g", projects: 0, dataDir: "./data", missingPermissions: ["Manage Channels"] })
+  expect(ok).toContain("Guild:    Guild One (g1)")
+  expect(ok).toContain("Guild:    Guild Two (g2)")
+  const bad = formatStartupBanner({
+    guilds: [{ id: "g1", name: "Guild One", missingPermissions: ["Manage Channels"] }],
+    projects: 0, dataDir: "./data",
+  })
   expect(bad).toContain("MISSING: Manage Channels")
   expect(bad).toContain("/project add")
 })

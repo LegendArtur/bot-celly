@@ -190,7 +190,10 @@ export interface ReadyDeps {
 }
 
 export function createReadyHandler(deps: ReadyDeps): () => void {
+  let started = false
   return (): void => {
+    if (started) return
+    started = true
     void (async () => {
       try { await deps.subscribeReadyProjects() } catch (err) { deps.log.error("boot subscribe failed", { error: String(err) }) }
       await deps.reconcileThreads().catch((err) => deps.log.error("boot reconcile failed", { error: String(err) }))

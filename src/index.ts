@@ -479,9 +479,16 @@ async function main(): Promise<void> {
     ["Read Message History", PermissionFlagsBits.ReadMessageHistory],
     ["Embed Links", PermissionFlagsBits.EmbedLinks],
   ]
-  const me = firstGuild.members.me
-  const missingPermissions = required.filter(([, bit]) => !(me?.permissions.has(bit) ?? false)).map(([name]) => name)
-  console.log(formatStartupBanner({ guild: firstGuild.name, projects: db.projects.list().length, dataDir: cfg.dataDir, model: cfg.defaultModel, missingPermissions }))
+  console.log(formatStartupBanner({
+    guilds: fetchedGuilds.map((g) => {
+      const me = g.members.me
+      const missingPermissions = required.filter(([, bit]) => !(me?.permissions.has(bit) ?? false)).map(([name]) => name)
+      return { id: g.id, name: g.name, missingPermissions }
+    }),
+    projects: db.projects.list().length,
+    dataDir: cfg.dataDir,
+    model: cfg.defaultModel,
+  }))
 }
 
 export function isMainModule(moduleUrl: string, argv1: string | undefined): boolean {
