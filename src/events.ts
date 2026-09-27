@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises"
+import type { QuestionInfo } from "@opencode-ai/sdk/v2"
 import { basicAuth } from "./opencode.js"
 
 export type NormalizedEvent =
@@ -6,7 +7,9 @@ export type NormalizedEvent =
   | { kind: "tool"; sessionId: string; messageId: string; partId: string; name: string; status: string }
   | { kind: "idle"; sessionId: string }
   | { kind: "error"; sessionId: string; message: string }
-  | { kind: "permission"; sessionId: string; permissionId: string; tool: string; patterns: string[] }
+  | { kind: "permission"; sessionId: string; permissionId: string; source: "v1" | "v2"; tool: string; patterns: string[] }
+  | { kind: "permission-replied"; sessionId: string; requestId: string }
+  | { kind: "question"; sessionId: string; requestId: string; questions: QuestionInfo[] }
 
 function errorMessage(error: unknown): string {
   if (typeof error === "string") return error
@@ -22,6 +25,35 @@ function toPatterns(value: unknown): string[] {
   if (Array.isArray(value)) return value.map(String)
   if (value == null) return []
   return [String(value)]
+}
+
+function toQuestionInfo(value: unknown): QuestionInfo | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as { question?: unknown; header?: unknown; options?: unknown; multiple?: unknown; custom?: unknown }
+  if (typeof raw.question !== "string" || !raw.question) return null
+  const options: { label: string; description: string }[] = []
+  if (Array.isArray(raw.options)) {
+    for (const candidate of raw.options) {
+      if (!candidate || typeof candidate !== "object") continue
+      const option = candidate as { label?: unknown; description?: unknown }
+      if (typeof option.label !== "string" || !option.label) continue
+      options.push({ label: option.label, description: typeof option.description === "string" ? option.description : "" })
+    }
+  }
+  const info: QuestionInfo = { question: raw.question, header: typeof raw.header === "string" ? raw.header : "", options }
+  if (raw.multiple === true) info.multiple = true
+  if (typeof raw.custom === "boolean") info.custom = raw.custom
+  return info
+}
+
+function toQuestions(value: unknown): QuestionInfo[] {
+  if (!Array.isArray(value)) return []
+  const out: QuestionInfo[] = []
+  for (const candidate of value) {
+    const info = toQuestionInfo(candidate)
+    if (info) out.push(info)
+  }
+  return out
 }
 
 export function partToEvent(sessionId: string, messageId: string, part: any): NormalizedEvent | null {
@@ -41,7 +73,18 @@ export function normalizeEvent(raw: any): NormalizedEvent | null {
     }
     case "session.idle": return { kind: "idle", sessionId: p.sessionID }
     case "session.error": return { kind: "error", sessionId: p.sessionID, message: errorMessage(p.error) }
-    case "permission.updated": return { kind: "permission", sessionId: p.sessionID, permissionId: p.id, tool: String(p.tool ?? p.type ?? ""), patterns: toPatterns(p.patterns ?? p.pattern) }
+    case "permission.updated":
+      return { kind: "permission", source: "v1", sessionId: p.sessionID, permissionId: p.id, tool: String(p.tool ?? p.type ?? ""), patterns: toPatterns(p.patterns ?? p.pattern) }
+    case "permission.asked":
+    case "permission.v2.asked":
+      return { kind: "permission", source: "v2", sessionId: p.sessionID, permissionId: p.id, tool: String(p.permission ?? p.action ?? ""), patterns: toPatterns(p.patterns ?? p.resources) }
+    case "permission.replied": {
+      const requestId = String(p.requestID ?? p.permissionID ?? "")
+      return requestId ? { kind: "permission-replied", sessionId: p.sessionID, requestId } : null
+    }
+    case "question.asked":
+    case "question.v2.asked":
+      return { kind: "question", sessionId: p.sessionID, requestId: String(p.id ?? ""), questions: toQuestions(p.questions) }
     default: return null
   }
 }
