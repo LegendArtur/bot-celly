@@ -8,7 +8,19 @@ terminal attached to the same sandbox share the same conversations. This is
 useful for hands-on work while Celly keeps the sandbox awake and streams to
 Discord.
 
-## Attach
+## Attach from Discord
+
+Inside a thread, run `/attach` to get the exact command for that thread's
+session (the reply is ephemeral, so only you see it):
+
+```text
+sbx exec -it <sandboxName> bash -lc 'set -a; . ~/.config/celly/opencode.env; set +a; exec opencode attach http://127.0.0.1:4096 -s <sessionId>'
+```
+
+`/session-id` returns just the session id plus the same command behind a
+spoiler, which is handy when you want to type the `-s <id>` yourself.
+
+## Attach from a terminal
 
 Open a shell in the project's sandbox, load the generated server environment,
 then attach to the running server:
@@ -30,9 +42,10 @@ find it with `/project status <name>`, which reports the host port, or from
 `sbx ls`.
 </Note>
 
-`opencode attach` accepts `-s`, `-p`, and `-c` flags for selecting what to
-attach to. Run `opencode attach --help` in the sandbox for the exact semantics
-of your installed OpenCode version.
+`opencode attach` accepts `-c/--continue`, `-s/--session <id>`, and
+`-p/--password` (defaults to `OPENCODE_SERVER_PASSWORD`), plus `--dir`. Run
+`opencode attach --help` in the sandbox for the exact semantics of your
+installed OpenCode version.
 
 ## What is shared
 
@@ -46,13 +59,20 @@ of your installed OpenCode version.
 
 ## Caveat: terminal-started sessions
 
-A session you start **only** from the terminal, with no Discord thread behind
-it, is not routed to Discord. The event router only renders turns into a thread
-that owns the session; terminal-originated turns are rendered into the owning
-session's most recent thread **if one exists**, otherwise they are ignored.
+By default, a session you start **only** from the terminal, with no Discord
+thread behind it, is not routed to Discord. The event router only renders turns
+into a thread that owns the session; terminal-originated turns are rendered
+into the owning session's most recent thread **if one exists**, otherwise they
+are ignored.
 
-To keep a conversation on both surfaces, start it from Discord (or `/resume` it
-into a thread) and then attach from the terminal.
+Set `ATTACH_AUTO_THREAD=true` to change that: the first event for an unknown
+session creates a Discord thread titled after the session's title (fetched from
+the server) and then routes events normally. Sessions with no project channel
+are still dropped.
+
+To keep a conversation on both surfaces, either enable `ATTACH_AUTO_THREAD` or
+start it from Discord (or `/resume` it into a thread) and then attach from the
+terminal.
 
 <Warning>
 An active `sbx exec` session holds the sandbox awake. Stopping the serve child
@@ -60,7 +80,14 @@ or the sandbox from the terminal will mark the project degraded in Discord; the
 next prompt or `/project start` re-establishes it.
 </Warning>
 
+## Web UI
+
+The OpenCode web UI is intentionally not published. `sbx` maps one loopback
+host port per sandbox port, and exposing `4096` to the host network would break
+the loopback-only invariant that protects the server password and session data.
+Terminal attach is the supported out-of-Discord path.
+
 ## Related
 
-- [Commands](/reference/commands) — `/project status`, `/resume`, and the rest.
+- [Commands](/reference/commands) — `/attach`, `/session-id`, `/project status`, `/resume`, and the rest.
 - [Deployment](/guides/deployment) — running Celly as a service.
