@@ -24,7 +24,7 @@ test("ingests only within the size cap", () => {
 test("attachment destinations live under the project inbox", () => {
   const dir = "C:\\projects\\demo"
   const dest = attachmentDestination(dir, "notes.txt", "abc-123")
-  expect(dest).toBe(join(dir, ".celly", "inbox", "abc-123-notes.txt"))
+  expect(dest).toBe("C:\\projects\\demo\\.celly\\inbox\\abc-123-notes.txt")
 })
 
 test("attachment destinations reject traversal and reserved names", () => {

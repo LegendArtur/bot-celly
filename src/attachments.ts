@@ -168,5 +168,5 @@ export function attachmentSandboxPath(
   hostDestination: string,
 ): string {
   const root = sandboxPath && sandboxPath.trim() ? sandboxPath : projectDirectory
-  return posix.join(root.replace(/\\/g, "/"), ".celly", "inbox", basename(hostDestination))
+  return posix.join(root.replace(/\\/g, "/"), ".celly", "inbox", basename(hostDestination.replace(/\\/g, "/")))
 }
