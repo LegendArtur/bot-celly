@@ -77,6 +77,7 @@ export interface EventRouterDeps {
   onEvent(threadId: string, e: NormalizedEvent): void
   onResync(threadId: string, sessionId: string): Promise<void>
   knownSessions(): { threadId: string; sessionId: string }[]
+  onUnknownSession?(sessionId: string): Promise<string | undefined>
 }
 export class EventRouter {
   constructor(private readonly deps: EventRouterDeps) {}
@@ -104,7 +105,7 @@ export class EventRouter {
         reader = res.body.getReader()
         const decoder = new TextDecoder()
         let buf = ""
-        const consume = (): void => {
+        const consume = async (): Promise<void> => {
           let m: RegExpExecArray | null
           while ((m = FRAME_BOUNDARY.exec(buf))) {
             const block = buf.slice(0, m.index); buf = buf.slice(m.index + m[0].length)
@@ -112,15 +113,19 @@ export class EventRouter {
             if (!data) continue
             let parsed: any; try { parsed = JSON.parse(data) } catch { continue }
             const e = normalizeEvent(parsed); if (!e) continue
-            const threadId = this.deps.route(e.sessionId)
+            let threadId = this.deps.route(e.sessionId)
+            if (!threadId && this.deps.onUnknownSession) {
+              try { threadId = await this.deps.onUnknownSession(e.sessionId) }
+              catch (err) { console.warn("onUnknownSession failed", err) }
+            }
             if (threadId) this.deps.onEvent(threadId, e)
           }
         }
         while (true) {
           const { value, done } = await reader.read()
-          if (done) { buf += decoder.decode(); consume(); break }
+          if (done) { buf += decoder.decode(); await consume(); break }
           buf += decoder.decode(value, { stream: true })
-          consume()
+          await consume()
           if (buf.length > MAX_SSE_BUFFER) {
             console.warn(`event stream frame exceeded ${MAX_SSE_BUFFER} bytes; trimming to the last frame boundary`)
             buf = trimSseBuffer(buf, MAX_SSE_BUFFER)

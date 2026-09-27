@@ -11,6 +11,7 @@ import { ProjectService } from "./projects.js"
 import { createDiscordClient, isAuthorized, isOwner, rolesOf } from "./discord.js"
 import { commandData, handleCommand, handleSelect } from "./commands.js"
 import type { CommandDeps, CreateThreadInput } from "./commands.js"
+import { createAutoThreadResolver } from "./attach.js"
 import { acquireLock } from "./lock.js"
 import { Runner } from "./runner.js"
 import { EventRouter } from "./events.js"
@@ -257,6 +258,7 @@ async function main(): Promise<void> {
         void runnerSvc.onEvent(threadId, event).catch((err) => log.error("runner event failed", { threadId, error: String(err) }))
       },
       onResync: async (threadId, sessionId) => { await runnerSvc.recover({ threadId, sessionId }) },
+      onUnknownSession: (sessionId) => autoThread(project, sessionId),
       knownSessions: () => db.threads.byChannel(project.channelId)
         .filter((thread) => !!thread.sessionId
           && (runnerSvc.isActive(thread.threadId) || thread.renderState === "running" || thread.renderState === "aborting"))
@@ -331,6 +333,19 @@ async function main(): Promise<void> {
     }
     return { threadId: thread.id, sessionId, notice }
   }
+
+  const autoThread = createAutoThreadResolver({
+    enabled: cfg.attachAutoThread,
+    sessionTitle: async (project, sessionId) => {
+      const sdk = resolveClient(project)
+      const res: any = await sdk.session.get({ path: { id: sessionId } })
+      const data = res?.data ?? res
+      const title = typeof data?.title === "string" ? data.title.trim() : ""
+      return title || undefined
+    },
+    createThread: createThreadForProject,
+    log,
+  })
 
   const listSessions = async (channelId: string): Promise<{ id: string; title: string }[]> => {
     const project = db.projects.getByChannel(channelId)

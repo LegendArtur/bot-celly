@@ -45,6 +45,14 @@ test("rejects fractional counts and ports and non-positive cpu counts", () => {
   expect(() => loadConfig({ ...base, SANDBOX_CPUS: "0" })).toThrow(/SANDBOX_CPUS/)
 })
 
+test("parses ATTACH_AUTO_THREAD as a boolean defaulting to false", () => {
+  expect(loadConfig(base).attachAutoThread).toBe(false)
+  expect(loadConfig({ ...base, ATTACH_AUTO_THREAD: "true" }).attachAutoThread).toBe(true)
+  expect(loadConfig({ ...base, ATTACH_AUTO_THREAD: "1" }).attachAutoThread).toBe(true)
+  expect(loadConfig({ ...base, ATTACH_AUTO_THREAD: "false" }).attachAutoThread).toBe(false)
+  expect(() => loadConfig({ ...base, ATTACH_AUTO_THREAD: "maybe" })).toThrow(/ATTACH_AUTO_THREAD/)
+})
+
 test("ensureDataDir creates nested directories", () => {
   const root = mkdtempSync(join(tmpdir(), "celly-data-"))
   const nested = join(root, "a", "b", "c")
