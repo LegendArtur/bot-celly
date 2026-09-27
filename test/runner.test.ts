@@ -132,17 +132,30 @@ test("rejects read and grep tool paths into the celly config directory", () => {
 function makeDb(state = "running", threads: any[] = [], liveMessageId: string | null = null, liveMessageIds: string[] = []) {
   const states: string[] = []
   const ids = liveMessageIds.length ? liveMessageIds : (liveMessageId ? [liveMessageId] : [])
+  let renderState = state
+  const usage = { cost: 0, tokensIn: 0, tokensOut: 0, cacheRead: 0, cacheWrite: 0 }
+  const settings = new Map<string, string>()
   const db = {
     threads: {
-      setRenderState(_t: string, s: string) { states.push(s) },
+      setRenderState(_t: string, s: string) { renderState = s; states.push(s) },
       touch() {},
-      get() { return { renderState: state, liveMessageId } },
+      get() { return { renderState, liveMessageId, channelId: "c1" } },
       liveMessageIds() { return ids },
       setLiveMessages() {},
       byChannel() { return threads },
+      addUsage(_t: string, d: any) {
+        usage.cost += d.cost; usage.tokensIn += d.tokensIn; usage.tokensOut += d.tokensOut
+        usage.cacheRead += d.cacheRead; usage.cacheWrite += d.cacheWrite
+      },
     },
+    usage: {
+      thread() { return { ...usage } },
+      channel() { return { ...usage } },
+      totals() { return { ...usage } },
+    },
+    settings: { get: (k: string) => settings.get(k), set: (k: string, v: string) => { settings.set(k, v) } },
   } as any
-  return { db, states }
+  return { db, states, usage, settings }
 }
 
 function makeRenderer(calls: any[] = []) {
@@ -694,6 +707,18 @@ test("a failed run start kicks the global drain so a queued thread is not strand
   await new Promise((r) => setTimeout(r, 0))
   expect(sent).toEqual(["two"])
   expect(runner.isActive("t2")).toBe(true)
+})
+
+test("usage events persist totals and set the renderer footer", async () => {
+  const { db, usage } = makeDb()
+  const footers: string[] = []
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: {} }) as any,
+    createRenderer: async () => ({ push: () => {}, tick: async () => {}, finalize: async () => {}, setFooter: (t: string) => { footers.push(t) } }) as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.onEvent("t1", { kind: "usage", sessionId: "s1", messageId: "m1", cost: 0.0123, tokensIn: 1200, tokensOut: 3400, cacheRead: 10, cacheWrite: 20 })
+  expect(usage).toMatchObject({ cost: 0.0123, tokensIn: 1200, tokensOut: 3400, cacheRead: 10, cacheWrite: 20 })
+  expect(footers).toEqual(["$0.0123 · 1.2k in / 3.4k out"])
 })
 
 test("handleProjectDown finalizes and idles active threads, freeing the concurrency budget", async () => {

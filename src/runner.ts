@@ -5,6 +5,7 @@ import type { NormalizedEvent } from "./events.ts"
 import type { Renderer } from "./render.ts"
 import type { Db } from "./db.ts"
 import type { Thread } from "./types.ts"
+import { formatUsageFooter } from "./usage.js"
 
 const DEFAULT_DENY = bashDenyPatterns()
 // The real opencode tool ids (see @opencode-ai/sdk PermissionConfig) plus the
@@ -288,6 +289,13 @@ export class Runner {
     const db = this.deps.db
     const epoch = this.owner.get(threadId)
     if (e.kind === "text" || e.kind === "tool") { const r = await this.rendererFor(threadId); r.push(e); await r.tick() }
+    else if (e.kind === "usage") {
+      db.threads.addUsage(threadId, { cost: e.cost, tokensIn: e.tokensIn, tokensOut: e.tokensOut, cacheRead: e.cacheRead, cacheWrite: e.cacheWrite })
+      const totals = db.usage.thread(threadId)
+      const renderer = await this.rendererFor(threadId)
+      renderer.setFooter(formatUsageFooter(totals))
+      await renderer.tick()
+    }
     else if (e.kind === "permission") {
       const client = this.deps.clientFor(threadId)
       const response = evaluatePermission({ tool: e.tool, patterns: e.patterns })
