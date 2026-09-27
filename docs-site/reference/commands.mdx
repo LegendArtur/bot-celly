@@ -14,7 +14,7 @@ prefix. `/project` uses subcommands.
 | `/project create name:<name> [clone:<url>] [branch:<name>]` | owner | Create a directory under `PROJECTS_ROOT`, then add it. `clone` must be a single `https://` repository URL; `branch` requires `clone` and defaults to the remote HEAD. |
 | `/project list` | authorized | List projects with sandbox status and health. |
 | `/project status name:<name>` | authorized | Status, port, health, and session count (ephemeral; password masked). |
-| `/project start name:<name>` | owner | Wake the sandbox and supervised server (recreates it if missing). |
+| `/project wake name:<name>` | owner | Wake a stopped sandbox and supervised server (recreates it if missing). |
 | `/project stop name:<name>` | owner | Stop the supervised server, then the sandbox. |
 | `/project remove name:<name> confirm:<name>` | owner | Typed confirmation; remove sandbox, rows, and channel. |
 

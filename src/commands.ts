@@ -24,7 +24,7 @@ export function commandData(): any[] {
     { type: ApplicationCommandOptionType.Subcommand, name: "list", description: "List projects" },
     { type: ApplicationCommandOptionType.Subcommand, name: "status", description: "Project status", options: [
       { type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true } ] },
-    { type: ApplicationCommandOptionType.Subcommand, name: "start", description: "Wake a project", options: [{ type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true }] },
+    { type: ApplicationCommandOptionType.Subcommand, name: "wake", description: "Wake a project", options: [{ type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true }] },
     { type: ApplicationCommandOptionType.Subcommand, name: "stop", description: "Stop a project", options: [{ type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true }] },
     { type: ApplicationCommandOptionType.Subcommand, name: "remove", description: "Remove a project", options: [
       { type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true },
@@ -260,7 +260,7 @@ function queueMessage(threadId: string, entries: QueuedPrompt[]): any {
   return { content, components: rows, allowedMentions: { parse: [] } }
 }
 
-const OWNER_ONLY_PROJECT_SUBS = new Set(["add", "create", "start", "stop", "remove"])
+const OWNER_ONLY_PROJECT_SUBS = new Set(["add", "create", "wake", "stop", "remove"])
 const OWNER_ONLY_TASK_SUBS = new Set(["add", "remove"])
 const OWNER_ONLY_WORKTREE_SUBS = new Set(["merge"])
 export function requiresOwner(commandName: string, sub: string | null | undefined): boolean {
@@ -330,12 +330,12 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         const health = healthy === undefined ? "" : healthy ? " healthy" : " unhealthy"
         return void await interaction.editReply(noMentions(`${p.name}: ${p.status}${health} on 127.0.0.1:${p.hostPort} (${sessions} session${sessions === 1 ? "" : "s"})`))
       }
-      if (sub === "start") {
+      if (sub === "wake") {
         const p = deps.db.projects.getByName(name)
         if (!p) return void await interaction.editReply(noMentions("not found"))
         deps.startSubscription?.(p.channelId)
         await deps.projects.start(p.channelId)
-        return void await interaction.editReply(noMentions("started"))
+        return void await interaction.editReply(noMentions("woken"))
       }
       if (sub === "stop") {
         const p = deps.db.projects.getByName(name)

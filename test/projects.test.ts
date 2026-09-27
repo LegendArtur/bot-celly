@@ -341,7 +341,7 @@ test("ensureReady marks a missing sandbox degraded with a recreate notice", asyn
   const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
     isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {},
     onProjectMissing: (channelId: string, name: string) => { missing.push([channelId, name]) } } as any)
-  await expect(svc.ensureReady("chan1")).rejects.toThrow(/project start/)
+  await expect(svc.ensureReady("chan1")).rejects.toThrow(/project wake/)
   expect(db.projects.getByChannel("chan1")?.status).toBe("degraded")
   expect(missing).toEqual([["chan1", "demo"]])
 })

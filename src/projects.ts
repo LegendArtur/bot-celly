@@ -291,7 +291,7 @@ export class ProjectService {
     return this.readBackPort(channelId, p.sandboxName, currentPort)
   }
 
-  /** `/project start`: wake the sandbox, recreating it via the create path if gone. */
+  /** `/project wake`: wake the sandbox, recreating it via the create path if gone. */
   async start(channelId: string): Promise<void> {
     const p = this.deps.db.projects.getByChannel(channelId)
     if (!p) throw new Error(`unknown project ${channelId}`)
@@ -414,7 +414,7 @@ export class ProjectService {
         if (await this.isSandboxMissing(p.sandboxName)) {
           this.deps.db.projects.setStatus(channelId, "degraded")
           this.deps.onProjectMissing?.(channelId, p.name)
-          throw new Error(`sandbox ${p.sandboxName} is missing; run /project start to recreate it`)
+          throw new Error(`sandbox ${p.sandboxName} is missing; run /project wake to recreate it`)
         }
         throw e
       }

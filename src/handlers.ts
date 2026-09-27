@@ -120,7 +120,7 @@ export function createProjectMissingHandler(deps: ProjectDownDeps): (channelId: 
     const channel = deps.client.channels.cache.get(channelId)
     if (channel && "send" in channel) {
       void deps.bucketFor(channelId)
-        .schedule(() => channel.send(renderPayload(`The sandbox for **${projectName}** is missing. Run /project start to recreate it.`)))
+        .schedule(() => channel.send(renderPayload(`The sandbox for **${projectName}** is missing. Run /project wake to recreate it.`)))
         .catch(() => {})
     } else {
       deps.log.warn("sandbox missing but the channel is unavailable", { channelId })

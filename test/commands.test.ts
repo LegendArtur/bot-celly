@@ -70,7 +70,7 @@ test("declares the providers and cost command set", () => {
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
   const subs = project.options.map((o: any) => o.name).sort()
-  expect(subs).toEqual(["add", "create", "list", "remove", "start", "status", "stop"])
+  expect(subs).toEqual(["add", "create", "list", "remove", "status", "stop", "wake"])
 })
 test("command data and select rows use named Discord type constants", () => {
   const source = readFileSync(new URL("../src/commands.ts", import.meta.url), "utf8")
@@ -176,8 +176,8 @@ test("every interaction edit and reply suppresses mentions", async () => {
   }
 })
 
-test("start/stop/remove on an unknown project reply not found", async () => {
-  for (const sub of ["start", "stop", "remove"]) {
+test("wake/stop/remove on an unknown project reply not found", async () => {
+  for (const sub of ["wake", "stop", "remove"]) {
     const i = interaction({ sub, strings: { name: "ghost", confirm: "ghost" } })
     const projects: any = {
       ensureReady: async () => { throw new Error("ensureReady should not be called") },
@@ -478,8 +478,8 @@ test("model and agent ensureReady the sandbox before listing", async () => {
   }
 })
 
-test("project start resubscribes before waking the sandbox", async () => {
-  const i = interaction({ sub: "start", strings: { name: "demo" } })
+test("project wake resubscribes before waking the sandbox", async () => {
+  const i = interaction({ sub: "wake", strings: { name: "demo" } })
   const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
   const order: string[] = []
   await handleCommand(i, { projects: { start: async () => { order.push("ready") } } as any,
@@ -528,7 +528,7 @@ test("unauthorized selects are rejected before deferUpdate", async () => {
 })
 
 test("requiresOwner scopes project mutations", () => {
-  for (const sub of ["add", "create", "start", "stop", "remove"]) expect(requiresOwner("project", sub)).toBe(true)
+  for (const sub of ["add", "create", "wake", "stop", "remove"]) expect(requiresOwner("project", sub)).toBe(true)
   for (const sub of ["list", "status"]) expect(requiresOwner("project", sub)).toBe(false)
   expect(requiresOwner("worktree", "merge")).toBe(true)
   for (const sub of ["status", "new", "remove"]) expect(requiresOwner("worktree", sub)).toBe(false)
@@ -537,7 +537,7 @@ test("requiresOwner scopes project mutations", () => {
 })
 
 test("authorized non-owners are denied owner-only project subcommands before defer", async () => {
-  for (const sub of ["add", "create", "start", "stop", "remove"]) {
+  for (const sub of ["add", "create", "wake", "stop", "remove"]) {
     const i = interaction({ sub, strings: { name: "demo", path: "C:\\p", confirm: "demo" } })
     await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => false })
     expect(i.calls).toHaveLength(1)
