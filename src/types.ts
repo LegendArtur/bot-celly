@@ -3,7 +3,7 @@ export interface Project {
   channelId: string; guildId: string; name: string
   directory: string; sandboxPath: string | null
   sandboxName: string; hostPort: number; serverPassword: string
-  status: ProjectStatus; createdAt: number
+  status: ProjectStatus; createdAt: number; lastActiveAt: number
 }
 export type RenderState = "idle" | "running" | "aborting" | "errored"
 export interface Thread {

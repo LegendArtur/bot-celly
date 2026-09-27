@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
@@ -51,6 +51,22 @@ test("parses ATTACH_AUTO_THREAD as a boolean defaulting to false", () => {
   expect(loadConfig({ ...base, ATTACH_AUTO_THREAD: "1" }).attachAutoThread).toBe(true)
   expect(loadConfig({ ...base, ATTACH_AUTO_THREAD: "false" }).attachAutoThread).toBe(false)
   expect(() => loadConfig({ ...base, ATTACH_AUTO_THREAD: "maybe" })).toThrow(/ATTACH_AUTO_THREAD/)
+})
+
+test("parses IDLE_STOP_MINUTES and allows 0 to disable", () => {
+  expect(loadConfig(base).idleStopMinutes).toBe(30)
+  expect(loadConfig({ ...base, IDLE_STOP_MINUTES: "5" }).idleStopMinutes).toBe(5)
+  expect(loadConfig({ ...base, IDLE_STOP_MINUTES: "0" }).idleStopMinutes).toBe(0)
+})
+
+test("rejects a negative or fractional IDLE_STOP_MINUTES", () => {
+  expect(() => loadConfig({ ...base, IDLE_STOP_MINUTES: "-1" })).toThrow(/IDLE_STOP_MINUTES/)
+  expect(() => loadConfig({ ...base, IDLE_STOP_MINUTES: "1.5" })).toThrow(/IDLE_STOP_MINUTES/)
+})
+
+test("the idle auto-stop setting is documented in the env example and the config guide", () => {
+  expect(readFileSync(".env.example", "utf8")).toContain("# IDLE_STOP_MINUTES=30")
+  expect(readFileSync("docs-site/guides/configuration.mdx", "utf8")).toContain("| `IDLE_STOP_MINUTES` | `30` |")
 })
 
 test("ensureDataDir creates nested directories", () => {
