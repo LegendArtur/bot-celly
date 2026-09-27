@@ -9,7 +9,7 @@ export interface Config {
   portRangeStart: number; portRangeEnd: number
   defaultModel?: string; defaultAgent?: string
   bootTimeoutMs: number; healthTimeoutMs: number; editIntervalMs: number
-  attachmentMaxBytes: number; maxQueue: number; maxConcurrentRuns: number
+  attachmentMaxBytes: number; maxQueue: number; maxConcurrentRuns: number; sessionBudgetUsd: number
   dataDir: string; logLevel: "debug" | "info" | "warn" | "error"
 }
 /** Create DATA_DIR (and parents) before the logger or SQLite file is opened. */
@@ -61,6 +61,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   if (portRangeEnd <= portRangeStart) throw new Error("PORT_RANGE_END must exceed PORT_RANGE_START")
   const level = str(env, "LOG_LEVEL") ?? "info"
   if (!["debug", "info", "warn", "error"].includes(level)) throw new Error(`LOG_LEVEL invalid: ${level}`)
+  const sessionBudgetUsd = num(env, "SESSION_BUDGET_USD", 0)
+  if (sessionBudgetUsd < 0) throw new Error(`SESSION_BUDGET_USD must be >= 0, got "${env.SESSION_BUDGET_USD}"`)
   return {
     discordToken: str(env, "DISCORD_TOKEN")!, guildId: str(env, "DISCORD_GUILD_ID")!,
     projectsRoot: str(env, "PROJECTS_ROOT") ?? defaultProjectsRoot(),
@@ -75,6 +77,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     editIntervalMs: int(env, "EDIT_INTERVAL_MS", 1200, 1),
     attachmentMaxBytes: int(env, "ATTACHMENT_MAX_BYTES", 102400, 1),
     maxQueue: int(env, "MAX_QUEUE", 20, 1), maxConcurrentRuns: int(env, "MAX_CONCURRENT_RUNS", 4, 1),
+    sessionBudgetUsd,
     dataDir: str(env, "DATA_DIR") ?? "./data",
     logLevel: level as Config["logLevel"],
   }

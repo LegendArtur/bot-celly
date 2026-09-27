@@ -243,6 +243,11 @@ async function main(): Promise<void> {
     log: (message, fields) => log.info(message, fields),
     maxQueue: cfg.maxQueue,
     maxConcurrentRuns: cfg.maxConcurrentRuns,
+    budgetUsd: cfg.sessionBudgetUsd,
+    notify: async (channelId, text) => {
+      const channel = await client.channels.fetch(channelId).catch(() => null)
+      if (channel && "send" in channel) await scheduleWithBucket(channelId, () => (channel as any).send(renderPayload(text))).catch(() => {})
+    },
     onThreadIdle: (threadId) => stopTyping(threadId),
   })
 
