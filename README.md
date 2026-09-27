@@ -90,8 +90,8 @@ for the module map, create saga, and boot recovery.
 - **Node 24.x** exactly (pinned by `engines` and `.nvmrc`).
 - **Docker Sandboxes `sbx` >= 0.45**.
 - A Docker login and an initialized network policy (`sbx policy init balanced`).
-- A Discord application with a bot token, the **Message Content** intent, and a
-  single guild.
+- A Discord application with a bot token, the **Message Content** intent, and one
+  or more guild IDs.
 - An OpenCode provider configured through `sbx secret`.
 
 ## Quick start
@@ -116,8 +116,9 @@ for the module map, create saga, and boot recovery.
    copy .env.example .env    # macOS/Linux: cp .env.example .env
    ```
 
-   Set **only** `DISCORD_TOKEN` and `DISCORD_GUILD_ID`. `PROJECTS_ROOT` defaults
-   to `~/Celly/projects`.
+   Set **only** `DISCORD_TOKEN` and the guild list in `DISCORD_GUILD_IDS`
+   (comma-separated; `DISCORD_GUILD_ID` still works for one guild).
+   `PROJECTS_ROOT` defaults to `~/Celly/projects`.
 
 3. **Run** `node dist/index.js`, then `/project add name:<name> path:<path>` and
    send a message in the new channel.
@@ -191,7 +192,7 @@ v1 is the command set above. Deferred to v1.1:
 - **Input:** voice messages and image attachments.
 - **Surfaces:** OpenCode web UI, admin website, diff viewer, tunnels/screenshare,
   forum-channel layout.
-- **Scale/deploy:** multi-guild, cloud sandboxes, `--clone` sandbox mode, OAuth
+- **Scale/deploy:** cloud sandboxes, `--clone` sandbox mode, OAuth
   subscription login, Linux/macOS deployment docs.
 
 ## Limitations
@@ -200,6 +201,9 @@ v1 is the command set above. Deferred to v1.1:
   dropped; active runs re-attach from session history.
 - **Role names are not accepted** for role configuration; use role IDs.
 - **The finalization token/duration footer is descoped.**
+- **Access control is global across guilds.** The same role IDs apply to every
+  configured guild; per-guild roles are not supported. A configured guild the bot
+  cannot see is skipped at startup with a warning.
 - **Per-user command rate limiting, sandbox disk-usage warnings, and `DATA_DIR`
   cloud-sync detection are backlog.** Keep `DATA_DIR` out of synced folders.
 - **Host-only items** (the spike, `sbx policy ls` semantics, Windows path
