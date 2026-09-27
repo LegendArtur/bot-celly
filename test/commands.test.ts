@@ -24,6 +24,8 @@ function interaction(over: any = {}) {
     options: {
       getSubcommand: () => over.sub,
       getString: (n: string) => strings[n],
+      getInteger: (n: string) => (over.integers ?? {})[n],
+      getBoolean: (n: string) => (over.booleans ?? {})[n],
     },
     deferReply: async (o: any) => { calls.push({ kind: "defer", o }) },
     editReply: async (c: any) => { calls.push({ kind: "edit", c }) },
@@ -56,7 +58,7 @@ const editOf = (i: any) => {
 
 test("declares the v1 command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "model", "new", "project", "resume"])
+  expect(names).toEqual(["abort", "agent", "model", "new", "project", "resume", "worktree"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -441,4 +443,30 @@ test("model selection survives malformed and oversized model lists without throw
     expect(option.value.length).toBeGreaterThan(0)
     expect(option.value.length).toBeLessThanOrEqual(SELECT_OPTION_MAX)
   }
+})
+
+test("worktree outside a thread is rejected", async () => {
+  const i = interaction({ commandName: "worktree", sub: "status", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
+  expect(editOf(i)).toBe("use /worktree inside a thread")
+})
+
+test("worktree status forwards the thread id", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const i = interaction({ commandName: "worktree", sub: "status", channelId: "t1" })
+  const seen: string[] = []
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    worktree: { status: async (threadId: string) => { seen.push(threadId); return "worktree: /w" }, create: async () => "" } })
+  expect(seen).toEqual(["t1"])
+  expect(editOf(i)).toBe("worktree: /w")
+})
+
+test("worktree new forwards the thread and optional name", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const i = interaction({ commandName: "worktree", sub: "new", channelId: "t1", strings: { name: "feature" } })
+  const seen: Array<[string, string | undefined]> = []
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    worktree: { status: async () => "", create: async (threadId: string, name?: string) => { seen.push([threadId, name]); return "created" } } })
+  expect(seen).toEqual([["t1", "feature"]])
+  expect(editOf(i)).toBe("created")
 })

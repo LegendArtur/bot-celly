@@ -8,6 +8,7 @@ import { createLogger } from "./log.js"
 import { openDb } from "./db.js"
 import { Sbx, SbxRunner } from "./sbx.js"
 import { ProjectService } from "./projects.js"
+import { WorktreeService } from "./worktrees.js"
 import { createDiscordClient, isAuthorized, isOwner, rolesOf } from "./discord.js"
 import { commandData, handleCommand, handleSelect } from "./commands.js"
 import type { CommandDeps, CreateThreadInput } from "./commands.js"
@@ -247,6 +248,8 @@ async function main(): Promise<void> {
     onThreadIdle: (threadId) => stopTyping(threadId),
   })
 
+  const worktrees = new WorktreeService({ sbx, db, log })
+
   const subscribeProject = (project: Project): void => {
     if (!subscriptionGate.claim(project.channelId)) return
     for (const thread of db.threads.byChannel(project.channelId)) if (thread.sessionId) registerSession(thread.threadId, thread.sessionId)
@@ -392,6 +395,7 @@ async function main(): Promise<void> {
     createThread: createThreadForProject,
     listSessions, listModels, listAgents,
     setThreadModel, setThreadAgent,
+    worktree: worktrees,
     postConnected: async (channelId, projectName) => {
       const channel = await client.channels.fetch(channelId).catch(() => null)
       if (channel && "send" in channel) {

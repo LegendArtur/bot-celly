@@ -1,4 +1,10 @@
 // src/worktrees.ts
+import { appendFileSync, readFileSync } from "node:fs"
+import { join } from "node:path"
+import { joinPathLike } from "./sbx.js"
+import type { Sbx } from "./sbx.js"
+import type { Db } from "./db.ts"
+import type { Project, Thread } from "./types.ts"
 
 export function worktreeSlug(text: string): string {
   const cleaned = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
@@ -45,4 +51,61 @@ export function mergeOutcome(stdout: string, stderr: string, code: number): { ok
     if (both?.[1]) conflicts.add(both[1].trim())
   }
   return { ok: code === 0, conflicts: [...conflicts] }
+}
+
+export function ensureGitignoreEntry(directory: string, onWarn: (message: string, fields?: Record<string, unknown>) => void): void {
+  const file = join(directory, ".gitignore")
+  try {
+    let current = ""
+    try { current = readFileSync(file, "utf8") } catch {}
+    if (current.split(/\r?\n/).some((line) => line.trim() === ".celly/" || line.trim() === ".celly")) return
+    const separator = current === "" || current.endsWith("\n") ? "" : "\n"
+    appendFileSync(file, `${separator}.celly/\n`)
+  } catch (e) {
+    onWarn("could not append .celly/ to .gitignore; continuing", { directory, error: String(e) })
+  }
+}
+
+export interface WorktreeLog {
+  info(message: string, fields?: Record<string, unknown>): void
+  warn(message: string, fields?: Record<string, unknown>): void
+}
+export interface WorktreeDeps { sbx: Sbx; db: Db; log: WorktreeLog }
+
+export class WorktreeService {
+  constructor(private readonly deps: WorktreeDeps) {}
+
+  private lookup(threadId: string): { thread: Thread; project: Project } {
+    const thread = this.deps.db.threads.get(threadId)
+    if (!thread) throw new Error(`unknown thread ${threadId}`)
+    const project = this.deps.db.projects.getByChannel(thread.channelId)
+    if (!project) throw new Error(`unknown project for thread ${threadId}`)
+    return { thread, project }
+  }
+
+  async create(threadId: string, name?: string): Promise<string> {
+    const { thread, project } = this.lookup(threadId)
+    if (thread.worktreePath) throw new Error(`this thread already has a worktree at ${thread.worktreePath}`)
+    if (!project.sandboxPath) throw new Error("project sandbox path is not resolved; run /project start")
+    const branch = name ? `celly/${worktreeSlug(name)}` : worktreeBranch(threadId)
+    const slug = branch.slice("celly/".length)
+    const relative = `.celly/worktrees/${slug}`
+    ensureGitignoreEntry(project.directory, (message, fields) => this.deps.log.warn(message, fields))
+    await this.deps.sbx.exec(project.sandboxName, ["git", "-C", project.sandboxPath, "worktree", "add", "-b", branch, relative, "HEAD"], { timeoutMs: 120_000 })
+    const worktreePath = joinPathLike(project.sandboxPath, relative)
+    this.deps.db.threads.setWorktree(threadId, worktreePath)
+    this.deps.log.info("worktree created", { threadId, worktreePath, branch })
+    return `created worktree ${worktreePath} (branch ${branch})`
+  }
+
+  async status(threadId: string): Promise<string> {
+    const { thread, project } = this.lookup(threadId)
+    if (!thread.worktreePath) return "no worktree for this thread; run /worktree new [name]"
+    if (!project.sandboxPath) return `worktree: ${thread.worktreePath}\nstatus: unknown (sandbox path not resolved)`
+    const listed = await this.deps.sbx.exec(project.sandboxName, ["git", "-C", project.sandboxPath, "worktree", "list", "--porcelain"], { timeoutMs: 30_000 })
+    const entry = parseWorktreeList(listed.stdout).find((w) => w.path === thread.worktreePath)
+    const dirty = parseStatusPorcelain((await this.deps.sbx.exec(project.sandboxName, ["git", "-C", thread.worktreePath, "status", "--porcelain"], { timeoutMs: 30_000 })).stdout)
+    const branch = entry?.branch ? ` (branch ${entry.branch})` : " (branch unknown)"
+    return `worktree: ${thread.worktreePath}${branch}\nstatus: ${dirty.length ? `dirty (${dirty.length} changed)` : "clean"}`
+  }
 }

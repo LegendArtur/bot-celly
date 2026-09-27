@@ -24,11 +24,21 @@ export function commandData(): any[] {
     { name: "resume", description: "Resume a session" },
     { name: "abort", description: "Abort the current run" },
     { name: "model", description: "Choose the model for this thread" },
-    { name: "agent", description: "Choose the agent for this thread" } ]
+    { name: "agent", description: "Choose the agent for this thread" },
+    { name: "worktree", description: "Manage this thread's git worktree", options: [
+      { type: ApplicationCommandOptionType.Subcommand, name: "status", description: "Show this thread's worktree status" },
+      { type: ApplicationCommandOptionType.Subcommand, name: "new", description: "Create a git worktree for this thread", options: [
+        { type: ApplicationCommandOptionType.String, name: "name", description: "Worktree name (defaults to the thread)", required: false } ] },
+    ] } ]
 }
 
 export interface CreateThreadInput {
   channelId: string; title: string; sessionId?: string; prompt?: string; authorId?: string
+}
+
+export interface WorktreeCommands {
+  status(threadId: string): Promise<string>
+  create(threadId: string, name?: string): Promise<string>
 }
 
 export interface CommandDeps {
@@ -46,6 +56,7 @@ export interface CommandDeps {
   listAgents?(channelId: string): Promise<{ id: string; name: string }[]>
   setThreadModel?(threadId: string, model: string | null): void
   setThreadAgent?(threadId: string, agent: string | null): void
+  worktree?: WorktreeCommands
 }
 
 export const RESUME_SELECT = "resume"
@@ -105,7 +116,9 @@ export function requiresOwner(commandName: string, sub: string | null | undefine
 
 export async function handleCommand(interaction: any, deps: CommandDeps): Promise<void> {
   if (!deps.authorized(interaction)) { await interaction.reply(noMentions("You are not authorized.", { flags: 64 })); return }
-  const sub = interaction.commandName === "project" ? interaction.options.getSubcommand(false) : null
+  const sub = interaction.commandName === "project" || interaction.commandName === "worktree"
+    ? interaction.options.getSubcommand(false)
+    : null
   if (requiresOwner(interaction.commandName, sub) && !deps.isOwner?.(interaction)) {
     await interaction.reply(noMentions("This command is owner-only.", { flags: 64 })); return
   }
@@ -218,6 +231,16 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (!threadIds.length) return void await interaction.editReply(noMentions("nothing to abort"))
       for (const threadId of threadIds) await deps.runner.abort(threadId)
       return void await interaction.editReply(noMentions("aborted"))
+    }
+    if (interaction.commandName === "worktree") {
+      const thread = deps.db.threads.get(interaction.channelId)
+      if (!thread) return void await interaction.editReply(noMentions("use /worktree inside a thread"))
+      if (!deps.worktree) return void await interaction.editReply(noMentions("worktree support unavailable"))
+      if (sub === "status") return void await interaction.editReply(noMentions(await deps.worktree.status(thread.threadId)))
+      if (sub === "new") {
+        const worktreeName = interaction.options.getString("name", false) ?? undefined
+        return void await interaction.editReply(noMentions(await deps.worktree.create(thread.threadId, worktreeName)))
+      }
     }
     await interaction.editReply(noMentions("not implemented in this build"))
   } catch (e) {
