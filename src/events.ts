@@ -4,7 +4,7 @@ import { basicAuth } from "./opencode.js"
 
 export type NormalizedEvent =
   | { kind: "text"; sessionId: string; messageId: string; partId: string; text: string }
-  | { kind: "tool"; sessionId: string; messageId: string; partId: string; name: string; status: string }
+  | { kind: "tool"; sessionId: string; messageId: string; partId: string; name: string; status: string; title?: string }
   | { kind: "idle"; sessionId: string }
   | { kind: "error"; sessionId: string; message: string }
   | { kind: "permission"; sessionId: string; permissionId: string; source: "v1" | "v2"; tool: string; patterns: string[] }
@@ -59,7 +59,10 @@ function toQuestions(value: unknown): QuestionInfo[] {
 export function partToEvent(sessionId: string, messageId: string, part: any): NormalizedEvent | null {
   if (!part || typeof part !== "object") return null
   if (part.type === "text") return { kind: "text", sessionId, messageId, partId: part.id, text: part.text ?? "" }
-  if (part.type === "tool") return { kind: "tool", sessionId, messageId, partId: part.id, name: part.tool ?? "tool", status: part.state?.status ?? "unknown" }
+  if (part.type === "tool") {
+    const title = typeof part.state?.title === "string" && part.state.title ? part.state.title : undefined
+    return { kind: "tool", sessionId, messageId, partId: part.id, name: part.tool ?? "tool", status: part.state?.status ?? "unknown", title }
+  }
   return null
 }
 

@@ -369,3 +369,15 @@ test("normalizes permission.replied from both protocol versions", () => {
   expect(normalizeEvent({ type: "permission.replied", properties: { sessionID: "s1", permissionID: "p1", response: "reject" } }))
     .toEqual({ kind: "permission-replied", sessionId: "s1", requestId: "p1" })
 })
+
+test("normalizes tool titles from running and completed states", () => {
+  expect(normalizeEvent({ type: "message.part.updated", properties: { part: { id: "p2", messageID: "m1", sessionID: "s1", type: "tool", tool: "bash", state: { status: "running", title: "npm test" } } } }))
+    .toEqual({ kind: "tool", sessionId: "s1", messageId: "m1", partId: "p2", name: "bash", status: "running", title: "npm test" })
+  expect(partToEvent("s1", "m1", { id: "p3", type: "tool", tool: "edit", state: { status: "completed", title: "wrote src/a.ts" } }))
+    .toEqual({ kind: "tool", sessionId: "s1", messageId: "m1", partId: "p3", name: "edit", status: "completed", title: "wrote src/a.ts" })
+})
+
+test("omits the tool title when the state has none", () => {
+  expect(partToEvent("s1", "m1", { id: "p4", type: "tool", tool: "bash", state: { status: "running" } }))
+    .toEqual({ kind: "tool", sessionId: "s1", messageId: "m1", partId: "p4", name: "bash", status: "running" })
+})
