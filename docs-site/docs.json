@@ -73,5 +73,12 @@
       "type": "github",
       "href": "https://github.com/LegendArtur/bot-celly"
     }
+  },
+  "styling": {
+    "eyebrows": "section",
+    "codeblocks": "dark"
+  },
+  "metadata": {
+    "timestamp": false
   }
 }
