@@ -105,6 +105,9 @@ export class Renderer {
   private dirty = false
   private revision = 0
   private inFlight: Promise<void> | null = null
+  private footer = ""
+  private startedAt: number | null = null
+  private endedAt: number | null = null
   constructor(private readonly deps: {
     send(content: string): Promise<string>; edit(messageId: string, content: string): Promise<void>
     delete?(messageId: string): Promise<void>
@@ -117,9 +120,22 @@ export class Renderer {
   }
   private body(): string {
     const toolLines = [...this.tools.values()].map((t) => `> ${t}`).join("\n")
-    return [toolLines, this.text].filter(Boolean).join("\n\n")
+    const footer = this.footer ? `-# ${this.footer}` : ""
+    return [toolLines, this.text, footer].filter(Boolean).join("\n\n")
+  }
+  setFooter(text: string): void {
+    const next = text.trim()
+    if (next === this.footer) return
+    this.footer = next
+    this.dirty = true
+    this.revision++
+  }
+  elapsedMs(): number {
+    if (this.startedAt === null) return 0
+    return (this.endedAt ?? this.deps.now()) - this.startedAt
   }
   push(e: NormalizedEvent): void {
+    if (this.startedAt === null) this.startedAt = this.deps.now()
     if (e.kind === "text") {
       if (!this.parts.has(e.partId)) this.order.push(e.partId)
       this.parts.set(e.partId, e.text)
@@ -175,5 +191,8 @@ export class Renderer {
     if (this.ids.length > 0 && this.deps.now() - this.lastEdit < this.deps.intervalMs) return
     await this.flush()
   }
-  async finalize(): Promise<void> { await this.flush() }
+  async finalize(): Promise<void> {
+    if (this.endedAt === null) this.endedAt = this.deps.now()
+    await this.flush()
+  }
 }

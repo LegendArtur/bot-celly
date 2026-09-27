@@ -213,6 +213,40 @@ test("renderer rebuilds interleaved text parts", async () => {
   expect(calls).toEqual(["AA\n\nB"])
 })
 
+test("renderer appends the footer as a final -# line", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {}, now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "hello" })
+  r.setFooter("$0.0123 · 1.2k in / 3.4k out")
+  await r.finalize()
+  expect(sends).toEqual(["hello\n\n-# $0.0123 · 1.2k in / 3.4k out"])
+})
+
+test("renderer footers can be replaced and cleared", async () => {
+  const edits: string[] = []
+  const r = new Renderer({ initialMessageId: "m1", send: async () => "m1", edit: async (_id, c) => { edits.push(c) }, now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "hi" })
+  r.setFooter("a")
+  await r.finalize()
+  r.setFooter("b")
+  await r.finalize()
+  r.setFooter("")
+  await r.finalize()
+  expect(edits).toEqual(["hi\n\n-# a", "hi\n\n-# b", "hi"])
+})
+
+test("elapsedMs measures from the first push to finalize", async () => {
+  let t = 100
+  const r = new Renderer({ send: async () => "m1", edit: async () => {}, now: () => t, intervalMs: 1000 })
+  expect(r.elapsedMs()).toBe(0)
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "hi" })
+  t = 350
+  expect(r.elapsedMs()).toBe(250)
+  await r.finalize()
+  t = 9999
+  expect(r.elapsedMs()).toBe(250)
+})
+
 test("renderer seeds every persisted chunk id and reports id changes", async () => {
   const edits: { id: string; content: string }[] = []
   const sends: string[] = []
