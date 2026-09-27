@@ -65,5 +65,11 @@
   },
   "fonts": {
     "family": "Poppins"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/LegendArtur/bot-celly"
+    }
   }
 }
