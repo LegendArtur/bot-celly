@@ -87,3 +87,17 @@ test("loadDotEnv loads a real .env into process.env", () => {
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test("parses log rotation settings and defaults", () => {
+  const c = loadConfig({ ...base, LOG_MAX_BYTES: "1024", LOG_MAX_FILES: "2" })
+  expect(c.logMaxBytes).toBe(1024)
+  expect(c.logMaxFiles).toBe(2)
+  const d = loadConfig(base)
+  expect(d.logMaxBytes).toBe(5_000_000)
+  expect(d.logMaxFiles).toBe(3)
+})
+
+test("rejects invalid log rotation settings", () => {
+  expect(() => loadConfig({ ...base, LOG_MAX_BYTES: "0" })).toThrow(/LOG_MAX_BYTES/)
+  expect(() => loadConfig({ ...base, LOG_MAX_FILES: "0" })).toThrow(/LOG_MAX_FILES/)
+})
