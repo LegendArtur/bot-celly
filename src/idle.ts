@@ -16,6 +16,10 @@ export interface IdleSweeper {
   tick(): Promise<void>
 }
 
+export function formatIdleStopNotice(minutes: number): string {
+  return `Project stopped after ${minutes} minute${minutes === 1 ? "" : "s"} of inactivity. Send a message to start it again.`
+}
+
 export function createIdleSweeper(deps: IdleSweeperDeps): IdleSweeper {
   let timer: ReturnType<typeof setInterval> | undefined
   let running = false

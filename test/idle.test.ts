@@ -1,6 +1,6 @@
 // test/idle.test.ts
 import { expect, test, vi } from "vitest"
-import { createIdleSweeper } from "../src/idle.ts"
+import { createIdleSweeper, formatIdleStopNotice } from "../src/idle.ts"
 import type { IdleSweeperDeps } from "../src/idle.ts"
 import type { Project } from "../src/types.ts"
 
@@ -76,6 +76,11 @@ test("idleMs 0 disables both tick and the interval", async () => {
   } finally {
     vi.useRealTimers()
   }
+})
+
+test("formatIdleStopNotice pluralizes the idle window", () => {
+  expect(formatIdleStopNotice(1)).toContain("1 minute of inactivity")
+  expect(formatIdleStopNotice(31)).toContain("31 minutes of inactivity")
 })
 
 test("start schedules one unref'd interval and stop clears it", async () => {
