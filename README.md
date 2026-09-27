@@ -2,13 +2,33 @@
 
 > A Discord forge for coding agents.
 
+[![Docs](https://img.shields.io/badge/docs-celly.agub.dev-7C3AED)](https://celly.agub.dev)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D24%20%3C25-brightgreen)](package.json)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](#contributing)
+
 Celly turns [Discord](https://discord.com) into a control surface for
 [OpenCode](https://opencode.ai) coding agents. Every project gets its own
 isolated `sbx` (Docker Sandboxes) microVM on your host, and you drive it from a
 Discord channel and thread. Start a session from your phone, watch it work, and
 pick it back up later.
 
-**Docs:** https://celly.mintlify.site (placeholder — update after deploy)
+**Documentation:** https://celly.agub.dev
+
+## Contents
+
+- [Features](#features)
+- [Architecture](#architecture)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [Commands](#commands)
+- [Security](#security)
+- [Development](#development)
+- [Status / roadmap](#status--roadmap)
+- [Limitations](#limitations)
+- [Contributing](#contributing)
+- [License](#license)
+- [Credits](#credits)
 
 ## Features
 
@@ -53,7 +73,7 @@ Discord (channel = project, thread = session)
                       └───────────────────┘
 ```
 
-See the [architecture reference](https://celly.mintlify.site/reference/architecture)
+See the [architecture reference](https://celly.agub.dev/reference/architecture)
 for the module map, create saga, and boot recovery.
 
 ## Requirements
@@ -96,9 +116,9 @@ for the module map, create saga, and boot recovery.
    send a message in the new channel.
 
 The full walkthrough is in the
-[Quickstart](https://celly.mintlify.site/quickstart). Every environment variable
+[Quickstart](https://celly.agub.dev/quickstart). Every environment variable
 is documented in
-[Configuration](https://celly.mintlify.site/guides/configuration).
+[Configuration](https://celly.agub.dev/guides/configuration).
 
 ## Commands
 
@@ -119,7 +139,7 @@ is documented in
 | `!<command>` | channel or thread | Run a shell command in the sandbox. |
 
 Full details and the deferred list are in the
-[commands reference](https://celly.mintlify.site/reference/commands).
+[commands reference](https://celly.agub.dev/reference/commands).
 
 ## Security
 
@@ -130,7 +150,7 @@ and a bot-enforced permission policy is re-asserted after every wake. Provider
 credentials live in `sbx secret` and never touch argv or Discord.
 
 The deny list is defense-in-depth, not a hard boundary — the sandbox is. Read
-the [security reference](https://celly.mintlify.site/reference/security) for the
+the [security reference](https://celly.agub.dev/reference/security) for the
 full model.
 
 ## Development
@@ -184,7 +204,7 @@ v1 is the command set above. Deferred to v1.1:
 Issues and pull requests are welcome. Before opening a PR, run `npm test`,
 `npm run typecheck`, and `npm run build`. Keep the **argv-only invariant**, add
 tests for behavior changes, and never commit secrets. See
-[Contributing](https://celly.mintlify.site/contributing) for details.
+[Contributing](https://celly.agub.dev/contributing) for details.
 
 ## License
 
