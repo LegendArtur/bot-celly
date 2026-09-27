@@ -2,6 +2,7 @@ import { ApplicationCommandOptionType, ComponentType } from "discord.js"
 import type { Db } from "./db.ts"
 import type { ProjectService } from "./projects.ts"
 import type { Runner } from "./runner.ts"
+import { formatCost, formatUsageSummary, resolveBudget } from "./usage.js"
 
 export function commandData(): any[] {
   const project = { name: "project", description: "Manage Celly projects", options: [
@@ -24,7 +25,8 @@ export function commandData(): any[] {
     { name: "resume", description: "Resume a session" },
     { name: "abort", description: "Abort the current run" },
     { name: "model", description: "Choose the model for this thread" },
-    { name: "agent", description: "Choose the agent for this thread" } ]
+    { name: "agent", description: "Choose the agent for this thread" },
+    { name: "cost", description: "Show session and channel cost" } ]
 }
 
 export interface CreateThreadInput {
@@ -46,6 +48,7 @@ export interface CommandDeps {
   listAgents?(channelId: string): Promise<{ id: string; name: string }[]>
   setThreadModel?(threadId: string, model: string | null): void
   setThreadAgent?(threadId: string, agent: string | null): void
+  sessionBudgetUsd?: number
 }
 
 export const RESUME_SELECT = "resume"
@@ -101,6 +104,11 @@ function selectRow(customId: string, placeholder: string, options: { label: stri
 const OWNER_ONLY_PROJECT_SUBS = new Set(["add", "create", "start", "stop", "remove"])
 export function requiresOwner(commandName: string, sub: string | null | undefined): boolean {
   return commandName === "project" && !!sub && OWNER_ONLY_PROJECT_SUBS.has(sub)
+}
+
+function commandProjectChannel(interaction: any, db: Db): string | undefined {
+  if (interaction.channel?.isThread?.() === true) return db.threads.get(interaction.channelId)?.channelId
+  return db.projects.getByChannel(interaction.channelId) ? interaction.channelId : undefined
 }
 
 export async function handleCommand(interaction: any, deps: CommandDeps): Promise<void> {
@@ -218,6 +226,18 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (!threadIds.length) return void await interaction.editReply(noMentions("nothing to abort"))
       for (const threadId of threadIds) await deps.runner.abort(threadId)
       return void await interaction.editReply(noMentions("aborted"))
+    }
+    if (interaction.commandName === "cost") {
+      const channelId = commandProjectChannel(interaction, deps.db)
+      if (!channelId) return void await interaction.editReply(noMentions("this channel is not a project"))
+      const thread = interaction.channel?.isThread?.() === true ? deps.db.usage.thread(interaction.channelId) : undefined
+      const budget = resolveBudget(deps.db.settings, channelId, deps.sessionBudgetUsd ?? 0)
+      const lines = [
+        thread ? formatUsageSummary("session", thread) : "",
+        formatUsageSummary("channel", deps.db.usage.channel(channelId)),
+        budget > 0 ? `budget: ${formatCost(budget)}/session` : "budget: off",
+      ].filter(Boolean)
+      return void await interaction.editReply(noMentions(lines.join("\n")))
     }
     await interaction.editReply(noMentions("not implemented in this build"))
   } catch (e) {

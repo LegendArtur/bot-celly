@@ -396,6 +396,7 @@ async function main(): Promise<void> {
     createThread: createThreadForProject,
     listSessions, listModels, listAgents,
     setThreadModel, setThreadAgent,
+    sessionBudgetUsd: cfg.sessionBudgetUsd,
     postConnected: async (channelId, projectName) => {
       const channel = await client.channels.fetch(channelId).catch(() => null)
       if (channel && "send" in channel) {

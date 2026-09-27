@@ -54,9 +54,9 @@ const editOf = (i: any) => {
   return c.components ? c : c.content
 }
 
-test("declares the v1 command set", () => {
+test("declares the providers and cost command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "model", "new", "project", "resume"])
+  expect(names).toEqual(["abort", "agent", "cost", "model", "new", "project", "resume"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -238,6 +238,34 @@ test("project create makes a sanitized directory then adds the project", async (
   await handleCommand(i, { projects, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => true })
   expect(order).toEqual(["mkdir:My App", "add:C:\\projects\\my-app"])
   expect(editOf(i)).toBe("created My App")
+})
+
+test("/cost in a thread reports session, channel, and budget", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert(threadRow("t1"))
+  db.threads.addUsage("t1", { cost: 0.0123, tokensIn: 1200, tokensOut: 3400, cacheRead: 0, cacheWrite: 0 })
+  const i = interaction({ commandName: "cost", channelId: "t1", channel: { isThread: () => true } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, sessionBudgetUsd: 5 })
+  expect(editOf(i)).toBe([
+    "session: $0.0123 · 1.2k in / 3.4k out",
+    "channel: $0.0123 · 1.2k in / 3.4k out",
+    "budget: $5.0000/session",
+  ].join("\n"))
+})
+
+test("/cost in a project channel reports the channel total and budget off", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert(threadRow("t1"))
+  db.threads.addUsage("t1", { cost: 0.5, tokensIn: 500, tokensOut: 100, cacheRead: 0, cacheWrite: 0 })
+  const i = interaction({ commandName: "cost", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true })
+  expect(editOf(i)).toBe("channel: $0.5000 · 500 in / 100 out\nbudget: off")
+})
+
+test("/cost outside a project is rejected", async () => {
+  const i = interaction({ commandName: "cost", channelId: "other" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
+  expect(editOf(i)).toBe("this channel is not a project")
 })
 
 test("new creates a thread in the project channel and prompts", async () => {
