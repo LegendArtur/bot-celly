@@ -104,6 +104,10 @@ longer active"; pending requests are not persisted across restarts.
 `openai`). Anthropic and DeepSeek-style providers are API-key only; register
 them with `sbx secret` instead.
 
+The OAuth-provider, model, and agent lists behind the `/login`, `/model`, and
+`/agent` pickers are warmed at startup and refreshed every 60 seconds, so the
+pickers open from cache rather than fetching on demand.
+
 ## Messages and shell
 
 | Input | Where | Behavior |

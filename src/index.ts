@@ -29,6 +29,8 @@ import { Renderer, renderPayload, sanitizeThreadName } from "./render.js"
 import { resolveBaseUrl, resolveClient, resolveV2Client } from "./opencode.js"
 import { createSessionOps } from "./session-utils.js"
 import { finishProviderLogin, listOAuthProviders, startProviderLogin } from "./oauth.js"
+import { createValueCache } from "./list-cache.js"
+import type { ValueCache } from "./list-cache.js"
 import { runShell } from "./shell.js"
 import { ingestAttachments } from "./attachments.js"
 import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
@@ -173,7 +175,7 @@ async function main(): Promise<void> {
       runner: { handleProjectDown: (channelId) => runnerSvc.handleProjectDown(channelId) },
       client, bucketFor, log,
     }),
-    onProjectReady: (project) => { secrets.push(project.serverPassword); db.projects.touch(project.channelId, Date.now()); subscribeProject(project) },
+    onProjectReady: (project) => { secrets.push(project.serverPassword); db.projects.touch(project.channelId, Date.now()); subscribeProject(project); warmLists(project.channelId) },
     onProjectRemoved: (project) => {
       const index = secrets.indexOf(project.serverPassword)
       if (index >= 0) secrets.splice(index, 1)
@@ -431,6 +433,7 @@ async function main(): Promise<void> {
       }
       const fresh = db.projects.getByChannel(project.channelId)
       if (fresh) subscribeProject(fresh)
+      warmLists(project.channelId)
     }
   }
   const stopSubscription = (channelId: string): void => {
@@ -545,7 +548,15 @@ async function main(): Promise<void> {
       return list.map((s: any) => ({ id: String(s.id), title: String(s.title ?? s.id) }))
     } catch { return [] }
   }
-  const listModels = async (channelId: string): Promise<{ id: string; name: string }[]> => {
+  const listCaches = new Map<string, ValueCache<any>>()
+  const listCacheFor = <T>(key: string, load: () => Promise<T[]>): ValueCache<T> => {
+    const existing = listCaches.get(key)
+    if (existing) return existing
+    const cache = createValueCache<T>({ ttlMs: 60_000, load, now: () => Date.now() })
+    listCaches.set(key, cache)
+    return cache
+  }
+  const loadModels = async (channelId: string): Promise<{ id: string; name: string }[]> => {
     const project = db.projects.getByChannel(channelId)
     if (!project) return []
     try {
@@ -570,7 +581,7 @@ async function main(): Promise<void> {
       return []
     }
   }
-  const listAgents = async (channelId: string): Promise<{ id: string; name: string }[]> => {
+  const loadAgents = async (channelId: string): Promise<{ id: string; name: string }[]> => {
     const project = db.projects.getByChannel(channelId)
     if (!project) return []
     try {
@@ -581,12 +592,22 @@ async function main(): Promise<void> {
       return list.filter((a: any) => a?.mode !== "subagent").map((a: any) => ({ id: String(a.name), name: a.description ? `${a.name} — ${a.description}` : String(a.name) }))
     } catch { return [] }
   }
-  const listLogin = async (channelId: string): Promise<string[]> => {
+  const loadLogin = async (channelId: string): Promise<string[]> => {
     const project = db.projects.getByChannel(channelId)
     if (!project) throw new Error(`unknown project channel ${channelId}`)
     await projects.ensureReady(channelId)
     const res: any = await resolveClient(project).provider.auth()
     return listOAuthProviders(res?.data ?? res)
+  }
+  const listModels = (channelId: string): Promise<{ id: string; name: string }[]> => listCacheFor(`models:${channelId}`, () => loadModels(channelId)).get()
+  const listAgents = (channelId: string): Promise<{ id: string; name: string }[]> => listCacheFor(`agents:${channelId}`, () => loadAgents(channelId)).get()
+  const listLogin = (channelId: string): Promise<string[]> => listCacheFor(`providers:${channelId}`, () => loadLogin(channelId)).get()
+  const warmLists = (channelId: string): void => {
+    try {
+      listCacheFor(`providers:${channelId}`, () => loadLogin(channelId)).refresh()
+      listCacheFor(`models:${channelId}`, () => loadModels(channelId)).refresh()
+      listCacheFor(`agents:${channelId}`, () => loadAgents(channelId)).refresh()
+    } catch {}
   }
   const setThreadModel = (threadId: string, model: string | null): void => { if (db.threads.get(threadId)) db.threads.setModel(threadId, model) }
   const setThreadAgent = (threadId: string, agent: string | null): void => { if (db.threads.get(threadId)) db.threads.setAgent(threadId, agent) }

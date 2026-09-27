@@ -92,6 +92,14 @@ test("index wires log rotation, backups, tasks, and the admin server into boot",
   expect(source).toContain("admin?.close()")
 })
 
+test("index warms the provider, model, and agent caches in the boot subscribe path", () => {
+  const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8")
+  expect(source).toContain("warmLists(project.channelId)")
+  expect(source).toContain("`providers:${channelId}`")
+  expect(source).toContain("`models:${channelId}`")
+  expect(source).toContain("`agents:${channelId}`")
+})
+
 test("index only wires the idle sweeper when IDLE_STOP_MINUTES is positive", () => {
   const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8")
   expect(source).toContain("if (cfg.idleStopMinutes > 0) {")

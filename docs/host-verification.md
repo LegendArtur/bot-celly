@@ -101,7 +101,9 @@ the repo root unless a step says otherwise.
 
 ## 6. OAuth login (`/login`)
 
-1. Run `/login` and pick the provider you use from the select.
+1. Run `/login` and pick the provider you use from the select. The provider
+   list is warmed at startup and refreshed every 60 seconds, so the select
+   should appear immediately.
    Expected: an ephemeral message with an authorization URL and instructions.
 2. Open the URL in a browser, complete the flow.
    - Code flow: run `/login-code provider:<id> code:<code>`.
