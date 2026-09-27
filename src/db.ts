@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite"
-import type { Project, ProjectStatus, RenderState, ScheduledTask, Thread } from "./types.ts"
+import type { Project, ProjectStatus, RenderState, ScheduledTask, Thread, UsageTotals } from "./types.ts"
 
 export interface Db {
   migrate(): void
@@ -32,6 +32,12 @@ export interface Db {
     touch(threadId: string): void
     byChannel(channelId: string): Thread[]
     recent(limit: number): Thread[]
+    addUsage(threadId: string, delta: UsageTotals): void
+  }
+  usage: {
+    thread(threadId: string): UsageTotals
+    channel(channelId: string): UsageTotals
+    totals(): UsageTotals
   }
   tasks: {
     add(input: { channelId: string; prompt: string; everyMinutes: number; nextRunAt: number; createdAt: number }): number
@@ -77,6 +83,13 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
   enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_due ON scheduled_tasks(enabled, next_run_at);
 `
+const SCHEMA_V7 = `
+ALTER TABLE threads ADD COLUMN cost REAL NOT NULL DEFAULT 0;
+ALTER TABLE threads ADD COLUMN tokens_in INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE threads ADD COLUMN tokens_out INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE threads ADD COLUMN tokens_cache_read INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE threads ADD COLUMN tokens_cache_write INTEGER NOT NULL DEFAULT 0;
+`
 const MIGRATIONS: { version: number; up(raw: DatabaseSync): void }[] = [
   { version: 1, up: (raw) => raw.exec(SCHEMA_V1) },
   { version: 2, up: (raw) => raw.exec(SCHEMA_V2) },
@@ -84,6 +97,7 @@ const MIGRATIONS: { version: number; up(raw: DatabaseSync): void }[] = [
   { version: 4, up: (raw) => raw.exec("CREATE INDEX IF NOT EXISTS idx_threads_channel ON threads(channel_id)") },
   { version: 5, up: (raw) => raw.exec("ALTER TABLE projects ADD COLUMN last_active_at INTEGER NOT NULL DEFAULT 0") },
   { version: 6, up: (raw) => raw.exec(SCHEMA_V6) },
+  { version: 7, up: (raw) => raw.exec(SCHEMA_V7) },
 ]
 function userVersion(raw: DatabaseSync): number {
   const row = raw.prepare("PRAGMA user_version").get() as { user_version?: number } | undefined
@@ -104,6 +118,11 @@ const rowToThread = (r: any): Thread => ({
 const rowToTask = (r: any): ScheduledTask => ({
   id: Number(r.id), channelId: r.channel_id, prompt: r.prompt, everyMinutes: r.every_minutes,
   nextRunAt: r.next_run_at, enabled: Number(r.enabled) === 1, createdAt: r.created_at,
+})
+const ZERO_USAGE = (): UsageTotals => ({ cost: 0, tokensIn: 0, tokensOut: 0, cacheRead: 0, cacheWrite: 0 })
+const rowToUsage = (r: any): UsageTotals => ({
+  cost: Number(r?.cost ?? 0), tokensIn: Number(r?.tokens_in ?? 0), tokensOut: Number(r?.tokens_out ?? 0),
+  cacheRead: Number(r?.tokens_cache_read ?? 0), cacheWrite: Number(r?.tokens_cache_write ?? 0),
 })
 
 export function openDb(path: string): Db {
@@ -174,6 +193,28 @@ export function openDb(path: string): Db {
       touch(threadId) { raw.prepare(`UPDATE threads SET last_active_at=? WHERE thread_id=?`).run(Date.now(), threadId) },
       byChannel(channelId) { return raw.prepare(`SELECT * FROM threads WHERE channel_id=? ORDER BY last_active_at DESC`).all(channelId).map(rowToThread) },
       recent(limit) { return raw.prepare(`SELECT * FROM threads ORDER BY last_active_at DESC LIMIT ?`).all(limit).map(rowToThread) },
+      addUsage(threadId, delta) {
+        raw.prepare(`UPDATE threads SET cost=cost+?, tokens_in=tokens_in+?, tokens_out=tokens_out+?, tokens_cache_read=tokens_cache_read+?, tokens_cache_write=tokens_cache_write+? WHERE thread_id=?`)
+          .run(delta.cost, delta.tokensIn, delta.tokensOut, delta.cacheRead, delta.cacheWrite, threadId)
+      },
+    },
+    usage: {
+      thread(threadId) {
+        const r = raw.prepare(`SELECT cost, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write FROM threads WHERE thread_id=?`).get(threadId)
+        return r ? rowToUsage(r) : ZERO_USAGE()
+      },
+      channel(channelId) {
+        const r = raw.prepare(`SELECT COALESCE(SUM(cost),0) AS cost, COALESCE(SUM(tokens_in),0) AS tokens_in,
+          COALESCE(SUM(tokens_out),0) AS tokens_out, COALESCE(SUM(tokens_cache_read),0) AS tokens_cache_read,
+          COALESCE(SUM(tokens_cache_write),0) AS tokens_cache_write FROM threads WHERE channel_id=?`).get(channelId)
+        return rowToUsage(r)
+      },
+      totals() {
+        const r = raw.prepare(`SELECT COALESCE(SUM(cost),0) AS cost, COALESCE(SUM(tokens_in),0) AS tokens_in,
+          COALESCE(SUM(tokens_out),0) AS tokens_out, COALESCE(SUM(tokens_cache_read),0) AS tokens_cache_read,
+          COALESCE(SUM(tokens_cache_write),0) AS tokens_cache_write FROM threads`).get()
+        return rowToUsage(r)
+      },
     },
     tasks: {
       add(input) {

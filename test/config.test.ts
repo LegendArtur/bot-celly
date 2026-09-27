@@ -18,6 +18,14 @@ test("only token and guild are required; PROJECTS_ROOT defaults under the home d
   expect(c.projectsRoot).toBe(join(homedir(), "Celly", "projects"))
   expect(c.projectsRoot).toBe(defaultProjectsRoot())
 })
+test("SESSION_BUDGET_USD defaults to 0 and rejects negatives and non-numbers", () => {
+  expect(loadConfig(base).sessionBudgetUsd).toBe(0)
+  expect(loadConfig({ ...base, SESSION_BUDGET_USD: "5.5" }).sessionBudgetUsd).toBe(5.5)
+  expect(loadConfig({ ...base, SESSION_BUDGET_USD: "0" }).sessionBudgetUsd).toBe(0)
+  expect(() => loadConfig({ ...base, SESSION_BUDGET_USD: "-1" })).toThrow(/SESSION_BUDGET_USD/)
+  expect(() => loadConfig({ ...base, SESSION_BUDGET_USD: "lots" })).toThrow(/SESSION_BUDGET_USD/)
+})
+
 test("parses the owner role", () => {
   expect(loadConfig({ ...base, OWNER_ROLE_ID: "own" }).ownerRoleId).toBe("own")
   expect(loadConfig(base).ownerRoleId).toBeUndefined()

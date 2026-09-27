@@ -9,6 +9,7 @@ import type { Db } from "./db.ts"
 import type { Thread } from "./types.ts"
 import type { ApprovalManager } from "./approvals.ts"
 import type { AuditDraft } from "./audit.ts"
+import { formatCost, formatUsageFooter, resolveBudget } from "./usage.js"
 
 const DEFAULT_DENY = bashDenyPatterns()
 // The real opencode tool ids (see @opencode-ai/sdk PermissionConfig) plus the
@@ -185,6 +186,8 @@ export interface RunnerDeps {
   log(msg: string, fields?: Record<string, unknown>): void
   maxQueue: number
   maxConcurrentRuns: number
+  budgetUsd?: number
+  notify?(channelId: string, text: string): Promise<void> | void
   onThreadIdle?(threadId: string): void
   approvalModeFor?(channelId: string): ApprovalMode
   respondPermission?(input: PermissionReplyInput): Promise<void>
@@ -247,6 +250,11 @@ export class Runner {
     return renderer
   }
   private clearRenderer(threadId: string): void { this.renderers.delete(threadId) }
+  private budgetFor(threadId: string): number {
+    const thread = this.deps.db.threads.get(threadId)
+    if (!thread) return this.deps.budgetUsd ?? 0
+    return resolveBudget(this.deps.db.settings, thread.channelId, this.deps.budgetUsd ?? 0)
+  }
   private idle(threadId: string, epoch: number | undefined): boolean {
     if (!this.ownsEpoch(threadId, epoch)) return false
     this.deps.db.threads.setRenderState(threadId, "idle")
@@ -354,6 +362,22 @@ export class Runner {
     const db = this.deps.db
     const epoch = this.owner.get(threadId)
     if (e.kind === "text" || e.kind === "tool") { const r = await this.rendererFor(threadId); r.push(e); await r.tick() }
+    else if (e.kind === "usage") {
+      db.threads.addUsage(threadId, { cost: e.cost, tokensIn: e.tokensIn, tokensOut: e.tokensOut, cacheRead: e.cacheRead, cacheWrite: e.cacheWrite })
+      const totals = db.usage.thread(threadId)
+      const renderer = await this.rendererFor(threadId)
+      renderer.setFooter(formatUsageFooter(totals))
+      await renderer.tick()
+      const budget = this.budgetFor(threadId)
+      if (budget > 0 && totals.cost >= budget && db.threads.get(threadId)?.renderState !== "aborting") {
+        const note = `[budget] session budget reached (${formatCost(totals.cost)} of ${formatCost(budget)})`
+        renderer.push({ kind: "text", sessionId: e.sessionId, messageId: "", partId: `budget-${e.sessionId}`, text: note })
+        await renderer.finalize()
+        const thread = db.threads.get(threadId)
+        if (thread) await this.deps.notify?.(thread.channelId, note)
+        await this.abort(threadId)
+      }
+    }
     else if (e.kind === "permission") {
       const thread = db.threads.get(threadId)
       const mode = this.deps.approvalModeFor?.(thread?.channelId ?? threadId) ?? "auto"

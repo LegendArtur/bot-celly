@@ -1,0 +1,3 @@
+{"type":"message.part.updated","properties":{"part":{"id":"prt_u1","messageID":"msg_u1","sessionID":"ses_u1","type":"step-finish","reason":"stop","cost":0.01,"tokens":{"input":1000,"output":200,"reasoning":0,"cache":{"read":100,"write":50}}}}}
+{"type":"message.part.updated","properties":{"part":{"id":"prt_u2","messageID":"msg_u2","sessionID":"ses_u2","type":"step-finish","reason":"stop","cost":0.0023,"tokens":{"input":200,"output":300,"reasoning":0,"cache":{"read":0,"write":0}}}}}
+{"type":"message.updated","properties":{"info":{"id":"msg_u3","sessionID":"ses_u3","role":"user","cost":0,"tokens":{"input":1,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}}}

@@ -62,6 +62,10 @@ core idea (channels as projects, threads as sessions) and runs each project in a
   role, and a block role.
 - **Hardened permission policy.** A bot-enforced deny list blocks publish, push,
   and env-file inspection, and is re-asserted after every wake.
+- **Cost tracking and budgets.** `/cost` reports per-thread and per-channel
+  usage, and a session budget (env or `/budget`) stops a run that exceeds it.
+- **Provider OAuth login.** Owner-only `/login` and `/login-code` complete
+  provider authorization without leaving Discord.
 
 ## Architecture
 
@@ -164,6 +168,10 @@ is documented in
 | `/worktree status\|new\|merge\|remove` | thread | Manage this thread's git worktree. |
 | `/fork [prompt]` / `/btw <prompt>` | thread | Fork this session into a new thread. |
 | `/last-sessions [count]` | channel or thread | List recent threads (ephemeral, max 10). |
+| `/cost` | thread or channel | Show accumulated cost, tokens, and the session budget. |
+| `/budget show\|set <usd>` | channel (owner) | Show or set the per-channel session budget. |
+| `/login <provider>` | channel or thread (owner) | Start a provider OAuth flow. |
+| `/login-code <provider> <code>` | channel or thread (owner) | Finish a provider OAuth flow. |
 | `/mode <auto\|buttons\|plan>` | project channel or thread (owner) | Set the channel approval mode. |
 | `/task add <channel> <prompt> <every_minutes>` | guild (owner) | Schedule a recurring prompt in a project channel. |
 | `/task list` | guild | List scheduled tasks. |
@@ -220,7 +228,8 @@ v1 is the command set above. Deferred to v1.1:
 - **The message queue is lost on restart.** Queued-but-unsent prompts are
   dropped; active runs re-attach from session history.
 - **Role names are not accepted** for role configuration; use role IDs.
-- **The finalization token/duration footer is descoped.**
+- **The finalization footer shows cost and in/out tokens.** Cache reads/writes
+  are tracked in `/cost` but not rendered in the footer.
 - **Access control is global across guilds.** The same role IDs apply to every
   configured guild; per-guild roles are not supported. A configured guild the bot
   cannot see is skipped at startup with a warning.

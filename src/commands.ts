@@ -10,6 +10,7 @@ import { attachReply, sessionIdReply } from "./attach.js"
 import { formatContextUsage, formatDiff } from "./session-utils.js"
 import type { SessionOps } from "./session-utils.ts"
 import { chunkMessage } from "./render.js"
+import { formatCost, formatUsageSummary, resolveBudget } from "./usage.js"
 
 export function commandData(): any[] {
   const project = { name: "project", description: "Manage Celly projects", options: [
@@ -69,6 +70,17 @@ export function commandData(): any[] {
       { type: ApplicationCommandOptionType.String, name: "prompt", description: "The side-question", required: true } ] },
     { name: "last-sessions", description: "List recent threads in this channel (ephemeral)", options: [
       { type: ApplicationCommandOptionType.Integer, name: "count", description: "How many to show (default 5, max 10)", required: false } ] },
+    { name: "cost", description: "Show session and channel cost" },
+    { name: "budget", description: "Show or set this channel's session budget (owner-only)", options: [
+      { type: ApplicationCommandOptionType.Subcommand, name: "show", description: "Show the current session budget" },
+      { type: ApplicationCommandOptionType.Subcommand, name: "set", description: "Set the channel session budget in USD", options: [
+        { type: ApplicationCommandOptionType.Number, name: "usd", description: "Budget in USD; 0 disables", required: true } ] },
+    ] },
+    { name: "login", description: "Authorize a provider with OAuth (owner-only)", options: [
+      { type: ApplicationCommandOptionType.String, name: "provider", description: "Provider id, e.g. anthropic", required: true } ] },
+    { name: "login-code", description: "Finish OAuth login with an authorization code (owner-only)", options: [
+      { type: ApplicationCommandOptionType.String, name: "provider", description: "Provider id", required: true },
+      { type: ApplicationCommandOptionType.String, name: "code", description: "Authorization code", required: true } ] },
     { name: "mode", description: "Set the approval mode for this session's project channel", options: [
       { type: ApplicationCommandOptionType.String, name: "mode", description: "How permission requests are handled", required: true,
         choices: APPROVAL_MODES.map((mode) => ({ name: mode, value: mode })) } ] },
@@ -145,6 +157,9 @@ export interface CommandDeps {
   approvals?: ApprovalManager
   audit?(entry: AuditDraft): void
   worktree?: WorktreeCommands
+  sessionBudgetUsd?: number
+  startLogin?(channelId: string, providerId: string): Promise<{ url: string; instructions: string; flow: "auto" | "code" }>
+  finishLogin?(channelId: string, providerId: string, code: string): Promise<void>
 }
 
 export interface AutocompleteChoice { name: string; value: string }
@@ -259,12 +274,17 @@ export function requiresOwner(commandName: string, sub: string | null | undefine
   if (commandName === "project") return !!sub && OWNER_ONLY_PROJECT_SUBS.has(sub)
   if (commandName === "task") return !!sub && OWNER_ONLY_TASK_SUBS.has(sub)
   if (commandName === "worktree") return !!sub && OWNER_ONLY_WORKTREE_SUBS.has(sub)
-  return false
+  return commandName === "budget" || commandName === "login" || commandName === "login-code"
+}
+
+function commandProjectChannel(interaction: any, db: Db): string | undefined {
+  if (interaction.channel?.isThread?.() === true) return db.threads.get(interaction.channelId)?.channelId
+  return db.projects.getByChannel(interaction.channelId) ? interaction.channelId : undefined
 }
 
 export async function handleCommand(interaction: any, deps: CommandDeps): Promise<void> {
   if (!deps.authorized(interaction)) { await interaction.reply(noMentions("You are not authorized.", { flags: 64 })); return }
-  const sub = interaction.commandName === "project" || interaction.commandName === "task" || interaction.commandName === "worktree"
+  const sub = interaction.commandName === "project" || interaction.commandName === "task" || interaction.commandName === "worktree" || interaction.commandName === "budget"
     ? interaction.options.getSubcommand(false)
     : null
   if (requiresOwner(interaction.commandName, sub) && !deps.isOwner?.(interaction)) {
@@ -537,6 +557,55 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         const force = interaction.options.getBoolean("force", false) ?? false
         return void await interaction.editReply(noMentions(await deps.worktree.remove(thread.threadId, force)))
       }
+    }
+    if (interaction.commandName === "cost") {
+      const channelId = commandProjectChannel(interaction, deps.db)
+      if (!channelId) return void await interaction.editReply(noMentions("this channel is not a project"))
+      const thread = interaction.channel?.isThread?.() === true ? deps.db.usage.thread(interaction.channelId) : undefined
+      const budget = resolveBudget(deps.db.settings, channelId, deps.sessionBudgetUsd ?? 0)
+      const lines = [
+        thread ? formatUsageSummary("session", thread) : "",
+        formatUsageSummary("channel", deps.db.usage.channel(channelId)),
+        budget > 0 ? `budget: ${formatCost(budget)}/session` : "budget: off",
+      ].filter(Boolean)
+      return void await interaction.editReply(noMentions(lines.join("\n")))
+    }
+    if (interaction.commandName === "budget") {
+      const channelId = commandProjectChannel(interaction, deps.db)
+      if (!channelId) return void await interaction.editReply(noMentions("this channel is not a project"))
+      if (sub === "set") {
+        const usd = interaction.options.getNumber("usd", true)
+        if (typeof usd !== "number" || !Number.isFinite(usd) || usd < 0) return void await interaction.editReply(noMentions("error: usd must be a number >= 0"))
+        deps.db.settings.set(`budget_usd:${channelId}`, String(usd))
+        return void await interaction.editReply(noMentions(`budget set to ${formatCost(usd)} per session`))
+      }
+      const budget = resolveBudget(deps.db.settings, channelId, deps.sessionBudgetUsd ?? 0)
+      return void await interaction.editReply(noMentions(budget > 0 ? `session budget: ${formatCost(budget)}` : "session budget: off"))
+    }
+    if (interaction.commandName === "login") {
+      const channelId = commandProjectChannel(interaction, deps.db)
+      if (!channelId) return void await interaction.editReply(noMentions("this channel is not a project"))
+      const providerId = interaction.options.getString("provider", true)
+      if (!deps.startLogin) return void await interaction.editReply(noMentions("login unavailable"))
+      const login = await deps.startLogin(channelId, providerId)
+      const lines = [
+        `Authorize ${providerId}:`,
+        login.url,
+        login.instructions,
+        login.flow === "auto"
+          ? `Finish in the browser, then run \`/login ${providerId}\` again to verify.`
+          : `Then run \`/login-code ${providerId} <code>\` with the code shown by the provider.`,
+      ].filter(Boolean)
+      return void await interaction.editReply(noMentions(lines.join("\n")))
+    }
+    if (interaction.commandName === "login-code") {
+      const channelId = commandProjectChannel(interaction, deps.db)
+      if (!channelId) return void await interaction.editReply(noMentions("this channel is not a project"))
+      const providerId = interaction.options.getString("provider", true)
+      const code = interaction.options.getString("code", true)
+      if (!deps.finishLogin) return void await interaction.editReply(noMentions("login unavailable"))
+      await deps.finishLogin(channelId, providerId, code)
+      return void await interaction.editReply(noMentions(`logged in to ${providerId}`))
     }
     await interaction.editReply(noMentions("not implemented in this build"))
   } catch (e) {

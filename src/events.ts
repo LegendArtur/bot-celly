@@ -5,6 +5,7 @@ import { basicAuth } from "./opencode.js"
 export type NormalizedEvent =
   | { kind: "text"; sessionId: string; messageId: string; partId: string; text: string }
   | { kind: "tool"; sessionId: string; messageId: string; partId: string; name: string; status: string; title?: string }
+  | { kind: "usage"; sessionId: string; messageId: string; cost: number; tokensIn: number; tokensOut: number; cacheRead: number; cacheWrite: number }
   | { kind: "idle"; sessionId: string }
   | { kind: "error"; sessionId: string; message: string }
   | { kind: "permission"; sessionId: string; permissionId: string; source: "v1" | "v2"; tool: string; patterns: string[] }
@@ -62,6 +63,12 @@ export function partToEvent(sessionId: string, messageId: string, part: any): No
   if (part.type === "tool") {
     const title = typeof part.state?.title === "string" && part.state.title ? part.state.title : undefined
     return { kind: "tool", sessionId, messageId, partId: part.id, name: part.tool ?? "tool", status: part.state?.status ?? "unknown", title }
+  }
+  if (part.type === "step-finish") return {
+    kind: "usage", sessionId, messageId,
+    cost: typeof part.cost === "number" ? part.cost : 0,
+    tokensIn: part.tokens?.input ?? 0, tokensOut: part.tokens?.output ?? 0,
+    cacheRead: part.tokens?.cache?.read ?? 0, cacheWrite: part.tokens?.cache?.write ?? 0,
   }
   return null
 }

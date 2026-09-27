@@ -132,18 +132,31 @@ test("rejects read and grep tool paths into the celly config directory", () => {
 function makeDb(state = "running", threads: any[] = [], liveMessageId: string | null = null, liveMessageIds: string[] = []) {
   const states: string[] = []
   const ids = liveMessageIds.length ? liveMessageIds : (liveMessageId ? [liveMessageId] : [])
+  let renderState = state
+  const usage = { cost: 0, tokensIn: 0, tokensOut: 0, cacheRead: 0, cacheWrite: 0 }
+  const settings = new Map<string, string>()
   const db = {
     threads: {
-      setRenderState(_t: string, s: string) { states.push(s) },
+      setRenderState(_t: string, s: string) { renderState = s; states.push(s) },
       touch() {},
-      get() { return { renderState: state, liveMessageId } },
+      get() { return { renderState, liveMessageId, channelId: "c1" } },
       liveMessageIds() { return ids },
       setLiveMessages() {},
       byChannel() { return threads },
+      addUsage(_t: string, d: any) {
+        usage.cost += d.cost; usage.tokensIn += d.tokensIn; usage.tokensOut += d.tokensOut
+        usage.cacheRead += d.cacheRead; usage.cacheWrite += d.cacheWrite
+      },
     },
     projects: { touch() {} },
+    usage: {
+      thread() { return { ...usage } },
+      channel() { return { ...usage } },
+      totals() { return { ...usage } },
+    },
+    settings: { get: (k: string) => settings.get(k), set: (k: string, v: string) => { settings.set(k, v) } },
   } as any
-  return { db, states }
+  return { db, states, usage, settings }
 }
 
 function makeRenderer(calls: any[] = []) {
@@ -764,6 +777,68 @@ test("a failed run start kicks the global drain so a queued thread is not strand
   await new Promise((r) => setTimeout(r, 0))
   expect(sent).toEqual(["two"])
   expect(runner.isActive("t2")).toBe(true)
+})
+
+test("usage events persist totals and set the renderer footer", async () => {
+  const { db, usage } = makeDb()
+  const footers: string[] = []
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: {} }) as any,
+    createRenderer: async () => ({ push: () => {}, tick: async () => {}, finalize: async () => {}, setFooter: (t: string) => { footers.push(t) } }) as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.onEvent("t1", { kind: "usage", sessionId: "s1", messageId: "m1", cost: 0.0123, tokensIn: 1200, tokensOut: 3400, cacheRead: 10, cacheWrite: 20 })
+  expect(usage).toMatchObject({ cost: 0.0123, tokensIn: 1200, tokensOut: 3400, cacheRead: 10, cacheWrite: 20 })
+  expect(footers).toEqual(["$0.0123 · 1.2k in / 3.4k out"])
+})
+
+test("reaching the session budget stops the run, notes it, and warns the channel", async () => {
+  vi.useFakeTimers()
+  try {
+    const { db } = makeDb("running")
+    const pushed: any[] = []
+    const notices: Array<[string, string]> = []
+    const aborted: string[] = []
+    const runner = new Runner({ db,
+      clientFor: () => ({ session: { promptAsync: async () => {}, abort: async (a: any) => { aborted.push(a.path.id) } } }) as any,
+      createRenderer: async () => ({ push: (e: any) => pushed.push(e), tick: async () => {}, finalize: async () => {}, setFooter: () => {} }) as any,
+      sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4, budgetUsd: 0.005,
+      notify: (channelId, text) => { notices.push([channelId, text]) } })
+    await runner.prompt("t1", "go", "u")
+    await runner.onEvent("t1", { kind: "usage", sessionId: "s1", messageId: "m1", cost: 0.006, tokensIn: 1, tokensOut: 1, cacheRead: 0, cacheWrite: 0 })
+    const note = "[budget] session budget reached ($0.0060 of $0.0050)"
+    expect(pushed.some((p) => p.kind === "text" && p.text === note)).toBe(true)
+    expect(notices).toEqual([["c1", note]])
+    expect(aborted).toEqual(["s1"])
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(runner.activeCount).toBe(0)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test("a disabled budget (0) never stops a run", async () => {
+  const { db } = makeDb("running")
+  let aborts = 0
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async () => {}, abort: async () => { aborts++ } } }) as any,
+    createRenderer: async () => ({ push: () => {}, tick: async () => {}, finalize: async () => {}, setFooter: () => {} }) as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.prompt("t1", "go", "u")
+  await runner.onEvent("t1", { kind: "usage", sessionId: "s1", messageId: "m1", cost: 999, tokensIn: 1, tokensOut: 1, cacheRead: 0, cacheWrite: 0 })
+  expect(aborts).toBe(0)
+})
+
+test("a per-channel budget setting overrides the env budget", async () => {
+  const { db, settings } = makeDb("running")
+  settings.set("budget_usd:c1", "0.002")
+  const aborted: string[] = []
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async () => {}, abort: async (a: any) => { aborted.push(a.path.id) } } }) as any,
+    createRenderer: async () => ({ push: () => {}, tick: async () => {}, finalize: async () => {}, setFooter: () => {} }) as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4, budgetUsd: 100 })
+  await runner.prompt("t1", "go", "u")
+  await runner.onEvent("t1", { kind: "usage", sessionId: "s1", messageId: "m1", cost: 0.003, tokensIn: 1, tokensOut: 1, cacheRead: 0, cacheWrite: 0 })
+  expect(aborted).toEqual(["s1"])
 })
 
 test("handleProjectDown finalizes and idles active threads, freeing the concurrency budget", async () => {

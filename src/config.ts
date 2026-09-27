@@ -12,7 +12,7 @@ export interface Config {
   defaultModel?: string; defaultAgent?: string
   approvalMode: ApprovalMode
   bootTimeoutMs: number; healthTimeoutMs: number; editIntervalMs: number
-  attachmentMaxBytes: number; maxQueue: number; maxConcurrentRuns: number
+  attachmentMaxBytes: number; maxQueue: number; maxConcurrentRuns: number; sessionBudgetUsd: number
   attachAutoThread: boolean
   idleStopMinutes: number
   dataDir: string; logLevel: "debug" | "info" | "warn" | "error"
@@ -103,6 +103,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   if (!["debug", "info", "warn", "error"].includes(level)) throw new Error(`LOG_LEVEL invalid: ${level}`)
   const approvalMode = str(env, "APPROVAL_MODE") ?? "buttons"
   if (!isApprovalMode(approvalMode)) throw new Error(`APPROVAL_MODE must be one of ${APPROVAL_MODES.join(", ")}, got "${approvalMode}"`)
+  const sessionBudgetUsd = num(env, "SESSION_BUDGET_USD", 0)
+  if (sessionBudgetUsd < 0) throw new Error(`SESSION_BUDGET_USD must be >= 0, got "${env.SESSION_BUDGET_USD}"`)
   return {
     discordToken: str(env, "DISCORD_TOKEN")!, guildId: guildIds![0]!, guildIds: guildIds!,
     projectsRoot: str(env, "PROJECTS_ROOT") ?? defaultProjectsRoot(),
@@ -120,6 +122,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     maxQueue: int(env, "MAX_QUEUE", 20, 1), maxConcurrentRuns: int(env, "MAX_CONCURRENT_RUNS", 4, 1),
     attachAutoThread: bool(env, "ATTACH_AUTO_THREAD", false),
     idleStopMinutes: int(env, "IDLE_STOP_MINUTES", 30, 0),
+    sessionBudgetUsd,
     dataDir: str(env, "DATA_DIR") ?? "./data",
     logLevel: level as Config["logLevel"],
     logMaxBytes: int(env, "LOG_MAX_BYTES", 5000000, 1),

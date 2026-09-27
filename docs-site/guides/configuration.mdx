@@ -43,6 +43,7 @@ DISCORD_GUILD_IDS=111111111111111111,222222222222222222
 | `MAX_CONCURRENT_RUNS` | `4` | Global concurrent run cap. |
 | `ATTACH_AUTO_THREAD` | `false` | Auto-create a Discord thread for a terminal-started session on its first event. |
 | `IDLE_STOP_MINUTES` | `30` | Stop a project after this many minutes without activity. `0` disables. |
+| `SESSION_BUDGET_USD` | `0` | Per-session cost budget in USD; `0` disables. Per-channel override with `/budget set`. |
 | `DATA_DIR` | `./data` | SQLite database, logs, and lock file. |
 | `LOG_LEVEL` | `info` | One of `debug`, `info`, `warn`, `error`. |
 | `ADMIN_PORT` | `4560` | Loopback-only admin page; `0` disables. |
@@ -76,6 +77,10 @@ guild that owns them, and each guild's owner (or a member with `Manage Guild` /
 `Administrator`) is always allowed in that guild. Per-guild role configuration
 is not supported in this version.
 </Note>
+
+`SESSION_BUDGET_USD` is the global seed. `/budget set <usd>` stores
+`budget_usd:<channelId>` in the `settings` table; that value wins for the
+channel, and `/budget set 0` disables the budget for it.
 
 ## `PROJECTS_ROOT` and path containment
 

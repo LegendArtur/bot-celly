@@ -5,6 +5,9 @@ export interface Project {
   sandboxName: string; hostPort: number; serverPassword: string
   status: ProjectStatus; createdAt: number; lastActiveAt: number
 }
+export interface UsageTotals {
+  cost: number; tokensIn: number; tokensOut: number; cacheRead: number; cacheWrite: number
+}
 export type RenderState = "idle" | "running" | "aborting" | "errored"
 export interface Thread {
   threadId: string; channelId: string; sessionId: string

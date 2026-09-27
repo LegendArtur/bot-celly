@@ -154,6 +154,10 @@ test("a v4 database upgrades with a zeroed projects.last_active_at", () => {
       CREATE TABLE projects (channel_id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, name TEXT NOT NULL UNIQUE,
         directory TEXT NOT NULL, sandbox_path TEXT, sandbox_name TEXT NOT NULL UNIQUE,
         host_port INTEGER NOT NULL UNIQUE, server_password TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL);
+      CREATE TABLE threads (thread_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL,
+        session_id TEXT NOT NULL, title TEXT, model TEXT, agent TEXT, worktree_path TEXT,
+        live_message_id TEXT, render_state TEXT NOT NULL DEFAULT 'idle',
+        created_at INTEGER NOT NULL, last_active_at INTEGER NOT NULL, live_message_ids TEXT);
       PRAGMA user_version = 4;
       INSERT INTO projects (channel_id,guild_id,name,directory,sandbox_path,sandbox_name,host_port,server_password,status,created_at)
         VALUES ('c1','g','demo','C:\\p',NULL,'celly-demo',4300,'pw','ready',1);
@@ -199,6 +203,10 @@ test("the appended migration adds scheduled_tasks to an older database", () => {
       CREATE TABLE projects (channel_id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, name TEXT NOT NULL UNIQUE,
         directory TEXT NOT NULL, sandbox_path TEXT, sandbox_name TEXT NOT NULL UNIQUE,
         host_port INTEGER NOT NULL UNIQUE, server_password TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL);
+      CREATE TABLE threads (thread_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL,
+        session_id TEXT NOT NULL, title TEXT, model TEXT, agent TEXT, worktree_path TEXT,
+        live_message_id TEXT, render_state TEXT NOT NULL DEFAULT 'idle',
+        created_at INTEGER NOT NULL, last_active_at INTEGER NOT NULL, live_message_ids TEXT);
       PRAGMA user_version = 4;
     `)
     legacy.close()
@@ -210,4 +218,42 @@ test("the appended migration adds scheduled_tasks to an older database", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test("addUsage accumulates per-thread totals", () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
+    worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 })
+  expect(db.usage.thread("t1")).toEqual({ cost: 0, tokensIn: 0, tokensOut: 0, cacheRead: 0, cacheWrite: 0 })
+  db.threads.addUsage("t1", { cost: 0.5, tokensIn: 10, tokensOut: 2, cacheRead: 3, cacheWrite: 4 })
+  db.threads.addUsage("t1", { cost: 0.25, tokensIn: 1, tokensOut: 1, cacheRead: 0, cacheWrite: 0 })
+  expect(db.usage.thread("t1")).toEqual({ cost: 0.75, tokensIn: 11, tokensOut: 3, cacheRead: 3, cacheWrite: 4 })
+})
+
+test("usage aggregates per channel and across all threads", () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
+    worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 })
+  db.threads.addUsage("t1", { cost: 0.1, tokensIn: 1, tokensOut: 1, cacheRead: 0, cacheWrite: 0 })
+  db.projects.insertProvisioning({ ...proj, channelId: "c2", name: "other", sandboxName: "celly-other", hostPort: 4301 })
+  db.threads.upsert({ threadId: "t2", channelId: "c2", sessionId: "s2", title: null, model: null, agent: null,
+    worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 })
+  db.threads.addUsage("t2", { cost: 0.2, tokensIn: 2, tokensOut: 2, cacheRead: 0, cacheWrite: 0 })
+  expect(db.usage.channel("c1")).toEqual({ cost: 0.1, tokensIn: 1, tokensOut: 1, cacheRead: 0, cacheWrite: 0 })
+  expect(db.usage.channel("c2").tokensIn).toBe(2)
+  const totals = db.usage.totals()
+  expect(totals.cost).toBeCloseTo(0.3)
+  expect(totals.tokensIn).toBe(3)
+  expect(totals.tokensOut).toBe(3)
+})
+
+test("thread upsert preserves accumulated usage", () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const row = { threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
+    worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 }
+  db.threads.upsert(row)
+  db.threads.addUsage("t1", { cost: 0.4, tokensIn: 4, tokensOut: 4, cacheRead: 0, cacheWrite: 0 })
+  db.threads.upsert({ ...row, sessionId: "s2", lastActiveAt: 9 })
+  expect(db.usage.thread("t1").cost).toBe(0.4)
+  expect(db.usage.thread("t1").tokensIn).toBe(4)
 })

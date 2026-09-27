@@ -74,6 +74,63 @@ test("partToEvent maps a bare text or tool part and ignores others", () => {
   expect(partToEvent("s1", "m1", { id: "p3", type: "step" })).toBeNull()
 })
 
+test("normalizes a step-finish part into a usage event", () => {
+  expect(normalizeEvent({ type: "message.part.updated", properties: { part: {
+    id: "p4", messageID: "m1", sessionID: "s1", type: "step-finish", reason: "stop",
+    cost: 0.0123, tokens: { input: 1200, output: 3400, reasoning: 0, cache: { read: 10, write: 20 } },
+  } } })).toEqual({ kind: "usage", sessionId: "s1", messageId: "m1", cost: 0.0123, tokensIn: 1200, tokensOut: 3400, cacheRead: 10, cacheWrite: 20 })
+})
+
+test("partToEvent defaults missing step-finish token fields to zero", () => {
+  expect(partToEvent("s1", "m1", { id: "p5", type: "step-finish", cost: 1 }))
+    .toEqual({ kind: "usage", sessionId: "s1", messageId: "m1", cost: 1, tokensIn: 0, tokensOut: 0, cacheRead: 0, cacheWrite: 0 })
+})
+
+test("ignores message.updated usage so step-finish stays the single source", () => {
+  expect(normalizeEvent({ type: "message.updated", properties: { info: {
+    id: "m2", sessionID: "s1", role: "assistant", cost: 0.5,
+    tokens: { input: 10, output: 2, reasoning: 0, cache: { read: 3, write: 4 } },
+  } } })).toBeNull()
+  expect(normalizeEvent({ type: "message.updated", properties: { info: { id: "m1", sessionID: "s1", role: "assistant" } } })).toBeNull()
+  expect(normalizeEvent({ type: "message.updated", properties: { info: {
+    id: "m3", sessionID: "s1", role: "user", cost: 0,
+    tokens: { input: 1, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+  } } })).toBeNull()
+})
+
+test("dispatches the recorded usage fixtures over SSE", async () => {
+  const fixture = readFileSync(new URL("./fixtures/opencode-usage-events.jsonl", import.meta.url), "utf8").trim().split("\n")
+  const events: Array<{ threadId: string; e: any }> = []
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
+    res.flushHeaders()
+    for (const line of fixture) res.write(`data: ${line}\n\n`)
+    res.end()
+  })
+  try {
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const port = (server.address() as any).port
+    const router = new EventRouter({
+      route: (sessionId) => (sessionId.startsWith("ses_u") ? "t1" : undefined),
+      onEvent: (threadId, e) => events.push({ threadId, e }),
+      onResync: async () => {},
+      knownSessions: () => [],
+    })
+    const ac = new AbortController()
+    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    await waitFor(() => events.length >= 2)
+    ac.abort()
+    await done
+    expect(events).toEqual([
+      { threadId: "t1", e: { kind: "usage", sessionId: "ses_u1", messageId: "msg_u1", cost: 0.01, tokensIn: 1000, tokensOut: 200, cacheRead: 100, cacheWrite: 50 } },
+      { threadId: "t1", e: { kind: "usage", sessionId: "ses_u2", messageId: "msg_u2", cost: 0.0023, tokensIn: 200, tokensOut: 300, cacheRead: 0, cacheWrite: 0 } },
+    ])
+  } finally {
+    server.close()
+    server.closeAllConnections()
+  }
+})
+
 test("the event stream sends the opencode basic auth header", async () => {
   let auth: string | undefined
   const server = createServer((req, res) => {

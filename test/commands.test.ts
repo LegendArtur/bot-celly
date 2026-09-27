@@ -28,6 +28,7 @@ function interaction(over: any = {}) {
       getString: (n: string) => strings[n],
       getInteger: (n: string) => (over.integers ?? {})[n],
       getBoolean: (n: string) => (over.booleans ?? {})[n],
+      getNumber: (n: string) => (over.numbers ?? {})[n],
     },
     deferReply: async (o: any) => {
       if (over.deferError) throw new Error(over.deferError)
@@ -62,9 +63,9 @@ const editOf = (i: any) => {
   return c.components ? c : c.content
 }
 
-test("declares the v1 command set", () => {
+test("declares the providers and cost command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "attach", "btw", "compact", "context-usage", "diff", "fork", "last-sessions", "mode", "model", "new", "project", "queue", "redo", "resume", "session-id", "share", "task", "undo", "unshare", "worktree"])
+  expect(names).toEqual(["abort", "agent", "attach", "btw", "budget", "compact", "context-usage", "cost", "diff", "fork", "last-sessions", "login", "login-code", "mode", "model", "new", "project", "queue", "redo", "resume", "session-id", "share", "task", "undo", "unshare", "worktree"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -246,6 +247,123 @@ test("project create makes a sanitized directory then adds the project", async (
   await handleCommand(i, { projects, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => true })
   expect(order).toEqual(["mkdir:My App", "add:C:\\projects\\my-app"])
   expect(editOf(i)).toBe("created My App")
+})
+
+test("/cost in a thread reports session, channel, and budget", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert(threadRow("t1"))
+  db.threads.addUsage("t1", { cost: 0.0123, tokensIn: 1200, tokensOut: 3400, cacheRead: 0, cacheWrite: 0 })
+  const i = interaction({ commandName: "cost", channelId: "t1", channel: { isThread: () => true } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, sessionBudgetUsd: 5 })
+  expect(editOf(i)).toBe([
+    "session: $0.0123 · 1.2k in / 3.4k out",
+    "channel: $0.0123 · 1.2k in / 3.4k out",
+    "budget: $5.0000/session",
+  ].join("\n"))
+})
+
+test("/cost in a project channel reports the channel total and budget off", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert(threadRow("t1"))
+  db.threads.addUsage("t1", { cost: 0.5, tokensIn: 500, tokensOut: 100, cacheRead: 0, cacheWrite: 0 })
+  const i = interaction({ commandName: "cost", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true })
+  expect(editOf(i)).toBe("channel: $0.5000 · 500 in / 100 out\nbudget: off")
+})
+
+test("/cost outside a project is rejected", async () => {
+  const i = interaction({ commandName: "cost", channelId: "other" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
+  expect(editOf(i)).toBe("this channel is not a project")
+})
+
+test("/budget set stores the channel override and show reports it", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const setI = interaction({ commandName: "budget", sub: "set", channelId: "c", numbers: { usd: 2.5 } })
+  await handleCommand(setI, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true, sessionBudgetUsd: 5 })
+  expect(db.settings.get("budget_usd:c")).toBe("2.5")
+  expect(editOf(setI)).toBe("budget set to $2.5000 per session")
+  const showI = interaction({ commandName: "budget", sub: "show", channelId: "c" })
+  await handleCommand(showI, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true, sessionBudgetUsd: 5 })
+  expect(editOf(showI)).toBe("session budget: $2.5000")
+})
+
+test("/budget set 0 disables the budget for the channel", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const setI = interaction({ commandName: "budget", sub: "set", channelId: "c", numbers: { usd: 0 } })
+  await handleCommand(setI, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true, sessionBudgetUsd: 5 })
+  const showI = interaction({ commandName: "budget", sub: "show", channelId: "c" })
+  await handleCommand(showI, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true, sessionBudgetUsd: 5 })
+  expect(editOf(showI)).toBe("session budget: off")
+})
+
+test("/budget is owner-only", async () => {
+  const i = interaction({ commandName: "budget", sub: "show", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => false })
+  expect(i.calls).toHaveLength(1)
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only.", flags: 64, allowedMentions: { parse: [] } } })
+})
+
+test("/login posts the authorization URL and the code hint", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const i = interaction({ commandName: "login", channelId: "c", strings: { provider: "anthropic" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
+    startLogin: async () => ({ url: "https://example.test/auth", instructions: "Paste the code", flow: "code" }) })
+  expect(editOf(i)).toBe("Authorize anthropic:\nhttps://example.test/auth\nPaste the code\nThen run `/login-code anthropic <code>` with the code shown by the provider.")
+})
+
+test("/login tells the user to verify an auto flow in the browser", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const i = interaction({ commandName: "login", channelId: "c", strings: { provider: "anthropic" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
+    startLogin: async () => ({ url: "https://example.test/auth", instructions: "A browser window opened", flow: "auto" }) })
+  expect(editOf(i)).toContain("Finish in the browser, then run `/login anthropic` again to verify.")
+})
+
+test("/login surfaces the no-oauth error", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const i = interaction({ commandName: "login", channelId: "c", strings: { provider: "anthropic" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
+    startLogin: async () => { throw new Error("no oauth method for anthropic") } })
+  expect(editOf(i)).toBe("error: no oauth method for anthropic")
+})
+
+test("/login is owner-only", async () => {
+  const i = interaction({ commandName: "login", channelId: "c", strings: { provider: "anthropic" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => false })
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only." } })
+})
+
+test("/login-code completes the flow and confirms", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const finished: Array<[string, string, string]> = []
+  const i = interaction({ commandName: "login-code", channelId: "c", strings: { provider: "anthropic", code: "abc123" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
+    finishLogin: async (channelId, providerId, code) => { finished.push([channelId, providerId, code]) } })
+  expect(finished).toEqual([["c", "anthropic", "abc123"]])
+  expect(editOf(i)).toBe("logged in to anthropic")
+})
+
+test("/login-code replies error when the callback fails", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  const i = interaction({ commandName: "login-code", channelId: "c", strings: { provider: "anthropic", code: "abc123" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
+    finishLogin: async () => { throw new Error("oauth callback for anthropic failed") } })
+  expect(editOf(i)).toBe("error: oauth callback for anthropic failed")
+})
+
+test("/login-code is owner-only", async () => {
+  const i = interaction({ commandName: "login-code", channelId: "c", strings: { provider: "anthropic", code: "abc123" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => false })
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only." } })
+})
+
+test("requiresOwner covers the new owner-only commands", () => {
+  expect(requiresOwner("budget", "show")).toBe(true)
+  expect(requiresOwner("budget", "set")).toBe(true)
+  expect(requiresOwner("login", null)).toBe(true)
+  expect(requiresOwner("login-code", null)).toBe(true)
+  expect(requiresOwner("cost", null)).toBe(false)
 })
 
 test("new creates a thread in the project channel and prompts", async () => {
