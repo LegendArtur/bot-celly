@@ -31,7 +31,12 @@ export function commandData(): any[] {
       { type: ApplicationCommandOptionType.Subcommand, name: "show", description: "Show the current session budget" },
       { type: ApplicationCommandOptionType.Subcommand, name: "set", description: "Set the channel session budget in USD", options: [
         { type: ApplicationCommandOptionType.Number, name: "usd", description: "Budget in USD; 0 disables", required: true } ] },
-    ] } ]
+    ] },
+    { name: "login", description: "Authorize a provider with OAuth (owner-only)", options: [
+      { type: ApplicationCommandOptionType.String, name: "provider", description: "Provider id, e.g. anthropic", required: true } ] },
+    { name: "login-code", description: "Finish OAuth login with an authorization code (owner-only)", options: [
+      { type: ApplicationCommandOptionType.String, name: "provider", description: "Provider id", required: true },
+      { type: ApplicationCommandOptionType.String, name: "code", description: "Authorization code", required: true } ] } ]
 }
 
 export interface CreateThreadInput {
@@ -54,6 +59,8 @@ export interface CommandDeps {
   setThreadModel?(threadId: string, model: string | null): void
   setThreadAgent?(threadId: string, agent: string | null): void
   sessionBudgetUsd?: number
+  startLogin?(channelId: string, providerId: string): Promise<{ url: string; instructions: string; flow: "auto" | "code" }>
+  finishLogin?(channelId: string, providerId: string, code: string): Promise<void>
 }
 
 export const RESUME_SELECT = "resume"
@@ -258,6 +265,22 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       }
       const budget = resolveBudget(deps.db.settings, channelId, deps.sessionBudgetUsd ?? 0)
       return void await interaction.editReply(noMentions(budget > 0 ? `session budget: ${formatCost(budget)}` : "session budget: off"))
+    }
+    if (interaction.commandName === "login") {
+      const channelId = commandProjectChannel(interaction, deps.db)
+      if (!channelId) return void await interaction.editReply(noMentions("this channel is not a project"))
+      const providerId = interaction.options.getString("provider", true)
+      if (!deps.startLogin) return void await interaction.editReply(noMentions("login unavailable"))
+      const login = await deps.startLogin(channelId, providerId)
+      const lines = [
+        `Authorize ${providerId}:`,
+        login.url,
+        login.instructions,
+        login.flow === "auto"
+          ? `Finish in the browser, then run \`/login ${providerId}\` again to verify.`
+          : `Then run \`/login-code ${providerId} <code>\` with the code shown by the provider.`,
+      ].filter(Boolean)
+      return void await interaction.editReply(noMentions(lines.join("\n")))
     }
     await interaction.editReply(noMentions("not implemented in this build"))
   } catch (e) {
