@@ -1,9 +1,9 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "name": "Celly",
-  "theme": "sequoia",
+  "theme": "luma",
   "colors": {
-    "primary": "#7C3AED"
+    "primary": "#65ED3A"
   },
   "navigation": {
     "global": {
