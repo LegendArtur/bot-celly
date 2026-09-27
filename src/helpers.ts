@@ -74,7 +74,7 @@ export function uniqueChannelName(base: string, taken: Set<string>): string {
 /**
  * Idempotency gate for the per-project SSE subscription. A project can become
  * `ready` from add, start, recreate, or reconnect; `claim` ensures exactly one
- * subscription is started per channel and `release` lets a later `/project wake`
+ * subscription is started per channel and `release` lets a later `/project start`
  * re-subscribe after stop/remove.
  */
 export function createSubscriptionGate(): { claim(channelId: string): boolean; release(channelId: string): void; has(channelId: string): boolean } {

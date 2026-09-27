@@ -147,7 +147,7 @@ is documented in
 | `/project create <name> [clone] [branch]` | guild (owner) | Create a project directory; optionally `git clone` an https repository. |
 | `/project list` | guild | List projects with status and health. |
 | `/project status <name>` | guild | Status, port, and session count. |
-| `/project wake <name>` | guild (owner) | Wake a stopped sandbox (recreates it if missing). |
+| `/project start <name>` | guild (owner) | Wake the sandbox (recreates it if missing). |
 | `/project stop <name>` | guild (owner) | Stop the sandbox. |
 | `/project remove <name> <confirm>` | guild (owner) | Remove the sandbox, project, and channel. |
 | `/new [prompt]` | project channel | Start a new session. |

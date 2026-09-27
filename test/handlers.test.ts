@@ -207,7 +207,7 @@ test("project-missing handler notifies the channel with a recreate action", asyn
   expect(handleProjectDown).toHaveBeenCalledWith("c")
   const payload = send.mock.calls[0][0]
   expect(payload.content).toMatch(/demo/)
-  expect(payload.content).toMatch(/\/project wake/)
+  expect(payload.content).toMatch(/\/project start/)
   expect(payload.allowedMentions).toEqual({ parse: [] })
 })
 

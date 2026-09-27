@@ -112,7 +112,7 @@ the repo root unless a step says otherwise.
      for active runs to finish, then restarts the project's server on its own.
    Expected: `logged in to <provider>` (code flow); after the restart the bot
    log shows `provider login applied`. If it does not appear within about five
-   minutes, run `/project wake` to reload the server.
+   minutes, run `/project start` to reload the server.
 3. `/model` → your provider appears; pick a model; send a prompt.
    Expected: a normal reply **without** any `sbx secret` setup.
 4. Check the live server config (command from step 1) for the provider's

@@ -86,7 +86,7 @@ export class WorktreeService {
   async create(threadId: string, name?: string): Promise<string> {
     const { thread, project } = this.lookup(threadId)
     if (thread.worktreePath) throw new Error(`this thread already has a worktree at ${thread.worktreePath}`)
-    if (!project.sandboxPath) throw new Error("project sandbox path is not resolved; run /project wake")
+    if (!project.sandboxPath) throw new Error("project sandbox path is not resolved; run /project start")
     const branch = name ? `celly/${worktreeSlug(name)}` : worktreeBranch(threadId)
     const slug = branch.slice("celly/".length)
     const relative = `.celly/worktrees/${slug}`
@@ -112,7 +112,7 @@ export class WorktreeService {
   async merge(threadId: string): Promise<string> {
     const { thread, project } = this.lookup(threadId)
     if (!thread.worktreePath) throw new Error("no worktree for this thread")
-    if (!project.sandboxPath) throw new Error("project sandbox path is not resolved; run /project wake")
+    if (!project.sandboxPath) throw new Error("project sandbox path is not resolved; run /project start")
     const root = project.sandboxPath
     const listed = await this.deps.sbx.exec(project.sandboxName, ["git", "-C", root, "worktree", "list", "--porcelain"], { timeoutMs: 30_000 })
     const branch = parseWorktreeList(listed.stdout).find((w) => w.path === thread.worktreePath)?.branch
@@ -134,7 +134,7 @@ export class WorktreeService {
   async remove(threadId: string, force: boolean): Promise<string> {
     const { thread, project } = this.lookup(threadId)
     if (!thread.worktreePath) throw new Error("no worktree for this thread")
-    if (!project.sandboxPath) throw new Error("project sandbox path is not resolved; run /project wake")
+    if (!project.sandboxPath) throw new Error("project sandbox path is not resolved; run /project start")
     const worktreePath = thread.worktreePath
     const args = ["git", "-C", project.sandboxPath, "worktree", "remove", ...(force ? ["--force"] : []), worktreePath]
     const result = await this.deps.sbx.execResult(project.sandboxName, args, { timeoutMs: 120_000 })

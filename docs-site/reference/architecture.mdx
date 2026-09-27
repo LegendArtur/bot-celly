@@ -122,7 +122,7 @@ sbx exec <name> bash -lc \
 - Boot is idempotent: if `/global/health` succeeds or a tracked child is alive,
   no second child is started. `ensureReady()` is single-flighted per project.
 - If the child exits, the project is marked `degraded`, the channel is notified
-  once, and the next prompt or `/project wake` re-establishes it.
+  once, and the next prompt or `/project start` re-establishes it.
 - A healthy server with no tracked child (an orphan from a previous bot process)
   is adopted rather than duplicated.
 

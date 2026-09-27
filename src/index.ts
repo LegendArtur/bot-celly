@@ -640,17 +640,17 @@ async function main(): Promise<void> {
       if (!project) return
       const completed = await waitForOAuthCompletion(resolveClient(project), providerId, { timeoutMs: AUTO_LOGIN_TIMEOUT_MS, intervalMs: 3_000 })
       if (!completed) {
-        log.warn("provider login not detected in time; run /project wake after finishing the browser step", { channelId, providerId })
+        log.warn("provider login not detected in time; run /project start after finishing the browser step", { channelId, providerId })
         return
       }
       if (!(await waitForNoActiveRuns(channelId))) {
-        log.warn("provider login detected but runs are still active; run /project wake to reload", { channelId, providerId })
+        log.warn("provider login detected but runs are still active; run /project start to reload", { channelId, providerId })
         return
       }
       await projects.restartServer(channelId)
       log.info("provider login applied", { channelId, providerId })
     } catch (e) {
-      log.warn("provider login apply failed; run /project wake to reload", { channelId, providerId, error: String(e) })
+      log.warn("provider login apply failed; run /project start to reload", { channelId, providerId, error: String(e) })
     }
   }
 
