@@ -1,4 +1,4 @@
-import { ApplicationCommandOptionType, ComponentType } from "discord.js"
+import { ApplicationCommandOptionType, ChannelType, ComponentType } from "discord.js"
 import type { Db } from "./db.ts"
 import type { ProjectService } from "./projects.ts"
 import type { Runner } from "./runner.ts"
@@ -19,7 +19,16 @@ export function commandData(): any[] {
       { type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true },
       { type: ApplicationCommandOptionType.String, name: "confirm", description: "Type the project name to confirm", required: true } ] },
   ] }
-  return [ project,
+  const task = { name: "task", description: "Manage scheduled prompts", options: [
+    { type: ApplicationCommandOptionType.Subcommand, name: "add", description: "Schedule a recurring prompt in a project channel", options: [
+      { type: ApplicationCommandOptionType.Channel, name: "channel", description: "Project channel", required: true, channel_types: [ChannelType.GuildText] },
+      { type: ApplicationCommandOptionType.String, name: "prompt", description: "Prompt text", required: true },
+      { type: ApplicationCommandOptionType.Integer, name: "every_minutes", description: "Repeat interval in minutes", required: true, min_value: 1 } ] },
+    { type: ApplicationCommandOptionType.Subcommand, name: "list", description: "List scheduled prompts" },
+    { type: ApplicationCommandOptionType.Subcommand, name: "remove", description: "Remove a scheduled prompt", options: [
+      { type: ApplicationCommandOptionType.Integer, name: "id", description: "Task id from /task list", required: true, min_value: 1 } ] },
+  ] }
+  return [ project, task,
     { name: "new", description: "Start a new session", options: [{ type: ApplicationCommandOptionType.String, name: "prompt", description: "Initial prompt" }] },
     { name: "resume", description: "Resume a session" },
     { name: "abort", description: "Abort the current run" },
@@ -99,13 +108,18 @@ function selectRow(customId: string, placeholder: string, options: { label: stri
 }
 
 const OWNER_ONLY_PROJECT_SUBS = new Set(["add", "create", "start", "stop", "remove"])
+const OWNER_ONLY_TASK_SUBS = new Set(["add", "remove"])
 export function requiresOwner(commandName: string, sub: string | null | undefined): boolean {
-  return commandName === "project" && !!sub && OWNER_ONLY_PROJECT_SUBS.has(sub)
+  if (commandName === "project") return !!sub && OWNER_ONLY_PROJECT_SUBS.has(sub)
+  if (commandName === "task") return !!sub && OWNER_ONLY_TASK_SUBS.has(sub)
+  return false
 }
 
 export async function handleCommand(interaction: any, deps: CommandDeps): Promise<void> {
   if (!deps.authorized(interaction)) { await interaction.reply(noMentions("You are not authorized.", { flags: 64 })); return }
-  const sub = interaction.commandName === "project" ? interaction.options.getSubcommand(false) : null
+  const sub = interaction.commandName === "project" || interaction.commandName === "task"
+    ? interaction.options.getSubcommand(false)
+    : null
   if (requiresOwner(interaction.commandName, sub) && !deps.isOwner?.(interaction)) {
     await interaction.reply(noMentions("This command is owner-only.", { flags: 64 })); return
   }
@@ -163,6 +177,27 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         deps.stopSubscription?.(p.channelId)
         await deps.projects.remove(p.channelId)
         return void await interaction.editReply(noMentions("removed"))
+      }
+    }
+    if (interaction.commandName === "task") {
+      if (sub === "add") {
+        const channelId = interaction.options.getChannel("channel", true)?.id
+        const project = channelId ? deps.db.projects.getByChannel(channelId) : undefined
+        if (!project) return void await interaction.editReply(noMentions("channel is not a project"))
+        const prompt = interaction.options.getString("prompt", true)
+        const everyMinutes = interaction.options.getInteger("every_minutes", true)
+        const now = Date.now()
+        const id = deps.db.tasks.add({ channelId: project.channelId, prompt, everyMinutes, nextRunAt: now + everyMinutes * 60_000, createdAt: now })
+        return void await interaction.editReply(noMentions(`scheduled task ${id} every ${everyMinutes}m in <#${project.channelId}>`))
+      }
+      if (sub === "list") {
+        const lines = deps.db.tasks.list().map((t) => `#${t.id} <#${t.channelId}> every ${t.everyMinutes}m next ${new Date(t.nextRunAt).toISOString()}${t.enabled ? "" : " (disabled)"}`)
+        return void await interaction.editReply(noMentions(lines.join("\n") || "no scheduled tasks"))
+      }
+      if (sub === "remove") {
+        const id = interaction.options.getInteger("id", true)
+        const removed = deps.db.tasks.remove(id)
+        return void await interaction.editReply(noMentions(removed ? `removed task ${id}` : `task ${id} not found`))
       }
     }
     if (interaction.commandName === "new") {

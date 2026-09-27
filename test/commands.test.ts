@@ -56,7 +56,7 @@ const editOf = (i: any) => {
 
 test("declares the v1 command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "model", "new", "project", "resume"])
+  expect(names).toEqual(["abort", "agent", "model", "new", "project", "resume", "task"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -440,5 +440,83 @@ test("model selection survives malformed and oversized model lists without throw
   for (const option of modelMenu.options) {
     expect(option.value.length).toBeGreaterThan(0)
     expect(option.value.length).toBeLessThanOrEqual(SELECT_OPTION_MAX)
+  }
+})
+
+function taskInteraction(over: any = {}) {
+  const calls: any[] = []
+  const i: any = {
+    commandName: "task",
+    guildId: "g",
+    channelId: over.channelId ?? "c",
+    user: over.user ?? { id: "u1" },
+    calls,
+    options: {
+      getSubcommand: () => over.sub,
+      getString: (n: string) => (over.strings ?? {})[n],
+      getInteger: (n: string) => (over.integers ?? {})[n],
+      getChannel: (n: string) => (over.channels ?? {})[n],
+    },
+    deferReply: async (o: any) => { calls.push({ kind: "defer", o }) },
+    editReply: async (c: any) => { calls.push({ kind: "edit", c }) },
+    reply: async (c: any) => { calls.push({ kind: "reply", c }) },
+  }
+  return i
+}
+
+test("task declares add, list, and remove subcommands", () => {
+  const task = commandData().find((c) => c.name === "task")!
+  expect(task.options.map((o: any) => o.name).sort()).toEqual(["add", "list", "remove"])
+  const add = task.options.find((o: any) => o.name === "add")!
+  expect(add.options.map((o: any) => o.name)).toEqual(["channel", "prompt", "every_minutes"])
+})
+
+test("task add schedules a prompt in a project channel", async () => {
+  const db = fresh()
+  db.projects.insertProvisioning({ ...proj, channelId: "c", name: "demo" })
+  const i = taskInteraction({ sub: "add", channels: { channel: { id: "c" } }, strings: { prompt: "standup" }, integers: { every_minutes: 60 } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true })
+  const tasks = db.tasks.list()
+  expect(tasks).toHaveLength(1)
+  expect(tasks[0]).toMatchObject({ channelId: "c", prompt: "standup", everyMinutes: 60, enabled: true })
+  expect(editOf(i)).toContain("scheduled task")
+  expect(editOf(i)).toContain("every 60m")
+})
+
+test("task add rejects a channel that is not a project", async () => {
+  const db = fresh()
+  const i = taskInteraction({ sub: "add", channels: { channel: { id: "other" } }, strings: { prompt: "p" }, integers: { every_minutes: 5 } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true })
+  expect(db.tasks.list()).toEqual([])
+  expect(editOf(i)).toBe("channel is not a project")
+})
+
+test("task list renders tasks and remove deletes by id", async () => {
+  const db = fresh()
+  const id = db.tasks.add({ channelId: "c", prompt: "standup", everyMinutes: 60, nextRunAt: 1000, createdAt: 1 })
+  const list = taskInteraction({ sub: "list" })
+  await handleCommand(list, { projects: {} as any, runner: {} as any, db, authorized: () => true })
+  expect(editOf(list)).toContain(`#${id}`)
+  const remove = taskInteraction({ sub: "remove", integers: { id } })
+  await handleCommand(remove, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true })
+  expect(editOf(remove)).toBe(`removed task ${id}`)
+  expect(db.tasks.list()).toEqual([])
+  const missing = taskInteraction({ sub: "remove", integers: { id } })
+  await handleCommand(missing, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true })
+  expect(editOf(missing)).toBe(`task ${id} not found`)
+})
+
+test("requiresOwner covers task add and remove only", () => {
+  expect(requiresOwner("task", "add")).toBe(true)
+  expect(requiresOwner("task", "remove")).toBe(true)
+  expect(requiresOwner("task", "list")).toBe(false)
+})
+
+test("authorized non-owners are denied task add and remove before defer", async () => {
+  for (const sub of ["add", "remove"]) {
+    const i = taskInteraction({ sub, channels: { channel: { id: "c" } }, strings: { prompt: "p" }, integers: { every_minutes: 1, id: 1 } })
+    await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => false })
+    expect(i.calls).toHaveLength(1)
+    expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only.", flags: 64, allowedMentions: { parse: [] } } })
   }
 })
