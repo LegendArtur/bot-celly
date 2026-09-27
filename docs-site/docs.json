@@ -3,8 +3,9 @@
   "name": "Celly Bot",
   "theme": "almond",
   "colors": {
-    "primary": "#8400FF",
-    "light": "#FF1C1C"
+    "primary": "#0039FF",
+    "light": "#00FFBD",
+    "dark": "#045300"
   },
   "navigation": {
     "global": {
@@ -56,5 +57,10 @@
   },
   "icons": {
     "library": "fontawesome"
+  },
+  "background": {
+    "color": {
+      "light": "#D9D9D9"
+    }
   }
 }
