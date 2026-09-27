@@ -4,7 +4,8 @@
   "theme": "almond",
   "colors": {
     "primary": "#FF9756",
-    "dark": "#FF9756"
+    "dark": "#FF9756",
+    "light": "#FF9756"
   },
   "navigation": {
     "global": {
@@ -61,5 +62,8 @@
   "appearance": {
     "default": "dark",
     "strict": true
+  },
+  "fonts": {
+    "family": "Poppins"
   }
 }
