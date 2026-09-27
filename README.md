@@ -147,6 +147,7 @@ is documented in
 | `/project status <name>` | guild | Status, port, and session count. |
 | `/project start <name>` | guild (owner) | Wake the sandbox (recreates it if missing). |
 | `/project stop <name>` | guild (owner) | Stop the sandbox. |
+| `/project restart <name>` | guild (owner) | Restart the supervised server without stopping the sandbox. |
 | `/project remove <name> <confirm>` | guild (owner) | Remove the sandbox, project, and channel. |
 | `/new [prompt]` | project channel | Start a new session. |
 | `/resume` | project channel | Resume a past session in a new thread. |
@@ -213,7 +214,6 @@ Docs live in `docs-site/` (`npm run docs:dev`, `npm run docs:validate`,
 
 v1 is the command set above. Deferred to v1.1:
 
-- **Commands:** `/project restart`.
 - **Input:** voice messages and image attachments.
 - **Surfaces:** OpenCode web UI, diff viewer, tunnels/screenshare, forum-channel
   layout.

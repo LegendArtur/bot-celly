@@ -405,6 +405,11 @@ cover command output, missing-thread errors, and the auto-thread gate.
   persisted the credentials; `auth.set` is not used for OAuth) and confirms. `auto`-method flows instruct the user to finish in the browser
   and then run `/login <provider>` again to verify via `provider.auth()`/config
   list. Credentials transit the sandbox server only; never logged.
+- **Removed 2026-09-27:** provider OAuth `/login`/`/login-code` was implemented,
+  then found unworkable through the `sbx` proxy — the placeholder env shadows
+  stored credentials, and `api.openai.com` requests still fail — so it was
+  removed to keep Celly lightweight. Provider credentials are `sbx secret` (or
+  sandbox-side `opencode auth login` via `/attach`).
 - **Deferred (documented, not implemented here):** `sbx secret` management from
   Discord requires a host spike on `sbx secret ls/set-custom` output and stdin
   behavior. Record it in the spec open items and in

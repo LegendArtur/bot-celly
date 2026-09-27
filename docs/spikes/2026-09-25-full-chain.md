@@ -2,18 +2,18 @@
 
 Date: 2026-09-25
 Task: Task 2 — Host spikes and recorded fixtures
-Script: `scripts/probe-serve.mjs` (serve spawn) and `scripts/smoke.mjs` (full chain)
+Script: `scripts/smoke.mjs` (full chain)
 
 ## Status: HOST-VERIFIED
 
-The maintained host diagnostics are `scripts/probe-serve.mjs` (exact serve
-spawn) and `scripts/smoke.mjs` (full chain). Both import the real spawn and
-bootstrap builders from `dist/opencode.js`, so run `npm run build` first.
+The maintained host diagnostic is `scripts/smoke.mjs` (full chain). It imports
+the real spawn and bootstrap builders from `dist/opencode.js`, so run
+`npm run build` first.
 
-This spike was run on the Windows host. `scripts/probe-serve.mjs` printed
-`opencode server listening on http://0.0.0.0:4096`, and the `scripts/smoke.mjs`
-run reached `health OK`, session creation, and prompt dispatch; the `reply OK`
-step is blocked only by missing provider credentials in the scratch sandbox.
+This spike was run on the Windows host. `scripts/smoke.mjs` printed
+`opencode server listening on http://0.0.0.0:4096` and reached `health OK`,
+session creation, and prompt dispatch; the `reply OK` step is blocked only by
+missing provider credentials in the scratch sandbox.
 The fixtures in `test/fixtures/` remain the brief's **expected shapes**: the run
 did not capture the raw `sbx ls --json` / `sbx ports --json` output.
 
@@ -30,15 +30,13 @@ did not capture the raw `sbx ls --json` / `sbx ports --json` output.
 From the repo root, in PowerShell (after `npm run build`):
 
 ```powershell
-node scripts/probe-serve.mjs <sandbox>
 node scripts/smoke.mjs <project-dir> [hostPort]
 ```
 
-`probe-serve.mjs` spawns the exact supervised serve command inside `<sandbox>`
-and kills it after 10 s. `smoke.mjs` creates a scratch `celly-smoke-*` sandbox,
-bootstraps it over stdin, serves it, and force-removes the sandbox on every exit
-path (idempotently, so a failed run does not leave it behind). The legacy
-`scripts/spike-full-chain.mjs` is superseded by these two scripts.
+`smoke.mjs` creates a scratch `celly-smoke-*` sandbox, bootstraps it over stdin,
+serves it, and force-removes the sandbox on every exit path (idempotently, so a
+failed run does not leave it behind). The legacy
+`scripts/spike-full-chain.mjs` is superseded by this script.
 
 ## Questions the run must answer
 
@@ -59,10 +57,10 @@ path (idempotently, so a failed run does not leave it behind). The legacy
 
 ### 1. Sandbox kept alive by supervised serve child
 
-Verified. `scripts/probe-serve.mjs` printed
-`opencode server listening on http://0.0.0.0:4096`, and the `scripts/smoke.mjs`
-serve child printed the same line before answering `GET /global/health`. The
-`sbx exec` running the serve child stays alive while the child runs.
+Verified. `scripts/smoke.mjs` printed
+`opencode server listening on http://0.0.0.0:4096` before answering
+`GET /global/health`. The `sbx exec` running the serve child stays alive while
+the child runs.
 
 ### 2. Health result
 

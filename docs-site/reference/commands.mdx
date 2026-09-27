@@ -16,6 +16,7 @@ prefix. `/project` uses subcommands.
 | `/project status name:<name>` | authorized | Status, port, health, and session count (ephemeral; password masked). |
 | `/project start name:<name>` | owner | Wake the sandbox and supervised server (recreates it if missing). |
 | `/project stop name:<name>` | owner | Stop the supervised server, then the sandbox. |
+| `/project restart name:<name>` | owner | Restart the supervised server without stopping the sandbox. |
 | `/project remove name:<name> confirm:<name>` | owner | Typed confirmation; remove sandbox, rows, and channel. |
 
 <Note>
@@ -125,8 +126,6 @@ running code.
 </Warning>
 
 ## Deferred to v1.1
-
-Commands: `/project restart`.
 
 Features: voice messages, image attachments, OpenCode web UI, diff viewer,
 tunnels/screenshare, forum-channel layout, cloud sandboxes.

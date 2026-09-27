@@ -70,7 +70,7 @@ test("declares the providers and cost command set", () => {
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
   const subs = project.options.map((o: any) => o.name).sort()
-  expect(subs).toEqual(["add", "create", "list", "remove", "start", "status", "stop"])
+  expect(subs).toEqual(["add", "create", "list", "remove", "restart", "start", "status", "stop"])
 })
 test("command data and select rows use named Discord type constants", () => {
   const source = readFileSync(new URL("../src/commands.ts", import.meta.url), "utf8")
@@ -394,6 +394,26 @@ test("project start resubscribes before waking the sandbox", async () => {
   expect(order).toEqual(["sub:c", "ready"])
 })
 
+test("project restart on an unknown project replies not found", async () => {
+  const i = interaction({ sub: "restart", strings: { name: "ghost" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => true })
+  expect(editOf(i)).toBe("not found")
+})
+
+test("project restart resubscribes around the server restart", async () => {
+  const i = interaction({ sub: "restart", strings: { name: "demo" } })
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  const order: string[] = []
+  await handleCommand(i, {
+    projects: { restartServer: async (channelId: string) => { order.push(`restart:${channelId}`) } } as any,
+    runner: {} as any, db, authorized: () => true, isOwner: () => true,
+    stopSubscription: (channelId: string) => { order.push(`stop:${channelId}`) },
+    startSubscription: (channelId: string) => { order.push(`start:${channelId}`) },
+  })
+  expect(order).toEqual(["stop:c", "restart:c", "start:c"])
+  expect(editOf(i)).toBe("restarted")
+})
+
 test("selecting a session resumes it in a new thread", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
   const i = select({ customId: "celly:resume:c", values: ["s1"] })
@@ -435,7 +455,7 @@ test("unauthorized selects are rejected before deferUpdate", async () => {
 })
 
 test("requiresOwner scopes project mutations", () => {
-  for (const sub of ["add", "create", "start", "stop", "remove"]) expect(requiresOwner("project", sub)).toBe(true)
+  for (const sub of ["add", "create", "start", "stop", "restart", "remove"]) expect(requiresOwner("project", sub)).toBe(true)
   for (const sub of ["list", "status"]) expect(requiresOwner("project", sub)).toBe(false)
   expect(requiresOwner("worktree", "merge")).toBe(true)
   for (const sub of ["status", "new", "remove"]) expect(requiresOwner("worktree", sub)).toBe(false)
@@ -444,7 +464,7 @@ test("requiresOwner scopes project mutations", () => {
 })
 
 test("authorized non-owners are denied owner-only project subcommands before defer", async () => {
-  for (const sub of ["add", "create", "start", "stop", "remove"]) {
+  for (const sub of ["add", "create", "start", "stop", "restart", "remove"]) {
     const i = interaction({ sub, strings: { name: "demo", path: "C:\\p", confirm: "demo" } })
     await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => false })
     expect(i.calls).toHaveLength(1)

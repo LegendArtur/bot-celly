@@ -26,6 +26,7 @@ export function commandData(): any[] {
       { type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true } ] },
     { type: ApplicationCommandOptionType.Subcommand, name: "start", description: "Wake a project", options: [{ type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true }] },
     { type: ApplicationCommandOptionType.Subcommand, name: "stop", description: "Stop a project", options: [{ type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true }] },
+    { type: ApplicationCommandOptionType.Subcommand, name: "restart", description: "Restart a project's supervised server", options: [{ type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true }] },
     { type: ApplicationCommandOptionType.Subcommand, name: "remove", description: "Remove a project", options: [
       { type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true },
       { type: ApplicationCommandOptionType.String, name: "confirm", description: "Type the project name to confirm", required: true } ] },
@@ -251,7 +252,7 @@ function queueMessage(threadId: string, entries: QueuedPrompt[]): any {
   return { content, components: rows, allowedMentions: { parse: [] } }
 }
 
-const OWNER_ONLY_PROJECT_SUBS = new Set(["add", "create", "start", "stop", "remove"])
+const OWNER_ONLY_PROJECT_SUBS = new Set(["add", "create", "start", "stop", "restart", "remove"])
 const OWNER_ONLY_TASK_SUBS = new Set(["add", "remove"])
 const OWNER_ONLY_WORKTREE_SUBS = new Set(["merge"])
 export function requiresOwner(commandName: string, sub: string | null | undefined): boolean {
@@ -323,6 +324,14 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         deps.stopSubscription?.(p.channelId)
         await deps.projects.stop(p.channelId)
         return void await interaction.editReply(noMentions("stopped"))
+      }
+      if (sub === "restart") {
+        const p = deps.db.projects.getByName(name)
+        if (!p) return void await interaction.editReply(noMentions("not found"))
+        deps.stopSubscription?.(p.channelId)
+        await deps.projects.restartServer(p.channelId)
+        deps.startSubscription?.(p.channelId)
+        return void await interaction.editReply(noMentions("restarted"))
       }
       if (sub === "remove") {
         const p = deps.db.projects.getByName(name)
