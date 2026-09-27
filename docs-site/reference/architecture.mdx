@@ -71,6 +71,7 @@ development uses `tsx`, and the build is `tsc`.
 | `src/discord.ts` | discord.js client, intents/partials, access control, message router, thread lifecycle, slash-command registration. |
 | `src/commands.ts` | Slash-command definitions and handlers; delegates to `projects`/`runner`/`sbx`. |
 | `src/shell.ts` | `!cmd` handling: calls `sbx.exec()`, owns output chunking only. |
+| `src/worktrees.ts` | Per-thread worktrees: slug/branch/porcelain/merge parsing, `.gitignore` maintenance, and argv-only `sbx exec git …` add/list/status/merge/remove operations. |
 | `src/index.ts` | Bootstrap: config → db → sbx preflight → single-instance lock → Discord login → command registration → graceful shutdown hooks. |
 
 Invariant: only `src/sbx.ts` spawns processes. `src/shell.ts` and

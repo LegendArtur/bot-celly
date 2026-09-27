@@ -11,7 +11,7 @@ prefix. `/project` uses subcommands.
 | Command | Access | Behavior |
 | --- | --- | --- |
 | `/project add name:<name> path:<path>` | owner | Register an existing directory under `PROJECTS_ROOT`; runs the create saga. |
-| `/project create name:<name>` | owner | Create a directory under `PROJECTS_ROOT`, then add it. |
+| `/project create name:<name> [clone:<url>] [branch:<name>]` | owner | Create a directory under `PROJECTS_ROOT`, then add it. `clone` must be a single `https://` repository URL; `branch` requires `clone` and defaults to the remote HEAD. |
 | `/project list` | authorized | List projects with sandbox status and health. |
 | `/project status name:<name>` | authorized | Status, port, health, and session count (ephemeral; password masked). |
 | `/project start name:<name>` | owner | Wake the sandbox and supervised server (recreates it if missing). |
@@ -78,6 +78,18 @@ in order. Questions time out after 5 minutes and are rejected. `auto` and
 Clicking a button from a previous bot process answers "this request is no
 longer active"; pending requests are not persisted across restarts.
 
+## Worktrees and forks
+
+| Command | Access | Behavior |
+| --- | --- | --- |
+| `/worktree status` | authorized | Show this thread's worktree path, branch, and clean/dirty state. |
+| `/worktree new [name]` | authorized | Create `<project>/.celly/worktrees/<slug>` on branch `celly/<slug>`; appends `.celly/` to the project's `.gitignore` on first use. |
+| `/worktree merge` | owner | Refuse when the worktree or the project root is dirty, then `git merge --no-ff` the worktree branch into the project root. Conflicts are listed by file. |
+| `/worktree remove [force]` | authorized | `git worktree remove` this thread's worktree; `force` discards uncommitted changes. |
+| `/fork [prompt]` | authorized | Fork this thread's session into a new thread, copying model, agent, and worktree. |
+| `/btw <prompt>` | authorized | `/fork` with a `btw · ` title prefix. |
+| `/last-sessions [count]` | authorized | Ephemeral list of recent threads in this channel (default 5, max 10). |
+
 ## Messages and shell
 
 | Input | Where | Behavior |
@@ -100,9 +112,8 @@ running code.
 
 Commands: `/project restart`.
 
-Features: worktree-per-thread, `/btw` forks, voice messages, image attachments,
-tunnels/screenshare, cloud sandboxes, `--clone` sandbox mode, OAuth
-subscription login, and Linux/macOS deployment docs.
+Features: voice messages, image attachments, OpenCode web UI, diff viewer,
+tunnels/screenshare, forum-channel layout, cloud sandboxes.
 
 The OpenCode web UI is intentionally not published (the sandbox server stays
 loopback-only); attach from a terminal instead — see the

@@ -57,3 +57,16 @@ test("allocatePort skips used and busy ports", async () => {
 test("allocatePort throws when the pool is exhausted", async () => {
   await expect(allocatePort({ start: 4300, end: 4300, used: new Set([4300]), isFree: async () => true })).rejects.toThrow(/exhausted/)
 })
+
+test("execResult returns non-zero exits without throwing and exec still throws", async () => {
+  const r = new FakeRunner({ "exec celly-demo": [
+    { code: 1, stdout: "out", stderr: "err" },
+    { code: 1, stdout: "out", stderr: "err" },
+  ] })
+  const sbx = new Sbx(r as any)
+  await expect(sbx.execResult("celly-demo", ["git", "merge", "x"]))
+    .resolves.toEqual({ code: 1, stdout: "out", stderr: "err" })
+  await expect(sbx.exec("celly-demo", ["git", "merge", "x"]))
+    .rejects.toThrow("sbx exec failed (1): err")
+  expect(r.calls[1]).toEqual(["exec", "celly-demo", "git", "merge", "x"])
+})

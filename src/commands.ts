@@ -17,7 +17,9 @@ export function commandData(): any[] {
       { type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true },
       { type: ApplicationCommandOptionType.String, name: "path", description: "Host directory under PROJECTS_ROOT", required: true } ] },
     { type: ApplicationCommandOptionType.Subcommand, name: "create", description: "Create a project directory", options: [
-      { type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true } ] },
+      { type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true },
+      { type: ApplicationCommandOptionType.String, name: "clone", description: "Clone an https git repository into the new directory" },
+      { type: ApplicationCommandOptionType.String, name: "branch", description: "Branch to clone (requires clone)" } ] },
     { type: ApplicationCommandOptionType.Subcommand, name: "list", description: "List projects" },
     { type: ApplicationCommandOptionType.Subcommand, name: "status", description: "Project status", options: [
       { type: ApplicationCommandOptionType.String, name: "name", description: "Project name", required: true } ] },
@@ -53,6 +55,20 @@ export function commandData(): any[] {
     { name: "unshare", description: "Stop sharing the session" },
     { name: "compact", description: "Summarize the session with the thread's model" },
     { name: "context-usage", description: "Show token use against the model's context limit" },
+    { name: "worktree", description: "Manage this thread's git worktree", options: [
+      { type: ApplicationCommandOptionType.Subcommand, name: "status", description: "Show this thread's worktree status" },
+      { type: ApplicationCommandOptionType.Subcommand, name: "new", description: "Create a git worktree for this thread", options: [
+        { type: ApplicationCommandOptionType.String, name: "name", description: "Worktree name (defaults to the thread)", required: false } ] },
+      { type: ApplicationCommandOptionType.Subcommand, name: "merge", description: "Merge the worktree branch into the project (owner-only)" },
+      { type: ApplicationCommandOptionType.Subcommand, name: "remove", description: "Remove this thread's worktree", options: [
+        { type: ApplicationCommandOptionType.Boolean, name: "force", description: "Discard uncommitted changes", required: false } ] },
+    ] },
+    { name: "fork", description: "Fork this thread's session into a new thread", options: [
+      { type: ApplicationCommandOptionType.String, name: "prompt", description: "Initial prompt for the fork" } ] },
+    { name: "btw", description: "Fork this thread with a quick side-question", options: [
+      { type: ApplicationCommandOptionType.String, name: "prompt", description: "The side-question", required: true } ] },
+    { name: "last-sessions", description: "List recent threads in this channel (ephemeral)", options: [
+      { type: ApplicationCommandOptionType.Integer, name: "count", description: "How many to show (default 5, max 10)", required: false } ] },
     { name: "mode", description: "Set the approval mode for this session's project channel", options: [
       { type: ApplicationCommandOptionType.String, name: "mode", description: "How permission requests are handled", required: true,
         choices: APPROVAL_MODES.map((mode) => ({ name: mode, value: mode })) } ] },
@@ -94,6 +110,18 @@ export interface CreateThreadInput {
   channelId: string; title: string; sessionId?: string; prompt?: string; authorId?: string
 }
 
+export interface ForkThreadInput {
+  sourceThreadId: string; title: string; prompt?: string; authorId?: string
+}
+export interface ForkedThread { threadId: string; sessionId: string; notice?: string }
+
+export interface WorktreeCommands {
+  status(threadId: string): Promise<string>
+  create(threadId: string, name?: string): Promise<string>
+  merge(threadId: string): Promise<string>
+  remove(threadId: string, force: boolean): Promise<string>
+}
+
 export interface CommandDeps {
   projects: ProjectService
   runner: Runner
@@ -104,6 +132,7 @@ export interface CommandDeps {
   startSubscription?(channelId: string): void
   postConnected?(channelId: string, projectName: string): Promise<void> | void
   createThread?(input: CreateThreadInput): Promise<{ threadId: string; sessionId: string; notice?: string }>
+  forkThread?(input: ForkThreadInput): Promise<ForkedThread>
   listSessions?(channelId: string): Promise<{ id: string; title: string }[]>
   listModels?(channelId: string): Promise<{ id: string; name: string }[]>
   listAgents?(channelId: string): Promise<{ id: string; name: string }[]>
@@ -115,6 +144,7 @@ export interface CommandDeps {
   suggest?(interaction: any, query: string): Promise<AutocompleteChoice[]>
   approvals?: ApprovalManager
   audit?(entry: AuditDraft): void
+  worktree?: WorktreeCommands
 }
 
 export interface AutocompleteChoice { name: string; value: string }
@@ -223,16 +253,18 @@ function queueMessage(threadId: string, entries: QueuedPrompt[]): any {
 
 const OWNER_ONLY_PROJECT_SUBS = new Set(["add", "create", "start", "stop", "remove"])
 const OWNER_ONLY_TASK_SUBS = new Set(["add", "remove"])
+const OWNER_ONLY_WORKTREE_SUBS = new Set(["merge"])
 export function requiresOwner(commandName: string, sub: string | null | undefined): boolean {
   if (commandName === "mode") return true
   if (commandName === "project") return !!sub && OWNER_ONLY_PROJECT_SUBS.has(sub)
   if (commandName === "task") return !!sub && OWNER_ONLY_TASK_SUBS.has(sub)
+  if (commandName === "worktree") return !!sub && OWNER_ONLY_WORKTREE_SUBS.has(sub)
   return false
 }
 
 export async function handleCommand(interaction: any, deps: CommandDeps): Promise<void> {
   if (!deps.authorized(interaction)) { await interaction.reply(noMentions("You are not authorized.", { flags: 64 })); return }
-  const sub = interaction.commandName === "project" || interaction.commandName === "task"
+  const sub = interaction.commandName === "project" || interaction.commandName === "task" || interaction.commandName === "worktree"
     ? interaction.options.getSubcommand(false)
     : null
   if (requiresOwner(interaction.commandName, sub) && !deps.isOwner?.(interaction)) {
@@ -244,8 +276,12 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
     if (interaction.commandName === "project") {
       if (sub === "add" || sub === "create") {
         const onProgress = (stage: string) => interaction.editReply(noMentions(stage))
+        const cloneUrl = sub === "create" ? interaction.options.getString("clone", false) : null
+        const branch = sub === "create" ? interaction.options.getString("branch", false) : null
+        if (branch && !cloneUrl) return void await interaction.editReply(noMentions("branch requires clone"))
         const directory = sub === "create" ? await deps.projects.createProjectDirectory(name) : interaction.options.getString("path", true)
-        const added = await deps.projects.addProject({ guildId: interaction.guildId, name, directory }, onProgress)
+        const clone = cloneUrl ? { url: cloneUrl, ...(branch ? { branch } : {}) } : undefined
+        const added = await deps.projects.addProject({ guildId: interaction.guildId, name, directory, ...(clone ? { clone } : {}) }, onProgress)
         await deps.postConnected?.(added.channelId, added.name)
         return void await interaction.editReply(noMentions(sub === "create" ? `created ${added.name}` : `added ${added.name}`))
       }
@@ -383,6 +419,17 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       const where = thread ? "thread" : "channel"
       return void await interaction.editReply({ content: `Choose an agent for this ${where}:`, components: [selectRow(selectCustomId(AGENT_SELECT, scope), "Select an agent", options)], allowedMentions: { parse: [] } })
     }
+    if (interaction.commandName === "fork" || interaction.commandName === "btw") {
+      const source = deps.db.threads.get(interaction.channelId)
+      if (!source) return void await interaction.editReply(noMentions(`use /${interaction.commandName} inside a thread`))
+      if (!deps.forkThread) return void await interaction.editReply(noMentions("fork support unavailable"))
+      const prompt = interaction.options.getString("prompt", false) ?? undefined
+      if (interaction.commandName === "btw" && !prompt) return void await interaction.editReply(noMentions("usage: /btw <prompt>"))
+      const title = interaction.commandName === "btw" ? `btw · ${prompt}` : (prompt ?? `fork of ${source.title ?? source.threadId}`)
+      const forked = await deps.forkThread({ sourceThreadId: source.threadId, title, prompt, authorId: interaction.user?.id })
+      const note = forked.notice ? ` (${forked.notice})` : ""
+      return void await interaction.editReply(noMentions(`forked into <#${forked.threadId}>${note}`))
+    }
     if (interaction.commandName === "abort") {
       const isThread = interaction.channel?.isThread?.() === true
       const threadIds = isThread
@@ -464,6 +511,32 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         ? attachReply(project, thread.sessionId)
         : sessionIdReply(project, thread.sessionId)
       return void await interaction.editReply(noMentions(content))
+    }
+    if (interaction.commandName === "last-sessions") {
+      const parentId = interaction.channel?.isThread?.() ? interaction.channel.parentId : interaction.channelId
+      const project = parentId ? deps.db.projects.getByChannel(parentId) : undefined
+      if (!project) return void await interaction.editReply(noMentions("this channel is not a project"))
+      const requested = interaction.options.getInteger("count", false) ?? 5
+      const count = Math.min(Math.max(requested, 1), 10)
+      const threads = deps.db.threads.byChannel(project.channelId).slice(0, count)
+      if (threads.length === 0) return void await interaction.editReply(noMentions("no sessions yet"))
+      const lines = threads.map((t) => `<#${t.threadId}> — ${t.title ?? t.sessionId}`)
+      return void await interaction.editReply(noMentions(lines.join("\n")))
+    }
+    if (interaction.commandName === "worktree") {
+      const thread = deps.db.threads.get(interaction.channelId)
+      if (!thread) return void await interaction.editReply(noMentions("use /worktree inside a thread"))
+      if (!deps.worktree) return void await interaction.editReply(noMentions("worktree support unavailable"))
+      if (sub === "status") return void await interaction.editReply(noMentions(await deps.worktree.status(thread.threadId)))
+      if (sub === "new") {
+        const worktreeName = interaction.options.getString("name", false) ?? undefined
+        return void await interaction.editReply(noMentions(await deps.worktree.create(thread.threadId, worktreeName)))
+      }
+      if (sub === "merge") return void await interaction.editReply(noMentions(await deps.worktree.merge(thread.threadId)))
+      if (sub === "remove") {
+        const force = interaction.options.getBoolean("force", false) ?? false
+        return void await interaction.editReply(noMentions(await deps.worktree.remove(thread.threadId, force)))
+      }
     }
     await interaction.editReply(noMentions("not implemented in this build"))
   } catch (e) {

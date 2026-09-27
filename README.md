@@ -44,6 +44,9 @@ core idea (channels as projects, threads as sessions) and runs each project in a
 - **Streaming replies.** Assistant text and tool activity stream into the thread,
   throttled into a single live message.
 - **Session resume.** `/resume` reopens a past OpenCode session in a new thread.
+- **Per-thread worktrees.** `/worktree` creates, merges, and removes git
+  worktrees under `<project>/.celly/worktrees`, and `/fork` (or `/btw`) forks a
+  session with its worktree.
 - **Model and agent switching.** `/model` and `/agent` pick per-thread settings.
 - **Abort.** `/abort` stops the current run, or every active run in the channel.
 - **Approvals.** `/mode` picks `auto`, `buttons`, or `plan`; `buttons` posts
@@ -137,7 +140,7 @@ is documented in
 | Command | Where | Description |
 |---|---|---|
 | `/project add <name> <path>` | guild (owner) | Register a directory under `PROJECTS_ROOT`. |
-| `/project create <name>` | guild (owner) | Create a project directory under `PROJECTS_ROOT`. |
+| `/project create <name> [clone] [branch]` | guild (owner) | Create a project directory; optionally `git clone` an https repository. |
 | `/project list` | guild | List projects with status and health. |
 | `/project status <name>` | guild | Status, port, and session count. |
 | `/project start <name>` | guild (owner) | Wake the sandbox (recreates it if missing). |
@@ -158,6 +161,9 @@ is documented in
 | `/unshare` | thread | Stop sharing the session. |
 | `/compact` | thread | Summarize the session with the thread's model. |
 | `/context-usage` | thread | Token use against the model's context limit. |
+| `/worktree status\|new\|merge\|remove` | thread | Manage this thread's git worktree. |
+| `/fork [prompt]` / `/btw <prompt>` | thread | Fork this session into a new thread. |
+| `/last-sessions [count]` | channel or thread | List recent threads (ephemeral, max 10). |
 | `/mode <auto\|buttons\|plan>` | project channel or thread (owner) | Set the channel approval mode. |
 | `/task add <channel> <prompt> <every_minutes>` | guild (owner) | Schedule a recurring prompt in a project channel. |
 | `/task list` | guild | List scheduled tasks. |
@@ -204,12 +210,10 @@ Docs live in `docs-site/` (`npm run docs:dev`, `npm run docs:validate`,
 v1 is the command set above. Deferred to v1.1:
 
 - **Commands:** `/project restart`.
-- **Thread/conversation:** worktree-per-thread, `/btw` forks.
 - **Input:** voice messages and image attachments.
-- **Surfaces:** OpenCode web UI, admin website, diff viewer, tunnels/screenshare,
-  forum-channel layout.
-- **Scale/deploy:** cloud sandboxes, `--clone` sandbox mode, OAuth
-  subscription login, and Linux/macOS deployment docs.
+- **Surfaces:** OpenCode web UI, diff viewer, tunnels/screenshare, forum-channel
+  layout.
+- **Scale/deploy:** cloud sandboxes.
 
 ## Limitations
 

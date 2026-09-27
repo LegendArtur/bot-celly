@@ -62,6 +62,15 @@ test("updates per-thread model and agent overrides", () => {
   db.threads.setModel("t1", null)
   expect(db.threads.get("t1")?.model).toBeNull()
 })
+test("setWorktree stores and clears the thread worktree path", () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
+    worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 })
+  db.threads.setWorktree("t1", "/sandbox/celly-demo/workspace/.celly/worktrees/t1")
+  expect(db.threads.get("t1")?.worktreePath).toBe("/sandbox/celly-demo/workspace/.celly/worktrees/t1")
+  db.threads.setWorktree("t1", null)
+  expect(db.threads.get("t1")?.worktreePath).toBeNull()
+})
 test("migrate is idempotent", () => { const db = fresh(); db.migrate(); expect(db.projects.list()).toEqual([]) })
 test("v2 migration repairs a pre-cascade threads table", () => {
   const dir = mkdtempSync(join(tmpdir(), "celly-db-"))

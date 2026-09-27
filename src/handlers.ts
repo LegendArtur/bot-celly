@@ -2,11 +2,12 @@ import type { Db } from "./db.ts"
 import type { Logger } from "./log.ts"
 import type { Project } from "./types.ts"
 import type { AuditDraft } from "./audit.ts"
-import { buildPromptText, projectForChannel } from "./helpers.js"
+import { buildPromptText, projectForChannel, sessionIdFrom } from "./helpers.js"
 import { shouldHandleMessage } from "./discord.js"
 import { renderPayload, sanitizeThreadName } from "./render.js"
-import type { CreateThreadInput } from "./commands.ts"
+import type { CreateThreadInput, ForkThreadInput, ForkedThread } from "./commands.ts"
 import type { Runner } from "./runner.ts"
+import { withDirectory } from "./runner.js"
 
 type Bucket = { schedule<T>(fn: () => Promise<T>): Promise<T> }
 
@@ -202,5 +203,49 @@ export function createReadyHandler(deps: ReadyDeps): () => void {
       try { await deps.subscribeReadyProjects() } catch (err) { deps.log.error("boot subscribe failed", { error: String(err) }) }
       await deps.reconcileThreads().catch((err) => deps.log.error("boot reconcile failed", { error: String(err) }))
     })()
+  }
+}
+
+export interface ForkThreadDeps {
+  db: Pick<Db, "threads" | "projects">
+  client: { channels: { fetch(id: string): Promise<any> } }
+  runner: Pick<Runner, "prompt">
+  ensureReady(channelId: string): Promise<void>
+  resolveClient(project: Project): any
+  registerSession(threadId: string, sessionId: string): void
+  startTyping(threadId: string): void
+  log: Logger
+}
+
+/**
+ * `/fork` and `/btw`: fork the source session with `session.fork`, then open a
+ * new Discord thread that copies the source model, agent, and worktree.
+ */
+export function createForkThread(deps: ForkThreadDeps): (input: ForkThreadInput) => Promise<ForkedThread> {
+  return async function forkThread(input: ForkThreadInput): Promise<ForkedThread> {
+    const source = deps.db.threads.get(input.sourceThreadId)
+    if (!source) throw new Error(`unknown thread ${input.sourceThreadId}`)
+    const project = deps.db.projects.getByChannel(source.channelId)
+    if (!project) throw new Error(`unknown project for thread ${input.sourceThreadId}`)
+    await deps.ensureReady(project.channelId)
+    const sdk = deps.resolveClient(project)
+    const forked = await sdk.session.fork(withDirectory(source.worktreePath, { path: { id: source.sessionId } }) as any)
+    const sessionId = sessionIdFrom(forked)
+    if (!sessionId) throw new Error("opencode session.fork returned no id")
+    const channel = await deps.client.channels.fetch(project.channelId)
+    if (!channel || !("threads" in channel)) throw new Error("project channel unavailable")
+    const title = sanitizeThreadName(input.title)
+    const thread = await channel.threads.create({ name: title })
+    if (input.authorId) await thread.members.add(input.authorId).catch(() => {})
+    deps.db.threads.upsert({ threadId: thread.id, channelId: project.channelId, sessionId, title,
+      model: source.model, agent: source.agent, worktreePath: source.worktreePath,
+      liveMessageId: null, renderState: "idle", createdAt: Date.now(), lastActiveAt: Date.now() })
+    deps.registerSession(thread.id, sessionId)
+    let notice: string | undefined
+    if (input.prompt) {
+      notice = await deps.runner.prompt(thread.id, input.prompt, input.authorId ?? "n/a")
+      if (notice === undefined || notice.startsWith("queued")) deps.startTyping(thread.id)
+    }
+    return { threadId: thread.id, sessionId, notice }
   }
 }

@@ -747,3 +747,64 @@ test("project server logs rotate when they exceed logMaxBytes", async () => {
     rmSync(cfg.dataDir, { recursive: true, force: true })
   }
 })
+
+test("addProject rejects a non-https clone URL before any sbx call", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls } = fakes()
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+    isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
+  for (const url of ["http://example.com/a.git", "git@github.com:a/b.git", "https://example.com/a b", "ftp://example.com/a"]) {
+    await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo", clone: { url } }))
+      .rejects.toThrow(/https/)
+  }
+  expect(calls).toEqual([])
+})
+
+test("addProject clones an https repository after bootstrap with exact argv", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
+  const server = await healthServer(true)
+  const order: string[] = []
+  let cloneArgs: string[] | undefined
+  const baseExec = sbx.exec
+  sbx.exec = async (n: string, args: string[]) => { order.push(args.join(" ")); if (args[0] === "git") cloneArgs = args; return baseExec(n, args) }
+  try {
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {},
+      resolveSandboxPath: async () => "/sandbox/celly-demo/workspace" } as any)
+    await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo",
+      clone: { url: "https://example.com/a.git", branch: "main" } })
+    expect(cloneArgs).toEqual(["git", "-C", "/sandbox/celly-demo/workspace", "clone", "--branch", "main", "https://example.com/a.git", "."])
+    const prepare = order.findIndex((o) => o.includes("bash"))
+    const clone = order.findIndex((o) => o.startsWith("git "))
+    expect(clone).toBeGreaterThan(prepare)
+  } finally { await server.close() }
+})
+
+test("addProject omits --branch when only a clone URL is given", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
+  const server = await healthServer(true)
+  let cloneArgs: string[] | undefined
+  const baseExec = sbx.exec
+  sbx.exec = async (n: string, args: string[]) => { if (args[0] === "git") cloneArgs = args; return baseExec(n, args) }
+  try {
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {},
+      resolveSandboxPath: async () => "/sandbox/celly-demo/workspace" } as any)
+    await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo", clone: { url: "https://example.com/a.git" } })
+    expect(cloneArgs).toEqual(["git", "-C", "/sandbox/celly-demo/workspace", "clone", "https://example.com/a.git", "."])
+  } finally { await server.close() }
+})
+
+test("addProject rolls back when the clone fails", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls } = fakes()
+  const baseExec = sbx.exec
+  sbx.exec = async (n: string, args: string[]) => { if (args[0] === "git") throw new Error("clone failed"); return baseExec(n, args) }
+  const deleted: string[] = []
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+    isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (_guildId: string, c: string) => { deleted.push(c) },
+    resolveSandboxPath: async () => "/sandbox/celly-demo/workspace" } as any)
+  await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo", clone: { url: "https://example.com/a.git" } }))
+    .rejects.toThrow(/clone failed/)
+  expect(db.projects.list()).toEqual([])
+  expect(calls).toContainEqual(["rm", "celly-demo"])
+  expect(deleted).toEqual(["chan-demo"])
+})

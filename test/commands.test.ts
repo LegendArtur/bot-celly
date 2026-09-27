@@ -26,6 +26,8 @@ function interaction(over: any = {}) {
     options: {
       getSubcommand: () => over.sub,
       getString: (n: string) => strings[n],
+      getInteger: (n: string) => (over.integers ?? {})[n],
+      getBoolean: (n: string) => (over.booleans ?? {})[n],
     },
     deferReply: async (o: any) => {
       if (over.deferError) throw new Error(over.deferError)
@@ -62,7 +64,7 @@ const editOf = (i: any) => {
 
 test("declares the v1 command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "attach", "compact", "context-usage", "diff", "mode", "model", "new", "project", "queue", "redo", "resume", "session-id", "share", "task", "undo", "unshare"])
+  expect(names).toEqual(["abort", "agent", "attach", "btw", "compact", "context-usage", "diff", "fork", "last-sessions", "mode", "model", "new", "project", "queue", "redo", "resume", "session-id", "share", "task", "undo", "unshare", "worktree"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -367,6 +369,8 @@ test("unauthorized selects are rejected before deferUpdate", async () => {
 test("requiresOwner scopes project mutations", () => {
   for (const sub of ["add", "create", "start", "stop", "remove"]) expect(requiresOwner("project", sub)).toBe(true)
   for (const sub of ["list", "status"]) expect(requiresOwner("project", sub)).toBe(false)
+  expect(requiresOwner("worktree", "merge")).toBe(true)
+  for (const sub of ["status", "new", "remove"]) expect(requiresOwner("worktree", sub)).toBe(false)
   expect(requiresOwner("new", null)).toBe(false)
   expect(requiresOwner("model", "resume")).toBe(false)
 })
@@ -779,6 +783,41 @@ test("non-owner mode is rejected before defer", async () => {
   expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only.", flags: 64 } })
 })
 
+test("worktree outside a thread is rejected", async () => {
+  const i = interaction({ commandName: "worktree", sub: "status", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
+  expect(editOf(i)).toBe("use /worktree inside a thread")
+})
+
+test("worktree status forwards the thread id", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const i = interaction({ commandName: "worktree", sub: "status", channelId: "t1" })
+  const seen: string[] = []
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    worktree: { status: async (threadId: string) => { seen.push(threadId); return "worktree: /w" },
+      create: async () => "", merge: async () => "", remove: async () => "" } })
+  expect(seen).toEqual(["t1"])
+  expect(editOf(i)).toBe("worktree: /w")
+})
+
+test("worktree new forwards the thread and optional name", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const i = interaction({ commandName: "worktree", sub: "new", channelId: "t1", strings: { name: "feature" } })
+  const seen: Array<[string, string | undefined]> = []
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    worktree: { status: async () => "", create: async (threadId: string, name?: string) => { seen.push([threadId, name]); return "created" },
+      merge: async () => "", remove: async () => "" } })
+  expect(seen).toEqual([["t1", "feature"]])
+  expect(editOf(i)).toBe("created")
+})
+
+test("worktree merge is owner-only", async () => {
+  const i = interaction({ commandName: "worktree", sub: "merge", channelId: "t1" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => false })
+  expect(i.calls).toHaveLength(1)
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only.", flags: 64 } })
+})
+
 test("queue lists queued prompts with remove and clear buttons", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
   const entries = [
@@ -1092,4 +1131,156 @@ test("model in a project channel with a direct value sets the channel default", 
     setChannelModel: (id: string, model: string | null) => { set = [id, model] } })
   expect(set).toEqual(["c", "anthropic/claude"])
   expect(editOf(i)).toBe("channel model set to anthropic/claude")
+})
+
+test("worktree merge forwards the thread id", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const i = interaction({ commandName: "worktree", sub: "merge", channelId: "t1" })
+  const seen: string[] = []
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true,
+    worktree: { status: async () => "", create: async () => "",
+      merge: async (threadId: string) => { seen.push(threadId); return "merged celly/t1 into the project root" }, remove: async () => "" } })
+  expect(seen).toEqual(["t1"])
+  expect(editOf(i)).toBe("merged celly/t1 into the project root")
+})
+
+test("worktree remove forwards the force flag", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
+  const i = interaction({ commandName: "worktree", sub: "remove", channelId: "t1", booleans: { force: true } })
+  const seen: Array<[string, boolean]> = []
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    worktree: { status: async () => "", create: async () => "", merge: async () => "",
+      remove: async (threadId: string, force: boolean) => { seen.push([threadId, force]); return "removed" } } })
+  expect(seen).toEqual([["t1", true]])
+  expect(editOf(i)).toBe("removed")
+})
+
+test("fork outside a thread is rejected", async () => {
+  const i = interaction({ commandName: "fork", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true,
+    forkThread: async () => { throw new Error("should not run") } })
+  expect(editOf(i)).toBe("use /fork inside a thread")
+})
+
+test("fork forwards the source thread, title, and prompt", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1", "c", { title: "source" }))
+  const i = interaction({ commandName: "fork", channelId: "t1", strings: { prompt: "try this" } })
+  let captured: any
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    forkThread: async (input: any) => { captured = input; return { threadId: "t9", sessionId: "s9" } } })
+  expect(captured).toEqual({ sourceThreadId: "t1", title: "try this", prompt: "try this", authorId: "u1" })
+  expect(editOf(i)).toBe("forked into <#t9>")
+})
+
+test("fork without a prompt titles the new thread after the source", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1", "c", { title: "source" }))
+  const i = interaction({ commandName: "fork", channelId: "t1" })
+  let captured: any
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    forkThread: async (input: any) => { captured = input; return { threadId: "t9", sessionId: "s9" } } })
+  expect(captured.title).toBe("fork of source")
+  expect(captured.prompt).toBeUndefined()
+})
+
+test("btw prefixes the title and requires a prompt", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1", "c", { title: "source" }))
+  const i = interaction({ commandName: "btw", channelId: "t1", strings: { prompt: "be quick" } })
+  let captured: any
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    forkThread: async (input: any) => { captured = input; return { threadId: "t9", sessionId: "s9" } } })
+  expect(captured.title).toBe("btw · be quick")
+  expect(captured.prompt).toBe("be quick")
+  expect(editOf(i)).toBe("forked into <#t9>")
+
+  const missing = interaction({ commandName: "btw", channelId: "t1" })
+  await handleCommand(missing, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    forkThread: async () => { throw new Error("should not run") } })
+  expect(editOf(missing)).toBe("usage: /btw <prompt>")
+})
+
+test("fork surfaces the run notice when the forked prompt is queued", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1", "c", { title: "source" }))
+  const i = interaction({ commandName: "fork", channelId: "t1", strings: { prompt: "hi" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    forkThread: async () => ({ threadId: "t9", sessionId: "s9", notice: "queued (1)" }) })
+  expect(editOf(i)).toBe("forked into <#t9> (queued (1))")
+})
+
+test("last-sessions lists recent threads, default 5, newest first", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  for (let i = 1; i <= 7; i++) db.threads.upsert(threadRow(`t${i}`, "c", { title: `Session ${i}`, lastActiveAt: i }))
+  const i = interaction({ commandName: "last-sessions", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true })
+  const out = editOf(i)
+  expect(out.split("\n")).toHaveLength(5)
+  expect(out).toContain("<#t7> — Session 7")
+  expect(out).not.toContain("<#t2>")
+})
+
+test("last-sessions honours a requested count and caps it at 10", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  for (let i = 1; i <= 12; i++) db.threads.upsert(threadRow(`t${i}`, "c", { title: `Session ${i}`, lastActiveAt: i }))
+  const three = interaction({ commandName: "last-sessions", channelId: "c", integers: { count: 3 } })
+  await handleCommand(three, { projects: {} as any, runner: {} as any, db, authorized: () => true })
+  expect(editOf(three).split("\n")).toHaveLength(3)
+
+  const forty = interaction({ commandName: "last-sessions", channelId: "c", integers: { count: 40 } })
+  await handleCommand(forty, { projects: {} as any, runner: {} as any, db, authorized: () => true })
+  expect(editOf(forty).split("\n")).toHaveLength(10)
+})
+
+test("last-sessions inside a thread uses the parent project channel", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  db.threads.upsert(threadRow("t1", "c", { title: "First" }))
+  const i = interaction({ commandName: "last-sessions", channelId: "t1", channel: { isThread: () => true, parentId: "c" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true })
+  expect(editOf(i)).toContain("<#t1> — First")
+})
+
+test("last-sessions outside a project is rejected", async () => {
+  const i = interaction({ commandName: "last-sessions", channelId: "other" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
+  expect(editOf(i)).toBe("this channel is not a project")
+})
+
+test("last-sessions with no threads says so", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
+  const i = interaction({ commandName: "last-sessions", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true })
+  expect(editOf(i)).toBe("no sessions yet")
+})
+
+test("project create forwards clone and branch to the create saga", async () => {
+  const i = interaction({ sub: "create", strings: { name: "demo", clone: "https://example.com/a.git", branch: "main" } })
+  let captured: any
+  const projects: any = {
+    createProjectDirectory: async () => "C:\\projects\\demo",
+    addProject: async (input: any) => { captured = input; return { ...proj, name: "demo" } },
+  }
+  await handleCommand(i, { projects, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => true })
+  expect(captured).toEqual({ guildId: "g", name: "demo", directory: "C:\\projects\\demo",
+    clone: { url: "https://example.com/a.git", branch: "main" } })
+  expect(editOf(i)).toBe("created demo")
+})
+
+test("project create omits clone for a plain create", async () => {
+  const i = interaction({ sub: "create", strings: { name: "demo" } })
+  let captured: any
+  const projects: any = {
+    createProjectDirectory: async () => "C:\\projects\\demo",
+    addProject: async (input: any) => { captured = input; return { ...proj, name: "demo" } },
+  }
+  await handleCommand(i, { projects, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => true })
+  expect(captured).toEqual({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
+  expect(editOf(i)).toBe("created demo")
+})
+
+test("project create rejects branch without clone before creating a directory", async () => {
+  const i = interaction({ sub: "create", strings: { name: "demo", branch: "main" } })
+  const projects: any = {
+    createProjectDirectory: async () => { throw new Error("should not run") },
+    addProject: async () => { throw new Error("should not run") },
+  }
+  await handleCommand(i, { projects, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => true })
+  expect(editOf(i)).toBe("branch requires clone")
 })

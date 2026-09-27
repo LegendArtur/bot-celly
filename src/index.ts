@@ -15,6 +15,7 @@ import { createLogger } from "./log.js"
 import { openDb } from "./db.js"
 import { Sbx, SbxRunner } from "./sbx.js"
 import { ProjectService } from "./projects.js"
+import { WorktreeService } from "./worktrees.js"
 import { createDiscordClient, fetchConfiguredGuilds, isAuthorized, isOwner, rolesOf } from "./discord.js"
 import { commandData, deployCommandsToGuilds, handleAutocomplete, handleButton, handleCommand, handleModalSubmit, handleSelect } from "./commands.js"
 import type { CommandDeps, CreateThreadInput } from "./commands.js"
@@ -24,7 +25,7 @@ import type { SuggestionCache } from "./autocomplete.js"
 import { APPROVAL_TIMEOUT_MS, ApprovalManager } from "./approvals.js"
 import { approvalModeFor } from "./mode.js"
 import { acquireLock } from "./lock.js"
-import { Runner } from "./runner.js"
+import { Runner, withDirectory } from "./runner.js"
 import { EventRouter } from "./events.js"
 import { Renderer, renderPayload, sanitizeThreadName } from "./render.js"
 import { resolveBaseUrl, resolveClient, resolveV2Client } from "./opencode.js"
@@ -33,7 +34,7 @@ import { runShell } from "./shell.js"
 import { ingestAttachments } from "./attachments.js"
 import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
 import { SessionRoutes } from "./routing.js"
-import { createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "./handlers.js"
+import { createForkThread, createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "./handlers.js"
 import { createIdleSweeper, formatIdleStopNotice } from "./idle.js"
 import { buildPromptText, channelIdForBucket, createSubscriptionGate, describeDiscordStartupError, findCategoryId, formatStartupBanner, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
@@ -210,9 +211,9 @@ async function main(): Promise<void> {
   }
   const v2ClientFor = (threadId: string) => resolveV2Client(projectForThread(threadId))
 
-  const createSessionFor = async (project: Project, title: string): Promise<string> => {
+  const createSessionFor = async (project: Project, title: string, directory?: string | null): Promise<string> => {
     const sdk = resolveClient(project)
-    const created = await sdk.session.create({ body: { title } })
+    const created = await sdk.session.create(withDirectory(directory, { body: { title } }) as any)
     const sessionId = sessionIdFrom(created)
     if (!sessionId) throw new Error("opencode session.create returned no id")
     return sessionId
@@ -341,13 +342,14 @@ async function main(): Promise<void> {
       const project = db.projects.getByChannel(thread.channelId)
       if (!project) throw new Error(`unknown project for thread ${threadId}`)
       const sdk = resolveClient(project)
-      const created = await sdk.session.create({ body: { title: thread.title ?? undefined } })
+      const created = await sdk.session.create(withDirectory(thread.worktreePath, { body: { title: thread.title ?? undefined } }) as any)
       const sessionId = sessionIdFrom(created)
       if (!sessionId) throw new Error("opencode session.create returned no id")
       db.threads.upsert({ ...thread, sessionId })
       registerSession(threadId, sessionId)
       return sessionId
     },
+    directoryFor: (threadId) => db.threads.get(threadId)?.worktreePath ?? undefined,
     log: (message, fields) => log.info(message, fields),
     maxQueue: cfg.maxQueue,
     maxConcurrentRuns: cfg.maxConcurrentRuns,
@@ -363,6 +365,17 @@ async function main(): Promise<void> {
     approvals,
     audit,
     onThreadIdle: (threadId) => stopTyping(threadId),
+  })
+
+  const worktrees = new WorktreeService({ sbx, db, log })
+
+  const forkThread = createForkThread({
+    db, client, runner: runnerSvc,
+    ensureReady: (channelId) => projects.ensureReady(channelId),
+    resolveClient,
+    registerSession,
+    startTyping,
+    log,
   })
 
   const subscribeProject = (project: Project): void => {
@@ -593,9 +606,11 @@ async function main(): Promise<void> {
     isOwner: authorizeOwner,
     stopSubscription, startSubscription,
     createThread: createThreadForProject,
+    forkThread,
     listSessions, listModels, listAgents,
     setThreadModel, setThreadAgent, setChannelModel, setChannelAgent,
     sessions, suggest,
+    worktree: worktrees,
     postConnected: async (channelId, projectName) => {
       const channel = await client.channels.fetch(channelId).catch(() => null)
       if (channel && "send" in channel) {
