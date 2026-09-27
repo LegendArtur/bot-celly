@@ -9,12 +9,40 @@ its sandbox and is reached over a loopback-published port.
 
 ## Topology
 
-```text
-Discord                        Windows 11 host                        sbx sandbox (per project)
-#web-app ── message ──▶ router ──▶ ensureReady() ──▶ sbx create/exec ──▶ opencode serve :4096
-   │                        │         supervised child                     │        ▲
-   ├─ thread = session      │  SQLite: projects/threads                   │   SDK over
-   └─ agent replies ◀── render ◀── EventRouter ◀── SSE ◀─ 127.0.0.1:<hostport>┘  published port
+```mermaid
+flowchart LR
+    subgraph discord["Discord"]
+        direction TB
+        message["#web-app · message"]
+        thread["thread = session"]
+        replies["agent replies"]
+    end
+
+    subgraph host["Windows 11 host"]
+        direction TB
+        router["message router"]
+        ready["ensureReady()"]
+        child["supervised serve child"]
+        db[("SQLite<br/>projects · threads")]
+        events["EventRouter"]
+        render["render"]
+    end
+
+    subgraph sandbox["sbx sandbox · one per project"]
+        direction TB
+        serve["opencode serve :4096"]
+    end
+
+    message --> router
+    message -.- thread
+    router --> ready
+    router --- db
+    ready --> child
+    ready -- "sbx create / exec" --> serve
+    child -- "supervised sbx exec" --> serve
+    serve -- "SSE over 127.0.0.1:HOSTPORT" --> events
+    events --> render
+    render --> replies
 ```
 
 Stack: TypeScript, Node 24.x (pinned via `engines` + `.nvmrc`), discord.js 14.x,

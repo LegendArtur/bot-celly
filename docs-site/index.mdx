@@ -24,25 +24,41 @@ generic smithing folklore rather than any trademarked name.
 
 ## Topology
 
-```text
- Discord (channel = project, thread = session)
-        │
-        ▼
- ┌──────────────────── host (Node 24, Windows 11) ────────────────────┐
- │  Celly bot                                                          │
- │    • Discord gateway + slash commands                              │
- │    • ProjectService: create / wake / stop one sbx per project      │
- │    • Runner + Renderer: queue prompts, stream and throttle replies │
- │    • EventRouter: SSE /global/event  →  thread / session routing   │
- │                                                                     │
- │  127.0.0.1:<port>   (Authorization: Basic opencode:<password>)     │
- └───────────────────────────────┬─────────────────────────────────────┘
-                                 ▼
-                       ┌───────────────────┐
-                       │  sbx microVM      │   one per project
-                       │   opencode serve  │   (sandbox port 4096)
-                       │   mounted project │
-                       └───────────────────┘
+```mermaid
+flowchart LR
+    subgraph discord["Discord"]
+        direction TB
+        channel["channel = project"]
+        thread["thread = session"]
+    end
+
+    subgraph host["host · Node 24 · Windows 11"]
+        direction TB
+        bot["Celly bot<br/>Discord gateway + slash commands"]
+        projects["ProjectService<br/>create / wake / stop one sbx per project"]
+        runner["Runner + Renderer<br/>queue prompts, stream and throttle replies"]
+        router["EventRouter<br/>SSE /global/event → thread / session routing"]
+        db[("SQLite<br/>projects · threads")]
+        port["127.0.0.1:HOSTPORT<br/>Authorization: Basic opencode:password"]
+    end
+
+    subgraph sandbox["sbx microVM · one per project"]
+        direction TB
+        serve["opencode serve<br/>sandbox port 4096"]
+        files["mounted project"]
+    end
+
+    channel --> bot
+    bot --> projects
+    bot --> runner
+    runner -- "SDK over loopback" --> port
+    port --> serve
+    projects -- "sbx create / exec" --> serve
+    serve -- "SSE" --> router
+    router --> runner
+    runner -- "streamed replies" --> thread
+    serve --- files
+    projects --- db
 ```
 
 Provider credentials are injected by `sbx secret` at the host proxy. They are

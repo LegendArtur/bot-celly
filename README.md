@@ -61,23 +61,23 @@ core idea (channels as projects, threads as sessions) and runs each project in a
 
 ```
 Discord (channel = project, thread = session)
-       │
-       ▼
-┌──────────────────── host (Node 24, Windows 11) ────────────────────┐
+                                   │
+                                   ▼
+┌──────────────────── host (Node 24, Windows 11) ─────────────────────┐
 │  Celly bot                                                          │
-│    • Discord gateway + slash commands                              │
-│    • ProjectService: create / wake / stop one sbx per project      │
-│    • Runner + Renderer: queue prompts, stream and throttle replies │
-│    • EventRouter: SSE /global/event  →  thread / session routing   │
+│    • Discord gateway + slash commands                               │
+│    • ProjectService: create / wake / stop one sbx per project       │
+│    • Runner + Renderer: queue prompts, stream and throttle replies  │
+│    • EventRouter: SSE /global/event -> thread / session routing     │
 │                                                                     │
-│  127.0.0.1:<port>   (Authorization: Basic opencode:<password>)     │
-└───────────────────────────────┬─────────────────────────────────────┘
-                                ▼
-                      ┌───────────────────┐
-                      │  sbx microVM      │   one per project
-                      │   opencode serve  │   (sandbox port 4096)
-                      │   mounted project │
-                      └───────────────────┘
+│  127.0.0.1:<port>   (Authorization: Basic opencode:<password>)      │
+└──────────────────────────────────┬──────────────────────────────────┘
+                                   ▼
+                         ┌───────────────────┐
+                         │  sbx microVM      │   one per project
+                         │   opencode serve  │   (sandbox port 4096)
+                         │   mounted project │
+                         └───────────────────┘
 ```
 
 See the [architecture reference](https://celly.agub.dev/reference/architecture)
