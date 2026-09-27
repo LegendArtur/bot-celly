@@ -3,8 +3,7 @@
   "name": "Celly",
   "theme": "almond",
   "colors": {
-    "primary": "#FF0000",
-    "light": "#00B90A"
+    "primary": "#FF0000"
   },
   "navigation": {
     "global": {
