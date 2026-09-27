@@ -7,6 +7,8 @@ import type { NormalizedEvent } from "./events.ts"
 import type { Renderer } from "./render.ts"
 import type { Db } from "./db.ts"
 import type { Thread } from "./types.ts"
+import type { ApprovalManager } from "./approvals.ts"
+import type { AuditDraft } from "./audit.ts"
 
 const DEFAULT_DENY = bashDenyPatterns()
 // The real opencode tool ids (see @opencode-ai/sdk PermissionConfig) plus the
@@ -161,6 +163,13 @@ export function decidePermission(mode: ApprovalMode, req: { tool: string; patter
   return mode === "plan" ? "reject" : "ask"
 }
 
+export interface PermissionReplyInput {
+  source: "v1" | "v2"
+  threadId: string
+  sessionId: string
+  requestId: string
+  reply: "once" | "always" | "reject"
+}
 export interface RunnerDeps {
   db: Db
   clientFor(threadId: string): OpencodeClient
@@ -170,6 +179,10 @@ export interface RunnerDeps {
   maxQueue: number
   maxConcurrentRuns: number
   onThreadIdle?(threadId: string): void
+  approvalModeFor?(channelId: string): ApprovalMode
+  respondPermission?(input: PermissionReplyInput): Promise<void>
+  approvals?: Pick<ApprovalManager, "requestPermission" | "askQuestion" | "cancel">
+  audit?(entry: AuditDraft): void
 }
 
 export class Runner {
@@ -218,6 +231,19 @@ export class Runner {
   private clearAbortTimer(threadId: string): void {
     const timer = this.abortTimers.get(threadId)
     if (timer !== undefined) { clearTimeout(timer); this.abortTimers.delete(threadId) }
+  }
+  private async respondToPermission(
+    threadId: string,
+    e: { sessionId: string; permissionId: string; source: "v1" | "v2"; tool: string; patterns: string[] },
+    reply: "once" | "always" | "reject",
+  ): Promise<void> {
+    this.deps.audit?.({ kind: "permission", threadId, actorId: "policy", detail: `${e.tool} ${e.patterns.join(" ")}`.trim(), decision: reply })
+    if (this.deps.respondPermission) {
+      await this.deps.respondPermission({ source: e.source, threadId, sessionId: e.sessionId, requestId: e.permissionId, reply })
+      return
+    }
+    const client = this.deps.clientFor(threadId)
+    await client.postSessionIdPermissionsPermissionId({ path: { id: e.sessionId, permissionID: e.permissionId }, body: { response: reply } } as any)
   }
   private requeue(threadId: string, next: { text: string; actor: string }): void {
     const q = this.queue.get(threadId) ?? []
@@ -298,9 +324,29 @@ export class Runner {
     const epoch = this.owner.get(threadId)
     if (e.kind === "text" || e.kind === "tool") { const r = await this.rendererFor(threadId); r.push(e); await r.tick() }
     else if (e.kind === "permission") {
-      const client = this.deps.clientFor(threadId)
-      const response = evaluatePermission({ tool: e.tool, patterns: e.patterns })
-      await client.postSessionIdPermissionsPermissionId({ path: { id: (await this.deps.sessionFor(threadId)), permissionID: e.permissionId }, body: { response } } as any)
+      const thread = db.threads.get(threadId)
+      const mode = this.deps.approvalModeFor?.(thread?.channelId ?? threadId) ?? "auto"
+      const decision = decidePermission(mode, { tool: e.tool, patterns: e.patterns })
+      if (decision === "ask") {
+        if (this.deps.approvals) {
+          await this.deps.approvals.requestPermission({
+            threadId, sessionId: e.sessionId, requestId: e.permissionId, source: e.source,
+            tool: e.tool, patterns: e.patterns, exact: e.patterns.length === 1,
+          })
+        } else {
+          await this.respondToPermission(threadId, e, "reject")
+        }
+      } else {
+        await this.respondToPermission(threadId, e, decision)
+      }
+    } else if (e.kind === "permission-replied") {
+      this.deps.approvals?.cancel(e.sessionId, e.requestId)
+    } else if (e.kind === "question") {
+      try {
+        await this.deps.approvals?.askQuestion({ threadId, sessionId: e.sessionId, requestId: e.requestId, questions: e.questions })
+      } catch (err) {
+        this.deps.log("question handling failed", { threadId, requestId: e.requestId, error: String(err) })
+      }
     } else if (e.kind === "error") {
       try {
         const r = await this.rendererFor(threadId)
