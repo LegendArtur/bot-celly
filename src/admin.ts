@@ -1,6 +1,6 @@
 import { createServer } from "node:http"
 import type { ServerResponse } from "node:http"
-import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs"
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs"
 import type { Db } from "./db.ts"
 import type { Project, Thread, UsageTotals } from "./types.ts"
 import { redact } from "./log.js"
@@ -206,7 +206,7 @@ export async function createAdminServer(deps: AdminDeps): Promise<AdminServer> {
       const stats = buildStats(projects, totals, Math.max(0, nowMs - startedAt))
       region("#projects", renderProjects(projects, nowMs), JSON.stringify(projects.map((p) => [p.channelId, p.status, p.hostPort, p.lastActiveAt, p.name, p.sandboxName, p.spend, p.tokens, p.sessions])))
       region("#project-count", String(projects.length), String(projects.length))
-      region("#stats", renderStats(stats), JSON.stringify(stats))
+      region("#stats", renderStats(stats), JSON.stringify({ ...stats, uptimeMs: Math.floor(stats.uptimeMs / 60_000) }))
       region("#usage", renderUsage(totals), JSON.stringify(totals))
       region("#audit", renderAudit(buildAudit(deps)), JSON.stringify(auditRaw))
       for (const p of list) {
@@ -385,7 +385,7 @@ export async function createAdminServer(deps: AdminDeps): Promise<AdminServer> {
           if (!file || !existsSync(file)) return sendJson(res, 404, { error: "log not found" })
           const requested = Number(url.searchParams.get("lines") ?? "200")
           const count = Number.isFinite(requested) && requested > 0 ? Math.min(Math.floor(requested), 2000) : 200
-          const lines = tailLines(redact(tailFileSync(file, LOG_TAIL_BYTES), deps.secrets), count)
+          const lines = tailLines(redact(readFileSync(file, "utf8"), deps.secrets), count)
           sendJson(res, 200, { channelId, file, lines })
           return
         }

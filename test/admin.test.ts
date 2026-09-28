@@ -154,6 +154,24 @@ test("GET /api/audit returns injected entries and 404s when unavailable", async 
   }
 })
 
+test("GET /api/logs returns the requested count for files larger than the UI tail cap", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "celly-admin-"))
+  const file = join(dir, "celly-demo.log")
+  const lines = Array.from({ length: 3000 }, (_, i) => `line ${i} ${"x".repeat(90)}`)
+  writeFileSync(file, lines.join("\n") + "\n")
+  const { svr, base } = await admin({ logFileFor: () => file })
+  try {
+    const res = await fetch(`${base}/api/logs/c1?lines=2000`)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.lines).toHaveLength(2000)
+    expect(body.lines[1999]).toContain("line 2999")
+  } finally {
+    svr.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("unknown routes and methods return JSON errors", async () => {
   const { svr, base } = await admin()
   try {
