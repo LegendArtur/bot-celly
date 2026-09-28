@@ -10,7 +10,9 @@ export type NormalizedEvent =
   | { kind: "error"; sessionId: string; message: string }
   | { kind: "permission"; sessionId: string; permissionId: string; source: "v1" | "v2"; tool: string; patterns: string[] }
   | { kind: "permission-replied"; sessionId: string; requestId: string }
-  | { kind: "question"; sessionId: string; requestId: string; questions: QuestionInfo[] }
+  | { kind: "question"; sessionId: string; requestId: string; source: "v1" | "v2"; questions: QuestionInfo[] }
+  | { kind: "question-replied"; sessionId: string; requestId: string }
+  | { kind: "question-rejected"; sessionId: string; requestId: string }
 
 function errorMessage(error: unknown): string {
   if (typeof error === "string") return error
@@ -93,8 +95,19 @@ export function normalizeEvent(raw: any): NormalizedEvent | null {
       return requestId ? { kind: "permission-replied", sessionId: p.sessionID, requestId } : null
     }
     case "question.asked":
+      return { kind: "question", source: "v1", sessionId: p.sessionID, requestId: String(p.id ?? ""), questions: toQuestions(p.questions) }
     case "question.v2.asked":
-      return { kind: "question", sessionId: p.sessionID, requestId: String(p.id ?? ""), questions: toQuestions(p.questions) }
+      return { kind: "question", source: "v2", sessionId: p.sessionID, requestId: String(p.id ?? ""), questions: toQuestions(p.questions) }
+    case "question.replied":
+    case "question.v2.replied": {
+      const requestId = String(p.requestID ?? "")
+      return requestId ? { kind: "question-replied", sessionId: p.sessionID, requestId } : null
+    }
+    case "question.rejected":
+    case "question.v2.rejected": {
+      const requestId = String(p.requestID ?? "")
+      return requestId ? { kind: "question-rejected", sessionId: p.sessionID, requestId } : null
+    }
     default: return null
   }
 }

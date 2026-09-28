@@ -504,11 +504,11 @@ test("normalizes v2 permission asks from both event spellings", () => {
 test("normalizes question.asked and question.v2.asked into question info", () => {
   const questions = [{ question: "Which database?", header: "Database", options: [{ label: "sqlite", description: "single file" }], custom: true }]
   expect(normalizeEvent({ type: "question.asked", properties: { id: "q1", sessionID: "s1", questions } })).toEqual({
-    kind: "question", sessionId: "s1", requestId: "q1",
+    kind: "question", sessionId: "s1", requestId: "q1", source: "v1",
     questions: [{ question: "Which database?", header: "Database", options: [{ label: "sqlite", description: "single file" }], custom: true }],
   })
   expect(normalizeEvent({ type: "question.v2.asked", properties: { id: "q2", sessionID: "s1", questions } }))
-    .toMatchObject({ kind: "question", sessionId: "s1", requestId: "q2" })
+    .toMatchObject({ kind: "question", sessionId: "s1", requestId: "q2", source: "v2" })
 })
 
 test("drops malformed questions and options and keeps flags", () => {
@@ -518,7 +518,19 @@ test("drops malformed questions and options and keeps flags", () => {
     { question: "ok", options: [{ label: 7 }, { description: "no label" }, { label: "yes" }], multiple: true, custom: false },
   ] } })
   const expected: QuestionInfo = { question: "ok", header: "", options: [{ label: "yes", description: "" }], multiple: true, custom: false }
-  expect(e).toEqual({ kind: "question", sessionId: "s1", requestId: "q1", questions: [expected] })
+  expect(e).toEqual({ kind: "question", sessionId: "s1", requestId: "q1", source: "v1", questions: [expected] })
+})
+
+test("normalizes question.replied and question.rejected from both protocol versions", () => {
+  expect(normalizeEvent({ type: "question.replied", properties: { sessionID: "s1", requestID: "q1" } }))
+    .toEqual({ kind: "question-replied", sessionId: "s1", requestId: "q1" })
+  expect(normalizeEvent({ type: "question.v2.replied", properties: { sessionID: "s1", requestID: "q2" } }))
+    .toEqual({ kind: "question-replied", sessionId: "s1", requestId: "q2" })
+  expect(normalizeEvent({ type: "question.rejected", properties: { sessionID: "s1", requestID: "q3" } }))
+    .toEqual({ kind: "question-rejected", sessionId: "s1", requestId: "q3" })
+  expect(normalizeEvent({ type: "question.v2.rejected", properties: { sessionID: "s1", requestID: "q4" } }))
+    .toEqual({ kind: "question-rejected", sessionId: "s1", requestId: "q4" })
+  expect(normalizeEvent({ type: "question.replied", properties: { sessionID: "s1" } })).toBeNull()
 })
 
 test("normalizes permission.replied from both protocol versions", () => {

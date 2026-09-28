@@ -24,6 +24,7 @@ export interface QuestionAsk {
   threadId: string
   sessionId: string
   requestId: string
+  source: ApprovalSource
   questions: QuestionInfo[]
 }
 export interface ReplyPermissionInput {
@@ -37,12 +38,26 @@ export interface ReplyQuestionInput {
   threadId: string
   sessionId: string
   requestId: string
+  source: ApprovalSource
   answers: string[][]
 }
 export interface RejectQuestionInput {
   threadId: string
   sessionId: string
   requestId: string
+  source: ApprovalSource
+}
+/**
+ * A question reply/reject could not be delivered to opencode (usually the
+ * request already expired server-side). Without recovery the agent tool keeps
+ * waiting forever and the thread looks busy, so callers should abort the run.
+ */
+export interface QuestionDeliveryFailure {
+  threadId: string
+  sessionId: string
+  requestId: string
+  action: "reply" | "reject"
+  error: string
 }
 export interface ApprovalManagerDeps {
   send(threadId: string, content: string, components: any[]): Promise<string>
@@ -50,6 +65,7 @@ export interface ApprovalManagerDeps {
   replyPermission(input: ReplyPermissionInput): Promise<void>
   replyQuestion(input: ReplyQuestionInput): Promise<void>
   rejectQuestion(input: RejectQuestionInput): Promise<void>
+  onQuestionDeliveryFailed?(input: QuestionDeliveryFailure): void
   modeFor(threadId: string): ApprovalMode
   now(): number
   timeoutMs: number
@@ -89,6 +105,26 @@ function describeQuestions(questions: QuestionInfo[]): string {
 function renderQuestions(questions: QuestionInfo[]): string {
   const blocks = questions.map((q, i) => `**${q.header || `Question ${i + 1}`}**\n${q.question}`)
   return `The agent asked:\n\n${blocks.join("\n\n")}`
+}
+const QUESTION_MESSAGE_MAX = 2000
+const QUESTION_ANSWER_MAX = 200
+function clampContent(text: string, max = QUESTION_MESSAGE_MAX): string {
+  if (text.length <= max) return text
+  return text.slice(0, max - 1).replace(/\s+$/, "") + "…"
+}
+function answerLine(answers: string[] | undefined): string {
+  if (answers === undefined) return "**Waiting for an answer…**"
+  const labels = answers.map((answer) => String(answer).trim().slice(0, QUESTION_ANSWER_MAX)).filter(Boolean)
+  return labels.length ? `**Answer:** ${labels.join(", ")}` : "**Answer:** _(skipped)_"
+}
+function renderQuestionProgress(questions: QuestionInfo[], answers: (string[] | undefined)[], actorId?: string): string {
+  const blocks = questions.map((q, i) => {
+    const header = q.header || `Question ${i + 1}`
+    return `**${header}**\n${q.question}\n${answerLine(answers[i])}`
+  })
+  const complete = answers.length > 0 && answers.every((answer) => answer !== undefined)
+  const footer = complete && actorId ? `\n\nQuestions **answered** by <@${actorId}>.` : ""
+  return clampContent(`The agent asked:\n\n${blocks.join("\n\n")}${footer}`)
 }
 function questionSelectOptions(question: QuestionInfo): any[] {
   const seen = new Set<string>()
@@ -168,11 +204,11 @@ export class ApprovalManager {
     try { return await this.deps.send(threadId, content, components) }
     catch (err) { this.deps.log("approval message send failed", { threadId, error: String(err) }); return null }
   }
-  private async editSafe(threadId: string, message: Promise<string | null>, content: string): Promise<void> {
+  private async editSafe(threadId: string, message: Promise<string | null>, content: string, components: any[] = []): Promise<void> {
     let messageId: string | null = null
     try { messageId = await message } catch { return }
     if (!messageId) return
-    try { await this.deps.edit(threadId, messageId, content, []) }
+    try { await this.deps.edit(threadId, messageId, content, components) }
     catch (err) { this.deps.log("approval message edit failed", { threadId, messageId, error: String(err) }) }
   }
   private async replyPermissionSafe(input: PermissionAsk, reply: ApprovalDecision): Promise<void> {
@@ -180,10 +216,16 @@ export class ApprovalManager {
       await this.deps.replyPermission({ threadId: input.threadId, sessionId: input.sessionId, requestId: input.requestId, source: input.source, reply })
     } catch (err) { this.deps.log("permission reply failed", { requestId: input.requestId, error: String(err) }) }
   }
-  private async rejectQuestionSafe(input: QuestionAsk): Promise<void> {
+  private async rejectQuestionSafe(input: QuestionAsk): Promise<boolean> {
     try {
-      await this.deps.rejectQuestion({ threadId: input.threadId, sessionId: input.sessionId, requestId: input.requestId })
-    } catch (err) { this.deps.log("question reject failed", { requestId: input.requestId, error: String(err) }) }
+      await this.deps.rejectQuestion({ threadId: input.threadId, sessionId: input.sessionId, requestId: input.requestId, source: input.source })
+      return true
+    } catch (err) {
+      const error = String(err)
+      this.deps.log("question reject failed", { requestId: input.requestId, error })
+      this.deps.onQuestionDeliveryFailed?.({ threadId: input.threadId, sessionId: input.sessionId, requestId: input.requestId, action: "reject", error })
+      return false
+    }
   }
 
   async requestPermission(input: PermissionAsk): Promise<ApprovalDecision> {
@@ -271,6 +313,14 @@ export class ApprovalManager {
       this.questions.delete(requestId)
       clearTimeout(pending.timer)
       this.completeQuestion(pending, pending.answers.map((answer) => answer ?? []), actorId)
+    } else {
+      // Keep the remaining controls so the other questions can still be
+      // answered, and show what has been picked so far.
+      void this.editSafe(
+        pending.input.threadId, pending.message,
+        renderQuestionProgress(pending.input.questions, pending.answers),
+        questionComponents(pending.input.requestId, pending.input.questions),
+      )
     }
     return true
   }
@@ -315,14 +365,39 @@ export class ApprovalManager {
     }
   }
 
-  private completeQuestion(pending: PendingQuestion, answers: string[][], actorId: string): void {
-    try {
-      void this.deps.replyQuestion({ threadId: pending.input.threadId, sessionId: pending.input.sessionId, requestId: pending.input.requestId, answers })
-        .catch((err) => this.deps.log("question reply failed", { requestId: pending.input.requestId, error: String(err) }))
-    } catch (err) {
-      this.deps.log("question reply failed", { requestId: pending.input.requestId, error: String(err) })
+  /**
+   * Drop every pending request belonging to a thread. Called when a run ends
+   * (idle/error) so requests opencode already discarded during an abort cannot
+   * linger as live Discord buttons until the timeout fires.
+   */
+  cancelThread(threadId: string): void {
+    for (const [requestId, permission] of [...this.permissions]) {
+      if (permission.input.threadId !== threadId) continue
+      this.permissions.delete(requestId)
+      clearTimeout(permission.timer)
+      void this.editSafe(permission.input.threadId, permission.message, "This request is no longer active.")
+      permission.resolve("reject")
     }
-    void this.editSafe(pending.input.threadId, pending.message, `Questions **answered** by <@${actorId}>.`)
+    for (const [requestId, question] of [...this.questions]) {
+      if (question.input.threadId !== threadId) continue
+      this.questions.delete(requestId)
+      clearTimeout(question.timer)
+      void this.editSafe(question.input.threadId, question.message, "This request is no longer active.")
+      question.resolve(null)
+    }
+  }
+
+  private completeQuestion(pending: PendingQuestion, answers: string[][], actorId: string): void {
+    void this.deps.replyQuestion({
+      threadId: pending.input.threadId, sessionId: pending.input.sessionId,
+      requestId: pending.input.requestId, source: pending.input.source, answers,
+    }).catch((err) => {
+      const error = String(err)
+      this.deps.log("question reply failed", { requestId: pending.input.requestId, error })
+      void this.editSafe(pending.input.threadId, pending.message, "The answer could not be delivered (the request expired). Aborting this run so the thread is not stuck.")
+      this.deps.onQuestionDeliveryFailed?.({ threadId: pending.input.threadId, sessionId: pending.input.sessionId, requestId: pending.input.requestId, action: "reply", error })
+    })
+    void this.editSafe(pending.input.threadId, pending.message, renderQuestionProgress(pending.input.questions, answers, actorId))
     pending.resolve(answers)
   }
 }
