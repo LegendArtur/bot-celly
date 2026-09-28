@@ -474,6 +474,8 @@ async function main(): Promise<void> {
         port: cfg.adminPort,
         db,
         secrets,
+        guildIds: cfg.guildIds,
+        log,
         logFileFor: (channelId) => {
           const project = db.projects.getByChannel(channelId)
           return project ? join(cfg.dataDir, "logs", `${project.sandboxName}.log`) : undefined
@@ -483,6 +485,22 @@ async function main(): Promise<void> {
           await runnerSvc.resetChannel(channelId, { notify: true })
           stopSubscription(channelId)
           await projects.stop(channelId)
+        },
+        restart: async (channelId) => {
+          stopSubscription(channelId)
+          await projects.restartServer(channelId)
+          startSubscription(channelId)
+        },
+        remove: async (channelId) => {
+          await runnerSvc.resetChannel(channelId, { notify: true })
+          stopSubscription(channelId)
+          await projects.remove(channelId)
+        },
+        create: async (input, onProgress) => {
+          if (input.branch && !input.cloneUrl) throw new Error("branch requires clone")
+          const directory = await projects.createProjectDirectory(input.name)
+          const clone = input.cloneUrl ? { url: input.cloneUrl, ...(input.branch ? { branch: input.branch } : {}) } : undefined
+          await projects.addProject({ guildId: input.guildId, name: input.name, directory, ...(clone ? { clone } : {}) }, onProgress)
         },
         auditTail: (limit) => auditLog.tail(limit),
       })
