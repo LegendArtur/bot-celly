@@ -7,6 +7,23 @@ test("encodeFrame prefixes every line and terminates the event", () => {
   expect(encodeFrame("<x>")).toBe("data: <x>\n\n")
 })
 
+test("a client error prunes the client without crashing the hub", async () => {
+  const hub = createSseHub({ heartbeatMs: 10_000 })
+  const handlers = new Map<string, () => void>()
+  const fake = {
+    writeHead: () => fake,
+    write: () => true,
+    end: () => {},
+    on: (event: string, cb: () => void) => { handlers.set(event, cb); return fake },
+  }
+  hub.add(fake as any)
+  expect(hub.clientCount()).toBe(1)
+  handlers.get("error")?.()
+  await new Promise((r) => setImmediate(r))
+  expect(hub.clientCount()).toBe(0)
+  hub.closeAll()
+})
+
 test("the hub streams frames to connected clients and drops closed ones", async () => {
   const hub = createSseHub({ heartbeatMs: 10_000 })
   const server = createServer((req, res) => { hub.add(res) })

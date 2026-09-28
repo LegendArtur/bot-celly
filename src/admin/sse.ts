@@ -21,6 +21,7 @@ export function createSseHub(opts: { heartbeatMs?: number } = {}): SseHub {
   if (typeof (heartbeat as any).unref === "function") (heartbeat as any).unref()
   return {
     add(res) {
+      res.on("error", () => clients.delete(res))
       res.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-store",
