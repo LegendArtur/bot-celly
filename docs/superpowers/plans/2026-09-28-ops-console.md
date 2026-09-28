@@ -945,7 +945,7 @@ import { redact } from "./log.js"
 import { attachCommand } from "./attach.ts"
 import { readAsset } from "./admin/assets.ts"
 import {
-  escapeHtml, formatClock, renderAudit, renderPage, renderProjects,
+  formatClock, renderAudit, renderPage, renderProjects,
   renderStats, renderUsage,
 } from "./admin/views.ts"
 import type { AuditView, DetailView, ProjectView, SessionView, StatsView } from "./admin/views.ts"
@@ -1288,7 +1288,7 @@ Expected: FAIL — `/partials/projects/c1/restart` returns 404.
 
 - [ ] **Step 3: Add partial `actionError` rendering and the routes**
 
-Add `renderProjectCard` to the `./admin/views.ts` value imports in `src/admin.ts`.
+Add `renderProjectCard` and `escapeHtml` to the `./admin/views.ts` value imports in `src/admin.ts`.
 
 Add a helper in `src/admin.ts`:
 
@@ -1802,7 +1802,7 @@ function parseCreateInput(form: URLSearchParams, deps: AdminDeps): { input: Admi
 }
 ```
 
-Add the fragment create and delete routes before the fragment action route:
+Add the fragment create and delete routes immediately before the Task 6 fragment GET block (so POST `/partials/projects` is handled here and not intercepted by the list route's 405):
 
 ```ts
 if (parts[0] === "partials" && parts[1] === "projects" && parts.length === 2) {
@@ -1830,8 +1830,9 @@ if (parts[0] === "partials" && parts[1] === "projects" && parts.length === 4 && 
     return sendHtml(res, 200, body)
   } catch (e) {
     deps.log?.warn?.("admin remove failed", { error: String(e) })
-    sse.broadcast(partial("#notice", renderNotice(e instanceof Error ? e.message : String(e), "error")))
-    return sendJson(res, 200, { ok: false })
+    const nowMs = now()
+    const message = e instanceof Error ? e.message : String(e)
+    return sendHtml(res, 200, renderProjects(buildProjects(deps, nowMs), nowMs) + `\n<hx-partial hx-target="#notice">${renderNotice(message, "error")}</hx-partial>`)
   }
 }
 ```
