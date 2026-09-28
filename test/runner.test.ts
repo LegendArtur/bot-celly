@@ -1100,3 +1100,15 @@ test("recover passes the thread worktree directory to session.messages", async (
   await runner.recover({ threadId: "t1", sessionId: "s1" })
   expect(payloads[0]).toEqual({ path: { id: "s1" }, query: { directory: "/w/t1" } })
 })
+
+test("prompt seeds the renderer with the run's prompt text", async () => {
+  const seen: (string | null | undefined)[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async () => {} } }) as any,
+    createRenderer: async (_threadId, _liveId, _liveIds, prompt) => { seen.push(prompt); return makeRenderer() as any },
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.prompt("t1", "hello", "u")
+  await runner.onEvent("t1", { kind: "text", sessionId: "s1", messageId: "m", partId: "p", text: "a" })
+  expect(seen).toEqual(["hello"])
+})

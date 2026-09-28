@@ -180,7 +180,7 @@ export function withDirectory<T extends object>(directory: string | null | undef
 export interface RunnerDeps {
   db: Db
   clientFor(threadId: string): OpencodeClient
-  createRenderer(threadId: string, liveMessageId?: string | null, liveMessageIds?: string[] | null): Promise<Renderer>
+  createRenderer(threadId: string, liveMessageId?: string | null, liveMessageIds?: string[] | null, prompt?: string | null): Promise<Renderer>
   sessionFor(threadId: string): Promise<string>
   directoryFor?(threadId: string): string | undefined
   log(msg: string, fields?: Record<string, unknown>): void
@@ -208,6 +208,7 @@ export class Runner {
   private owner = new Map<string, number>()
   private abortTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private renderers = new Map<string, Promise<Renderer>>()
+  private prompts = new Map<string, string>()
   constructor(private readonly deps: RunnerDeps) {}
 
   get activeCount() { return this.active.size }
@@ -243,7 +244,7 @@ export class Runner {
   private rendererFor(threadId: string, liveMessageId?: string | null, liveMessageIds?: string[] | null): Promise<Renderer> {
     let renderer = this.renderers.get(threadId)
     if (!renderer) {
-      renderer = this.deps.createRenderer(threadId, liveMessageId, liveMessageIds)
+      renderer = this.deps.createRenderer(threadId, liveMessageId, liveMessageIds, this.prompts.get(threadId))
       this.renderers.set(threadId, renderer)
       renderer.catch(() => { if (this.renderers.get(threadId) === renderer) this.renderers.delete(threadId) })
     }
@@ -261,6 +262,7 @@ export class Runner {
     this.deps.db.threads.setRenderState(threadId, "idle")
     this.active.delete(threadId)
     this.owner.delete(threadId)
+    this.prompts.delete(threadId)
     this.clearRenderer(threadId)
     this.deps.onThreadIdle?.(threadId)
     this.kickGlobalDrain()
@@ -334,6 +336,7 @@ export class Runner {
     const epoch = this.nextEpoch(threadId)
     this.active.add(threadId)
     this.owner.set(threadId, epoch)
+    this.prompts.set(threadId, text)
     try {
       db.threads.setRenderState(threadId, "running"); db.threads.touch(threadId)
       const sessionId = await this.deps.sessionFor(threadId)
@@ -352,6 +355,7 @@ export class Runner {
       if (this.ownsEpoch(threadId, epoch)) {
         this.active.delete(threadId)
         this.owner.delete(threadId)
+        this.prompts.delete(threadId)
         this.clearRenderer(threadId)
         try { db.threads.setRenderState(threadId, "idle") } catch {}
         this.deps.onThreadIdle?.(threadId)

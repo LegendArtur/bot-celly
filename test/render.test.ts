@@ -327,3 +327,29 @@ test("renderer upserts duplicate part ids instead of duplicating lines", async (
   await r.finalize()
   expect(sends).toEqual(["> ✅ `bash` · npm test"])
 })
+
+test("renderer seeds the prompt as the first segment", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ prompt: "  fix   the bug ", send: async (c) => { sends.push(c); return "m1" },
+    edit: async () => {}, now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "on it" })
+  await r.finalize()
+  expect(sends).toEqual(["> **you** · fix the bug\n\non it"])
+})
+
+test("renderer clamps a long prompt", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ prompt: "x".repeat(400), send: async (c) => { sends.push(c); return "m1" },
+    edit: async () => {}, now: () => 0, intervalMs: 1000 })
+  await r.finalize()
+  expect(sends).toEqual([`> **you** · ${"x".repeat(299)}…`])
+})
+
+test("renderer ignores a blank prompt", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ prompt: "   ", send: async (c) => { sends.push(c); return "m1" },
+    edit: async () => {}, now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "only" })
+  await r.finalize()
+  expect(sends).toEqual(["only"])
+})

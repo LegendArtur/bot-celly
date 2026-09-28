@@ -108,11 +108,21 @@ export function toolGlyph(status: string): string {
   return "•"
 }
 
+const PROMPT_TEXT_MAX = 300
+export function formatPrompt(text: string, max = PROMPT_TEXT_MAX): string {
+  const flat = text.replace(/\s+/g, " ").trim()
+  if (!flat) return ""
+  const clipped = flat.length > max ? flat.slice(0, max - 1).trimEnd() + "…" : flat
+  return `> **you** · ${clipped}`
+}
+
 type Segment =
+  | { kind: "prompt"; id: string; text: string }
   | { kind: "text"; id: string; text: string }
   | { kind: "tool"; id: string; name: string; status: string; title?: string }
 
 function renderSegment(segment: Segment): string {
+  if (segment.kind === "prompt") return formatPrompt(segment.text)
   if (segment.kind === "text") return segment.text
   const title = segment.title ? ` · ${truncateToolTitle(segment.title)}` : ""
   return `> ${toolGlyph(segment.status)} \`${segment.name}\`${title}`
@@ -138,9 +148,14 @@ export class Renderer {
     now(): number; intervalMs: number; onMessageId?(id: string): void; onMessageIds?(ids: string[]): void
     initialMessageId?: string | null
     initialMessageIds?: string[] | null
+    prompt?: string | null
   }) {
     if (deps.initialMessageIds && deps.initialMessageIds.length > 0) this.ids = [...deps.initialMessageIds]
     else if (deps.initialMessageId) this.ids = [deps.initialMessageId]
+    if (deps.prompt && deps.prompt.trim()) {
+      this.upsert({ kind: "prompt", id: "__prompt__", text: deps.prompt })
+      this.dirty = true
+    }
   }
   private upsert(segment: Segment): void {
     const existing = this.segmentIndex.get(segment.id)
