@@ -25,7 +25,7 @@ async function ui(over: any = {}) {
     auditTail: over.auditTail,
     now: over.now, liveTickMs: over.liveTickMs ?? 20,
   })
-  return { svr, db, calls, base: `http://127.0.0.1:${svr.port}`, getProgress: () => progress }
+  return { svr, db, calls, base: `http://127.0.0.1:${svr.port}`, getProgress: (stage: string) => progress?.(stage) }
 }
 
 test("GET /partials/projects renders cards and action wiring", async () => {
@@ -53,7 +53,7 @@ test("GET /partials/stats, usage, and audit render injected data", async () => {
 test("fragment routes reject the wrong method", async () => {
   const { svr, base } = await ui()
   try {
-    const res = await fetch(`${base}/partials/projects`, { method: "POST" })
+    const res = await fetch(`${base}/partials/stats`, { method: "POST" })
     expect(res.status).toBe(405)
   } finally { svr.close() }
 })
@@ -187,5 +187,63 @@ test("a fragment action broadcasts fresh regions over SSE", async () => {
     expect(calls).toEqual(["restart:c1"])
     expect(text).toContain(`hx-target="#projects"`)
     controller.abort()
+  } finally { svr.close() }
+})
+
+test("POST /partials/projects validates fields and kicks off create", async () => {
+  const { svr, base, calls } = await ui()
+  try {
+    const form = new URLSearchParams({ name: "newproj", guildId: "g1", cloneUrl: "https://example.com/x.git", branch: "main" })
+    const res = await fetch(`${base}/partials/projects`, { method: "POST", body: form, headers: { "content-type": "application/x-www-form-urlencoded" } })
+    expect(res.status).toBe(204)
+    expect(calls).toEqual(["create:newproj:g1"])
+    const bad = await fetch(`${base}/partials/projects`, { method: "POST", body: new URLSearchParams({ name: "x", guildId: "g1", branch: "main" }) })
+    expect(bad.status).toBe(400)
+    const noguild = await fetch(`${base}/partials/projects`, { method: "POST", body: new URLSearchParams({ name: "x", guildId: "nope" }) })
+    expect(noguild.status).toBe(400)
+  } finally { svr.close() }
+})
+
+test("create progress and completion are streamed into #notice", async () => {
+  const { svr, base, getProgress } = await ui()
+  try {
+    const controller = new AbortController()
+    const res = await fetch(`${base}/events`, { signal: controller.signal })
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+    await reader.read()
+    await fetch(`${base}/partials/projects`, { method: "POST", body: new URLSearchParams({ name: "newproj", guildId: "g1" }) })
+    getProgress?.("creating sandbox…")
+    let text = ""
+    const deadline = Date.now() + 1500
+    while (!text.includes("creating sandbox") && Date.now() < deadline) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+    expect(text).toContain(`hx-target="#notice"`)
+    expect(text).toContain("creating sandbox")
+    controller.abort()
+  } finally { svr.close() }
+})
+
+test("POST /partials/projects/:id/delete removes the project and clears the detail", async () => {
+  const { svr, base, calls } = await ui()
+  try {
+    const res = await fetch(`${base}/partials/projects/c1/delete`, { method: "POST" })
+    expect(res.status).toBe(200)
+    expect(calls).toEqual(["remove:c1"])
+    const body = await res.text()
+    expect(body).toContain(`hx-partial hx-target="#detail"`)
+  } finally { svr.close() }
+})
+
+test("JSON create, delete, and delete 404 mirror the fragment behavior", async () => {
+  const { svr, base, calls } = await ui()
+  try {
+    expect((await fetch(`${base}/api/projects`, { method: "POST", body: new URLSearchParams({ name: "newproj", guildId: "g1" }) })).status).toBe(201)
+    expect((await fetch(`${base}/api/projects/c1`, { method: "DELETE" })).status).toBe(200)
+    expect((await fetch(`${base}/api/projects/nope`, { method: "DELETE" })).status).toBe(404)
+    expect(calls).toEqual(["create:newproj:g1", "remove:c1"])
   } finally { svr.close() }
 })

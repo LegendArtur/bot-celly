@@ -8,7 +8,7 @@ import { attachCommand } from "./attach.js"
 import { readAsset } from "./admin/assets.js"
 import { createSseHub, encodeFrame } from "./admin/sse.js"
 import {
-  escapeHtml, formatClock, renderAudit, renderLogLines, renderPage, renderProjectCard,
+  escapeHtml, formatClock, renderAudit, renderLogLines, renderNotice, renderPage, renderProjectCard,
   renderProjects, renderStats, renderUsage,
 } from "./admin/views.js"
 import type { AuditView, DetailView, ProjectView, SessionView, StatsView } from "./admin/views.ts"
@@ -125,6 +125,29 @@ function sendHtml(res: ServerResponse, status: number, body: string): void {
   res.end(body)
 }
 
+async function readForm(req: import("node:http").IncomingMessage): Promise<URLSearchParams> {
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of req) {
+    const buf = chunk as Buffer
+    size += buf.byteLength
+    if (size > 8192) break
+    chunks.push(buf)
+  }
+  return new URLSearchParams(Buffer.concat(chunks).toString("utf8"))
+}
+
+function parseCreateInput(form: URLSearchParams, deps: AdminDeps): { input: AdminCreateInput } | { error: string } {
+  const name = (form.get("name") ?? "").trim()
+  const guildId = (form.get("guildId") ?? "").trim()
+  const cloneUrl = (form.get("cloneUrl") ?? "").trim() || undefined
+  const branch = (form.get("branch") ?? "").trim() || undefined
+  if (!name) return { error: "name required" }
+  if (!deps.guildIds.includes(guildId)) return { error: "unknown guild" }
+  if (branch && !cloneUrl) return { error: "branch requires clone" }
+  return { input: { guildId, name, ...(cloneUrl ? { cloneUrl } : {}), ...(branch ? { branch } : {}) } }
+}
+
 export async function createAdminServer(deps: AdminDeps): Promise<AdminServer> {
   const now = deps.now ?? Date.now
   const startedAt = now()
@@ -206,6 +229,35 @@ export async function createAdminServer(deps: AdminDeps): Promise<AdminServer> {
           res.end(asset.body)
           return
         }
+        if (parts[0] === "partials" && parts[1] === "projects" && parts.length === 2 && method === "POST") {
+          const parsed = parseCreateInput(await readForm(req), deps)
+          if ("error" in parsed) return sendJson(res, 400, { error: parsed.error })
+          void deps.create(parsed.input, (stage) => sse.broadcast(partial("#notice", renderNotice(stage, "info"))))
+            .then(() => sse.broadcast(partial("#notice", "")))
+            .catch((e) => {
+              deps.log?.warn?.("admin create failed", { error: String(e) })
+              sse.broadcast(partial("#notice", renderNotice(e instanceof Error ? e.message : String(e), "error")))
+            })
+          res.writeHead(204); res.end()
+          return
+        }
+        if (parts[0] === "partials" && parts[1] === "projects" && parts.length === 4 && parts[3] === "delete") {
+          if (method !== "POST") return sendJson(res, 405, { error: "method not allowed" })
+          const channelId = parts[2]!
+          if (!deps.db.projects.getByChannel(channelId)) return sendJson(res, 404, { error: "unknown project" })
+          try {
+            await deps.remove(channelId)
+            const nowMs = now()
+            const body = renderProjects(buildProjects(deps, nowMs), nowMs) + `\n<hx-partial hx-target="#detail"></hx-partial>`
+            broadcastAll()
+            return sendHtml(res, 200, body)
+          } catch (e) {
+            deps.log?.warn?.("admin remove failed", { error: String(e) })
+            const nowMs = now()
+            const message = e instanceof Error ? e.message : String(e)
+            return sendHtml(res, 200, renderProjects(buildProjects(deps, nowMs), nowMs) + `\n<hx-partial hx-target="#notice">${renderNotice(message, "error")}</hx-partial>`)
+          }
+        }
         if (parts[0] === "partials" && parts.length === 2 && (parts[1] === "projects" || parts[1] === "stats" || parts[1] === "usage" || parts[1] === "audit")) {
           if (method !== "GET") return sendJson(res, 405, { error: "method not allowed" })
           const nowMs = now()
@@ -241,6 +293,28 @@ export async function createAdminServer(deps: AdminDeps): Promise<AdminServer> {
             broadcastAll()
           }
           return
+        }
+        if (parts[0] === "api" && parts[1] === "projects" && parts.length === 2 && method === "POST") {
+          const parsed = parseCreateInput(await readForm(req), deps)
+          if ("error" in parsed) return sendJson(res, 400, { error: parsed.error })
+          try {
+            await deps.create(parsed.input)
+            broadcastAll()
+            return sendJson(res, 201, { ok: true, name: parsed.input.name })
+          } catch (e) {
+            return sendJson(res, 500, { error: e instanceof Error ? e.message : String(e) })
+          }
+        }
+        if (parts[0] === "api" && parts[1] === "projects" && parts.length === 3 && method === "DELETE") {
+          const channelId = parts[2]!
+          if (!deps.db.projects.getByChannel(channelId)) return sendJson(res, 404, { error: "unknown project" })
+          try {
+            await deps.remove(channelId)
+            broadcastAll()
+            return sendJson(res, 200, { ok: true, channelId })
+          } catch (e) {
+            return sendJson(res, 500, { error: e instanceof Error ? e.message : String(e) })
+          }
         }
         if (parts[0] === "api" && parts[1] === "projects" && parts.length === 2 && method === "GET") {
           sendJson(res, 200, deps.db.projects.list().map((p) => ({ channelId: p.channelId, name: p.name, status: p.status, hostPort: p.hostPort })))
