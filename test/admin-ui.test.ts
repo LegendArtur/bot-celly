@@ -116,3 +116,76 @@ test("POST /api/projects/:id/restart mirrors the JSON action shape", async () =>
     expect(calls).toEqual(["restart:c1"])
   } finally { svr.close() }
 })
+
+test("GET /events sends a snapshot, then a changed project update", async () => {
+  const { svr, db, base } = await ui({ liveTickMs: 25 })
+  const controller = new AbortController()
+  try {
+    const res = await fetch(`${base}/events`, { signal: controller.signal })
+    expect(res.headers.get("content-type")).toContain("text/event-stream")
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+    const deadline = Date.now() + 2000
+    let text = ""
+    while (!text.includes(`hx-target="#projects"`) && Date.now() < deadline) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+    expect(text).toContain(`hx-partial hx-target="#projects"`)
+    expect(text).toContain(`hx-partial hx-target="#stats"`)
+    db.projects.insertProvisioning({ ...proj, channelId: "c2", name: "celly-second", sandboxName: "sbx-second", hostPort: 4302 })
+    while (!text.includes("celly-second") && Date.now() < deadline) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+    expect(text).toContain("celly-second")
+  } finally { controller.abort(); svr.close() }
+})
+
+test("a changed log file streams into the #logs-c1 target with secrets redacted", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "celly-admin-"))
+  const file = join(dir, "sbx-demo.log")
+  writeFileSync(file, "[out] first\n")
+  const { svr, base } = await ui({ logFileFor: () => file, secrets: ["pw-secret"] })
+  const controller = new AbortController()
+  try {
+    const res = await fetch(`${base}/events`, { signal: controller.signal })
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+    let text = ""
+    const deadline = Date.now() + 1500
+    writeFileSync(file, "[out] first\n[err] pw-secret leaked\n")
+    while (!text.includes("#logs-c1") && Date.now() < deadline) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+    expect(text).toContain(`hx-target="#logs-c1"`)
+    expect(text).toContain("[redacted]")
+    expect(text).not.toContain("pw-secret")
+  } finally { controller.abort(); svr.close(); rmSync(dir, { recursive: true, force: true }) }
+})
+
+test("a fragment action broadcasts fresh regions over SSE", async () => {
+  const { svr, base, calls } = await ui()
+  try {
+    const controller = new AbortController()
+    const res = await fetch(`${base}/events`, { signal: controller.signal })
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+    await reader.read()
+    await fetch(`${base}/partials/projects/c1/restart`, { method: "POST" })
+    let text = ""
+    const deadline = Date.now() + 1500
+    while (!text.includes("#audit") && Date.now() < deadline) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+    expect(calls).toEqual(["restart:c1"])
+    expect(text).toContain(`hx-target="#projects"`)
+    controller.abort()
+  } finally { svr.close() }
+})
