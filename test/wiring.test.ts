@@ -151,3 +151,12 @@ test("seedThreadDefaults ignores an emptied channel variant and falls back to th
   const settings: Record<string, string> = { default_variant: "global-high", "default_variant:c1": "" }
   expect(seedThreadDefaults((key) => settings[key], "c1").variant).toBe("global-high")
 })
+
+test("index wires project create, remove, and restart into the admin server", () => {
+  const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8")
+  expect(source).toContain("guildIds: cfg.guildIds")
+  expect(source).toContain("restart: async (channelId)")
+  expect(source).toContain("remove: async (channelId)")
+  expect(source).toContain("create: async (input, onProgress)")
+  expect(source).toContain("projects.restartServer(channelId)")
+})
