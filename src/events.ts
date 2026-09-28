@@ -5,6 +5,7 @@ import { basicAuth } from "./opencode.js"
 export type NormalizedEvent =
   | { kind: "text"; sessionId: string; messageId: string; partId: string; text: string }
   | { kind: "tool"; sessionId: string; messageId: string; partId: string; name: string; status: string; title?: string }
+  | { kind: "notice"; sessionId: string; partId: string; text: string; tone: "info" | "warn" | "error" }
   | { kind: "usage"; sessionId: string; messageId: string; cost: number; tokensIn: number; tokensOut: number; cacheRead: number; cacheWrite: number }
   | { kind: "idle"; sessionId: string }
   | { kind: "error"; sessionId: string; message: string }

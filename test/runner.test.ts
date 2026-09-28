@@ -286,7 +286,7 @@ test("session.error posts the error, sets idle, and drains the queue", async () 
   await runner.prompt("t1", "first", "u")
   await runner.prompt("t1", "second", "u")
   await runner.onEvent("t1", { kind: "error", sessionId: "s1", message: "boom" })
-  expect(pushed.some((p) => p.kind === "text" && p.text === "[error] boom")).toBe(true)
+  expect(pushed.some((p) => p.kind === "notice" && p.text === "boom" && p.tone === "error")).toBe(true)
   expect(states).toContain("idle")
   expect(states).not.toContain("errored")
   expect(sent).toEqual(["first", "second"])
@@ -829,9 +829,9 @@ test("reaching the session budget stops the run, notes it, and warns the channel
       notify: (channelId, text) => { notices.push([channelId, text]) } })
     await runner.prompt("t1", "go", "u")
     await runner.onEvent("t1", { kind: "usage", sessionId: "s1", messageId: "m1", cost: 0.006, tokensIn: 1, tokensOut: 1, cacheRead: 0, cacheWrite: 0 })
-    const note = "[budget] session budget reached ($0.0060 of $0.0050)"
-    expect(pushed.some((p) => p.kind === "text" && p.text === note)).toBe(true)
-    expect(notices).toEqual([["c1", note]])
+    const note = "session budget reached ($0.0060 of $0.0050)"
+    expect(pushed.some((p) => p.kind === "notice" && p.text === note && p.tone === "warn")).toBe(true)
+    expect(notices).toEqual([["c1", `[budget] ${note}`]])
     expect(aborted).toEqual(["s1"])
     await vi.advanceTimersByTimeAsync(10_000)
     expect(runner.activeCount).toBe(0)
@@ -879,7 +879,7 @@ test("handleProjectDown finalizes and idles active threads, freeing the concurre
   expect(runner.activeCount).toBe(0)
   expect(states).toContain("idle")
   expect(pushed.some((p) => p.finalize)).toBe(true)
-  expect(pushed.some((p) => p.kind === "text" && /stopped/.test(p.text))).toBe(true)
+  expect(pushed.some((p) => p.kind === "notice" && p.tone === "warn" && /stopped/.test(p.text))).toBe(true)
 })
 
 test("decidePermission keeps today's policy under auto", () => {

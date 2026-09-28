@@ -116,19 +116,38 @@ export function formatPrompt(text: string, max = PROMPT_TEXT_MAX): string {
   return `> **you** · ${clipped}`
 }
 
+const NOTICE_TEXT_MAX = 500
+type NoticeTone = "info" | "warn" | "error"
+function noticeLabel(tone: NoticeTone): string {
+  if (tone === "error") return "Error"
+  if (tone === "warn") return "Warning"
+  return "Note"
+}
+function noticeGlyph(tone: NoticeTone): string {
+  if (tone === "error") return "❌"
+  if (tone === "warn") return "⚠️"
+  return "ℹ️"
+}
+
 type Segment =
   | { kind: "prompt"; id: string; text: string }
   | { kind: "text"; id: string; text: string }
   | { kind: "tool"; id: string; name: string; status: string; title?: string }
+  | { kind: "notice"; id: string; text: string; tone: NoticeTone }
 
 function renderSegment(segment: Segment): string {
   if (segment.kind === "prompt") return formatPrompt(segment.text)
   if (segment.kind === "text") return segment.text
+  if (segment.kind === "notice") {
+    const flat = segment.text.replace(/\s+/g, " ").trim()
+    const clipped = flat.length > NOTICE_TEXT_MAX ? flat.slice(0, NOTICE_TEXT_MAX - 1).trimEnd() + "…" : flat
+    return `> ${noticeGlyph(segment.tone)} **${noticeLabel(segment.tone)}** — ${clipped}`
+  }
   const title = segment.title ? ` · ${truncateToolTitle(segment.title)}` : ""
   return `> ${toolGlyph(segment.status)} \`${segment.name}\`${title}`
 }
 function isQuote(segment: Segment): boolean {
-  return segment.kind === "tool"
+  return segment.kind === "tool" || segment.kind === "notice"
 }
 
 export class Renderer {
@@ -197,6 +216,7 @@ export class Renderer {
     if (this.startedAt === null) this.startedAt = this.deps.now()
     if (e.kind === "text") this.upsert({ kind: "text", id: e.partId, text: e.text })
     else if (e.kind === "tool") this.upsert({ kind: "tool", id: e.partId, name: e.name, status: e.status, ...(e.title ? { title: e.title } : {}) })
+    else if (e.kind === "notice") this.upsert({ kind: "notice", id: e.partId, text: e.text, tone: e.tone })
     else return
     this.dirty = true
     this.revision++

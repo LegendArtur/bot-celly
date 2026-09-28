@@ -353,3 +353,21 @@ test("renderer ignores a blank prompt", async () => {
   await r.finalize()
   expect(sends).toEqual(["only"])
 })
+
+test("renderer renders notices with a tone glyph", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "notice", sessionId: "s", partId: "n1", text: "boom", tone: "error" })
+  await r.finalize()
+  expect(sends).toEqual(["> ❌ **Error** — boom"])
+})
+
+test("renderer flattens multiline notices", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "notice", sessionId: "s", partId: "n1", text: "line one\nline two", tone: "warn" })
+  await r.finalize()
+  expect(sends).toEqual(["> ⚠️ **Warning** — line one line two"])
+})

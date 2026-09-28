@@ -376,11 +376,11 @@ export class Runner {
       await renderer.tick()
       const budget = this.budgetFor(threadId)
       if (budget > 0 && totals.cost >= budget && db.threads.get(threadId)?.renderState !== "aborting") {
-        const note = `[budget] session budget reached (${formatCost(totals.cost)} of ${formatCost(budget)})`
-        renderer.push({ kind: "text", sessionId: e.sessionId, messageId: "", partId: `budget-${e.sessionId}`, text: note })
+        const note = `session budget reached (${formatCost(totals.cost)} of ${formatCost(budget)})`
+        renderer.push({ kind: "notice", sessionId: e.sessionId, partId: `budget-${e.sessionId}`, text: note, tone: "warn" })
         await renderer.finalize()
         const thread = db.threads.get(threadId)
-        if (thread) await this.deps.notify?.(thread.channelId, note)
+        if (thread) await this.deps.notify?.(thread.channelId, `[budget] ${note}`)
         await this.abort(threadId)
       }
     }
@@ -413,7 +413,7 @@ export class Runner {
     } else if (e.kind === "error") {
       try {
         const r = await this.rendererFor(threadId)
-        r.push({ kind: "text", sessionId: e.sessionId, messageId: "", partId: `err-${e.sessionId}`, text: `[error] ${e.message}` })
+        r.push({ kind: "notice", sessionId: e.sessionId, partId: `err-${e.sessionId}`, text: e.message, tone: "error" })
         await r.finalize()
       } catch (err) {
         this.deps.log("error render finalize failed", { threadId, error: String(err) })
@@ -480,11 +480,11 @@ export class Runner {
     this.clearAbortTimer(thread.threadId)
     this.idle(thread.threadId, epoch)
   }
-  private async finalizeThread(thread: Thread, note?: { partId: string; text: string }): Promise<void> {
+  private async finalizeThread(thread: Thread, note?: { partId: string; text: string; tone: "info" | "warn" | "error" }): Promise<void> {
     const epoch = this.owner.get(thread.threadId)
     try {
       const renderer = await this.rendererFor(thread.threadId)
-      if (note) renderer.push({ kind: "text", sessionId: thread.sessionId, messageId: "", partId: note.partId, text: note.text })
+      if (note) renderer.push({ kind: "notice", sessionId: thread.sessionId, partId: note.partId, text: note.text, tone: note.tone })
       await renderer.finalize()
     } catch {}
     this.idle(thread.threadId, epoch)
@@ -498,7 +498,7 @@ export class Runner {
     for (const thread of threads) { this.queue.delete(thread.threadId); this.clearAbortTimer(thread.threadId) }
     for (const thread of threads) {
       if (!this.active.has(thread.threadId)) continue
-      await this.finalizeThread(thread, { partId: `down-${thread.threadId}`, text: "[project server stopped]" })
+      await this.finalizeThread(thread, { partId: `down-${thread.threadId}`, text: "project server stopped", tone: "warn" })
     }
   }
   async resetChannel(channelId: string, opts: { notify?: boolean } = {}): Promise<void> {
@@ -506,7 +506,7 @@ export class Runner {
     for (const thread of threads) { this.queue.delete(thread.threadId); this.clearAbortTimer(thread.threadId) }
     for (const thread of threads) {
       if (!this.active.has(thread.threadId)) { this.resetThread(thread); continue }
-      await this.finalizeThread(thread, opts.notify ? { partId: `stop-${thread.threadId}`, text: "[project stopped]" } : undefined)
+      await this.finalizeThread(thread, opts.notify ? { partId: `stop-${thread.threadId}`, text: "project stopped", tone: "warn" } : undefined)
     }
   }
 }
