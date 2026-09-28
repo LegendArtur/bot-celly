@@ -109,6 +109,7 @@ export interface AdminDeps {
   auditTail?(limit: number): unknown[]
   now?(): number
   liveTickMs?: number
+  log?: { warn(message: string, fields?: Record<string, unknown>): void }
 }
 ```
 
@@ -332,7 +333,8 @@ on every render, broadcast on change (§7), and otherwise refreshed by their own
   `hx-swap="innerHTML"`.
 - The response contains: header (name, status pill, port, sandbox, last active),
   Restart/Stop/Copy-attach actions, the log pane
-  `<pre id="logs-<channelId>" role="log">`, and the session list.
+  `<div id="logs-<channelId>" class="logs" role="log" aria-live="polite">`, and
+  the session list.
 - Sessions show title (or `session <id>`), `thread/<threadId>`, model/agent when
   present, render state, and relative last-active time. Each session has a copy
   button carrying the attach command in a `data-command` attribute.
