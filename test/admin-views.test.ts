@@ -100,3 +100,51 @@ test("renderAudit escapes entries and maps kinds to a class", () => {
   expect(html).toContain("tl warn")
   expect(renderAudit([])).toContain("No audit entries yet")
 })
+
+import { renderDetail, renderLogLines, renderPage } from "../src/admin/views.ts"
+import type { DetailView, SessionView } from "../src/admin/views.ts"
+
+test("renderLogLines marks error lines", () => {
+  const html = renderLogLines(["[out] ok", "[err] boom"])
+  expect(html).toContain(`<div class="lg">[out] ok</div>`)
+  expect(html).toContain(`<div class="lg err">[err] boom</div>`)
+  expect(renderLogLines([])).toContain("no logs yet")
+})
+
+test("renderDetail wires the log target, sessions, and copy commands", () => {
+  const session: SessionView = { threadId: "t1", title: "work", sessionId: "s1", model: "m", agent: null, renderState: "idle", lastActiveAt: 0, attach: "sbx exec x" }
+  const detail: DetailView = { project, logs: ["[out] hi"], sessions: [session] }
+  const html = renderDetail(detail, 1_000_000)
+  expect(html).toContain(`id="logs-c1"`)
+  expect(html).toContain("role=\"log\"")
+  expect(html).toContain("data-copy=\"sbx exec x\"")
+  expect(html).toContain("thread/t1")
+  expect(html).toContain(`hx-get="/partials/projects/c1/detail"`)
+})
+
+test("renderPage includes the asset scripts, SSE connection, and create form", () => {
+  const html = renderPage({
+    now: 1_000_000, uptimeMs: 60_000, projects: [project],
+    stats: { total: 1, ready: 1, degraded: 0, provisioning: 0, cost: 2.4, tokens: 640_000, uptimeMs: 60_000 },
+    usage: { cost: 2.4, tokensIn: 400_000, tokensOut: 240_000, cacheRead: 0, cacheWrite: 0 },
+    audit: [], guildIds: ["g1"],
+  })
+  expect(html).toContain("/assets/app.css")
+  expect(html).toContain("/assets/htmx.min.js")
+  expect(html).toContain("/assets/hx-sse.min.js")
+  expect(html).toContain(`hx-sse:connect="/events"`)
+  expect(html).toContain(`id="projects"`)
+  expect(html).toContain(`id="notice"`)
+  expect(html).toContain(`hx-post="/partials/projects"`)
+  expect(html).toContain(`name="guildId" value="g1"`)
+})
+
+test("renderPage never renders the server password", () => {
+  const html = renderPage({
+    now: 0, uptimeMs: 0, projects: [project],
+    stats: { total: 1, ready: 1, degraded: 0, provisioning: 0, cost: 0, tokens: 0, uptimeMs: 0 },
+    usage: { cost: 0, tokensIn: 0, tokensOut: 0, cacheRead: 0, cacheWrite: 0 },
+    audit: [], guildIds: ["g1"],
+  })
+  expect(html).not.toContain("serverPassword")
+})
