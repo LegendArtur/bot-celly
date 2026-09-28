@@ -3,7 +3,6 @@
 **Date:** 2026-09-28
 **Status:** Approved design (2026-09-28 brainstorming session)
 **Plan:** to be generated from this spec via `superpowers:writing-plans`
-**Mockup reference:** `.worktrees/dashboard-ui/mockups/style-a-calm.html` (untracked; visual reference for the A·Calm direction)
 
 This spec replaces the text-list admin page at `src/admin.ts` with a local ops
 console: live project cards, usage and cost, an audit trail, a project detail
@@ -244,10 +243,12 @@ return `404` JSON for unknown projects and `405` JSON for wrong methods.
 
 ## 8. Views and visual system
 
-### 8.1 A·Calm
+### 8.1 Calm, flat direction
 
-Port `mockups/style-a-calm.html` into `assets/admin/app.css` and
-`src/admin/views.ts`:
+The console UI is **authored from scratch** as server-rendered htmx fragments in
+`src/admin/views.ts` with `assets/admin/app.css`. No static mockup is carried
+forward. The brief below sets the direction; exact values may be tuned during
+implementation as long as the contrast and accessibility requirements hold.
 
 - Flat surfaces, thin borders, no gradients, no glows, no glass, no shadows
   beyond at most a subtle hairline.
@@ -295,7 +296,7 @@ Never rendered: `serverPassword`, `directory`, log contents before redaction.
 - Selected card carries `aria-current="true"`.
 - Status is conveyed by text label in addition to color.
 - Color contrast target: body text and muted text ≥ 4.5:1 against their
-  backgrounds; verify the A·Calm palette before merge.
+  backgrounds; verify the palette before merge.
 - `prefers-reduced-motion: reduce` removes transitions.
 
 ## 9. Feature behavior
