@@ -191,7 +191,7 @@ export interface RunnerDeps {
   onThreadIdle?(threadId: string): void
   approvalModeFor?(channelId: string): ApprovalMode
   respondPermission?(input: PermissionReplyInput): Promise<void>
-  approvals?: Pick<ApprovalManager, "requestPermission" | "askQuestion" | "cancel">
+  approvals?: Pick<ApprovalManager, "requestPermission" | "askQuestion" | "cancel" | "cancelThread">
   audit?(entry: AuditDraft): void
 }
 
@@ -256,6 +256,7 @@ export class Runner {
     return resolveBudget(this.deps.db.settings, thread.channelId, this.deps.budgetUsd ?? 0)
   }
   private idle(threadId: string, epoch: number | undefined): boolean {
+    this.deps.approvals?.cancelThread(threadId)
     if (!this.ownsEpoch(threadId, epoch)) return false
     this.deps.db.threads.setRenderState(threadId, "idle")
     this.active.delete(threadId)
@@ -397,9 +398,11 @@ export class Runner {
       }
     } else if (e.kind === "permission-replied") {
       this.deps.approvals?.cancel(e.sessionId, e.requestId)
+    } else if (e.kind === "question-replied" || e.kind === "question-rejected") {
+      this.deps.approvals?.cancel(e.sessionId, e.requestId)
     } else if (e.kind === "question") {
       try {
-        await this.deps.approvals?.askQuestion({ threadId, sessionId: e.sessionId, requestId: e.requestId, questions: e.questions })
+        await this.deps.approvals?.askQuestion({ threadId, sessionId: e.sessionId, requestId: e.requestId, source: e.source, questions: e.questions })
       } catch (err) {
         this.deps.log("question handling failed", { threadId, requestId: e.requestId, error: String(err) })
       }

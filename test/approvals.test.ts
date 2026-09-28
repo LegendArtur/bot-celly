@@ -13,7 +13,7 @@ const question = (over: any = {}) => ({
   ...over,
 })
 const permission: PermissionAsk = { threadId: "t1", sessionId: "s1", requestId: "r1", source: "v1", tool: "bash", patterns: ["npm test"], exact: true }
-const questions: QuestionAsk = { threadId: "t1", sessionId: "s1", requestId: "q1", questions: [question()] }
+const questions: QuestionAsk = { threadId: "t1", sessionId: "s1", requestId: "q1", source: "v1", questions: [question()] }
 
 function fake(over: Partial<ApprovalManagerDeps> = {}) {
   const sent: Array<{ threadId: string; content: string; components: any[] }> = []
@@ -94,11 +94,51 @@ test("askQuestion collects multi-question answers in order and replies once", as
   expect(f.sent).toHaveLength(1)
   expect(manager.answerOption("q1", 0, 1, "u1")).toBe(true)
   expect(f.questionsReplied).toEqual([])
+  await vi.waitFor(() => expect(f.edited).toHaveLength(1))
+  expect(f.edited[0]!.content).toContain("**Answer:** postgres")
+  expect(f.edited[0]!.content).toContain("Waiting for an answer")
   expect(manager.answerQuestion("q1", 1, ["yes"], "u2")).toBe(true)
   await expect(pending).resolves.toEqual([["postgres"], ["yes"]])
-  expect(f.questionsReplied[0]).toEqual({ threadId: "t1", sessionId: "s1", requestId: "q1", answers: [["postgres"], ["yes"]] })
-  expect(f.edited[0]!.content).toContain("answered")
+  expect(f.questionsReplied[0]).toEqual({ threadId: "t1", sessionId: "s1", requestId: "q1", source: "v1", answers: [["postgres"], ["yes"]] })
+  const final = f.edited.at(-1)!
+  expect(final.content).toContain("**Answer:** postgres")
+  expect(final.content).toContain("**Answer:** yes")
+  expect(final.content).toContain("Questions **answered** by <@u2>.")
+  expect(final.components).toEqual([])
   expect(f.audits).toHaveLength(2)
+})
+
+test("question progress keeps the controls until the last answer", async () => {
+  const f = fake()
+  const manager = new ApprovalManager(f.deps)
+  const input: QuestionAsk = { ...questions, requestId: "q9", questions: [question(), question({ question: "Deploy?", header: "Deploy", options: [] })] }
+  const pending = manager.askQuestion(input)
+  expect(manager.answerQuestion("q9", 0, ["postgres"], "u1")).toBe(true)
+  await vi.waitFor(() => expect(f.edited).toHaveLength(1))
+  const partial = f.edited[0]!
+  expect(partial.content).toContain("**Answer:** postgres")
+  expect(partial.content).toContain("Waiting for an answer")
+  expect(partial.components.length).toBeGreaterThan(0)
+  expect(manager.answerQuestion("q9", 1, ["yes"], "u2")).toBe(true)
+  await expect(pending).resolves.toEqual([["postgres"], ["yes"]])
+  await vi.waitFor(() => expect(f.edited).toHaveLength(2))
+  const done = f.edited[1]!
+  expect(done.content).toContain("Questions **answered** by <@u2>.")
+  expect(done.components).toEqual([])
+})
+
+test("question progress clamps long answers and oversized messages", async () => {
+  const f = fake()
+  const manager = new ApprovalManager(f.deps)
+  const big = Array.from({ length: 6 }, (_, i) => question({ question: "q".repeat(500), header: `h${i}` }))
+  manager.askQuestion({ threadId: "t1", sessionId: "s1", requestId: "q3", source: "v2", questions: big })
+  expect(manager.answerQuestion("q3", 0, ["x".repeat(5000)], "u1")).toBe(true)
+  await vi.waitFor(() => expect(f.edited).toHaveLength(1))
+  const partial = f.edited.at(-1)!
+  expect(partial.content.length).toBeLessThanOrEqual(2000)
+  expect(partial.content).toContain(`**Answer:** ${"x".repeat(200)}`)
+  expect(partial.content).toContain("Waiting for an answer")
+  expect(partial.content.endsWith("…")).toBe(true)
 })
 
 test("resolveQuestion completes a pending request with the full answer matrix", async () => {
@@ -131,7 +171,7 @@ test("askQuestion times out to null and rejects the server request", async () =>
     const pending = manager.askQuestion(questions)
     await vi.advanceTimersByTimeAsync(1000)
     await expect(pending).resolves.toBeNull()
-    expect(f.questionsRejected).toEqual([{ threadId: "t1", sessionId: "s1", requestId: "q1" }])
+    expect(f.questionsRejected).toEqual([{ threadId: "t1", sessionId: "s1", requestId: "q1", source: "v1" }])
     expect(f.edited[0]!.content).toMatch(/timed out/)
   } finally {
     vi.useRealTimers()
@@ -158,4 +198,53 @@ test("askQuestion outside buttons mode rejects without posting", async () => {
   await expect(manager.askQuestion(questions)).resolves.toBeNull()
   expect(f.sent).toEqual([])
   expect(f.questionsRejected).toHaveLength(1)
+})
+
+test("question reply failure notifies the delivery callback and still resolves the ask", async () => {
+  const failures: any[] = []
+  const f = fake({
+    replyQuestion: async () => { throw new Error("Question request not found: q1") },
+    onQuestionDeliveryFailed: (input) => { failures.push(input) },
+  })
+  const manager = new ApprovalManager(f.deps)
+  const pending = manager.askQuestion(questions)
+  expect(manager.answerQuestion("q1", 0, ["postgres"], "u1")).toBe(true)
+  await expect(pending).resolves.toEqual([["postgres"]])
+  await vi.waitFor(() => expect(failures).toHaveLength(1))
+  expect(failures[0]).toEqual({
+    threadId: "t1", sessionId: "s1", requestId: "q1", action: "reply",
+    error: "Error: Question request not found: q1",
+  })
+  expect(f.edited.some((e) => e.content.includes("could not be delivered"))).toBe(true)
+})
+
+test("question reject failure notifies the delivery callback", async () => {
+  const failures: any[] = []
+  const f = fake({
+    rejectQuestion: async () => { throw new Error("Error: Question request not found: q1") },
+    onQuestionDeliveryFailed: (input) => { failures.push(input) },
+  })
+  const manager = new ApprovalManager(f.deps)
+  const pending = manager.askQuestion(questions)
+  expect(manager.rejectQuestion("q1", "u1")).toBe(true)
+  await expect(pending).resolves.toBeNull()
+  await vi.waitFor(() => expect(failures).toHaveLength(1))
+  expect(failures[0]).toMatchObject({ action: "reject", requestId: "q1" })
+})
+
+test("cancelThread clears pending requests for one thread only", async () => {
+  const f = fake()
+  const manager = new ApprovalManager(f.deps)
+  const q1 = manager.askQuestion(questions)
+  const q2 = manager.askQuestion({ ...questions, threadId: "t2", requestId: "q2" })
+  const p2 = manager.requestPermission({ ...permission, threadId: "t2", requestId: "r2" })
+  manager.cancelThread("t1")
+  await expect(q1).resolves.toBeNull()
+  expect(manager.hasPending("q1")).toBe(false)
+  expect(manager.hasPending("q2")).toBe(true)
+  expect(manager.hasPending("r2")).toBe(true)
+  manager.cancelThread("t2")
+  await expect(q2).resolves.toBeNull()
+  await expect(p2).resolves.toBe("reject")
+  expect(f.edited.some((e) => e.threadId === "t2" && e.content.includes("no longer active"))).toBe(true)
 })

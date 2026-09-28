@@ -304,11 +304,28 @@ async function main(): Promise<void> {
       const sdk = resolveClient(projectForThread(threadId))
       await sdk.postSessionIdPermissionsPermissionId({ path: { id: sessionId, permissionID: requestId }, body: { response: reply } } as any)
     },
-    replyQuestion: async ({ threadId, sessionId, requestId, answers }) => {
-      await v2ClientFor(threadId).v2.session.question.reply({ sessionID: sessionId, requestID: requestId, questionV2Reply: { answers } })
+    replyQuestion: async ({ threadId, sessionId, requestId, source, answers }) => {
+      if (source === "v2") {
+        await v2ClientFor(threadId).v2.session.question.reply({ sessionID: sessionId, requestID: requestId, questionV2Reply: { answers } })
+        return
+      }
+      // v1 questions live in the instance-scoped registry served by
+      // POST /question/:requestID/reply, keyed by directory. Replying through
+      // the v2 session route answers a different registry and never lands.
+      const directory = directoryFor(threadId)
+      await v2ClientFor(threadId).question.reply({ requestID: requestId, answers, ...(directory ? { directory } : {}) })
     },
-    rejectQuestion: async ({ threadId, sessionId, requestId }) => {
-      await v2ClientFor(threadId).v2.session.question.reject({ sessionID: sessionId, requestID: requestId })
+    rejectQuestion: async ({ threadId, sessionId, requestId, source }) => {
+      if (source === "v2") {
+        await v2ClientFor(threadId).v2.session.question.reject({ sessionID: sessionId, requestID: requestId })
+        return
+      }
+      const directory = directoryFor(threadId)
+      await v2ClientFor(threadId).question.reject({ requestID: requestId, ...(directory ? { directory } : {}) })
+    },
+    onQuestionDeliveryFailed: ({ threadId, requestId, action, error }) => {
+      log.warn("question delivery failed; aborting run", { threadId, requestId, action, error })
+      void runnerSvc.abort(threadId).catch((err) => log.warn("abort after question failure failed", { threadId, error: String(err) }))
     },
     modeFor: (threadId) => approvalModeFor(db.settings, db.threads.get(threadId)?.channelId ?? threadId),
     now: () => Date.now(),
