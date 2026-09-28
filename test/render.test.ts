@@ -273,16 +273,16 @@ test("renderer renders tool lines with a title truncated to 120 chars", async ()
   r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "p1", name: "bash", status: "running", title: "npm test" })
   r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "p2", name: "edit", status: "completed", title: "x".repeat(200) })
   await r.finalize()
-  expect(sends).toEqual([`> [bash] running · npm test\n> [edit] completed · ${"x".repeat(119)}…`])
+  expect(sends).toEqual([`> 🔄 \`bash\` · npm test\n> ✅ \`edit\` · ${"x".repeat(119)}…`])
 })
 
-test("renderer tool lines without a title stay byte-compatible", async () => {
+test("renderer tool lines without a title omit the separator", async () => {
   const sends: string[] = []
   const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
     now: () => 0, intervalMs: 1000 })
   r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "p1", name: "bash", status: "running" })
   await r.finalize()
-  expect(sends).toEqual(["> [bash] running"])
+  expect(sends).toEqual(["> 🔄 `bash`"])
 })
 
 test("renderer reports elapsed time from the first push to finalize", async () => {
@@ -293,4 +293,37 @@ test("renderer reports elapsed time from the first push to finalize", async () =
   t = 150
   await r.finalize()
   expect(r.elapsedMs()).toBe(50)
+})
+
+test("renderer interleaves text and tool segments in arrival order", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p1", text: "before" })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "p2", name: "bash", status: "completed", title: "npm test" })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p3", text: "after" })
+  await r.finalize()
+  expect(sends).toEqual(["before\n\n> ✅ `bash` · npm test\n\nafter"])
+})
+
+test("renderer keeps a tool segment in place when its status updates", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "t1", name: "bash", status: "running", title: "npm test" })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p1", text: "mid" })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "t1", name: "bash", status: "completed", title: "npm test" })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "t2", name: "edit", status: "completed", title: "src/x.ts" })
+  await r.finalize()
+  expect(sends).toEqual(["> ✅ `bash` · npm test\n\nmid\n\n> ✅ `edit` · src/x.ts"])
+})
+
+test("renderer upserts duplicate part ids instead of duplicating lines", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "t1", name: "bash", status: "pending", title: "npm test" })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "t1", name: "bash", status: "completed", title: "npm test" })
+  await r.finalize()
+  expect(sends).toEqual(["> ✅ `bash` · npm test"])
 })
