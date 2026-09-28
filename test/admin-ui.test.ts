@@ -247,3 +247,33 @@ test("JSON create, delete, and delete 404 mirror the fragment behavior", async (
     expect(calls).toEqual(["create:newproj:g1", "remove:c1"])
   } finally { svr.close() }
 })
+
+test("GET /partials/projects/:id/detail renders logs, sessions, and marks the card selected", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "celly-admin-"))
+  const file = join(dir, "sbx-demo.log")
+  writeFileSync(file, "[out] booted\n[err] pw-secret leaked\n")
+  const { svr, db, base } = await ui({ logFileFor: () => file })
+  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: "work", model: "m", agent: null,
+    worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 2 })
+  try {
+    const res = await fetch(`${base}/partials/projects/c1/detail`)
+    expect(res.status).toBe(200)
+    const body = await res.text()
+    expect(body).toContain(`id="logs-c1"`)
+    expect(body).toContain("thread/t1")
+    expect(body).toContain("[redacted]")
+    expect(body).not.toContain("pw-secret")
+    expect(body).toContain(`hx-partial hx-target="#project-c1"`)
+    expect(body).toContain(`aria-current="true"`)
+    expect((await fetch(`${base}/partials/projects/nope/detail`)).status).toBe(404)
+  } finally { svr.close(); rmSync(dir, { recursive: true, force: true }) }
+})
+
+test("app.js exposes the copy-to-clipboard behavior", async () => {
+  const { svr, base } = await ui()
+  try {
+    const body = await (await fetch(`${base}/assets/app.js`)).text()
+    expect(body).toContain("data-copy")
+    expect(body).toContain("navigator.clipboard")
+  } finally { svr.close() }
+})

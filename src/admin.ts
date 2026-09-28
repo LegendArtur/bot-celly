@@ -8,8 +8,8 @@ import { attachCommand } from "./attach.js"
 import { readAsset } from "./admin/assets.js"
 import { createSseHub, encodeFrame } from "./admin/sse.js"
 import {
-  escapeHtml, formatClock, renderAudit, renderLogLines, renderNotice, renderPage, renderProjectCard,
-  renderProjects, renderStats, renderUsage,
+  escapeHtml, formatClock, renderAudit, renderDetail, renderLogLines, renderNotice, renderPage,
+  renderProjectCard, renderProjects, renderStats, renderUsage,
 } from "./admin/views.js"
 import type { AuditView, DetailView, ProjectView, SessionView, StatsView } from "./admin/views.ts"
 
@@ -269,6 +269,16 @@ export async function createAdminServer(deps: AdminDeps): Promise<AdminServer> {
           }
           if (parts[1] === "usage") return sendHtml(res, 200, renderUsage(totals))
           return sendHtml(res, 200, renderAudit(buildAudit(deps)))
+        }
+        if (parts[0] === "partials" && parts[1] === "projects" && parts.length === 4 && parts[3] === "detail") {
+          if (method !== "GET") return sendJson(res, 405, { error: "method not allowed" })
+          const channelId = parts[2]!
+          const detail = buildDetail(deps, channelId)
+          if (!detail) return sendJson(res, 404, { error: "unknown project" })
+          const nowMs = now()
+          const selectedCard = renderProjectCard(projectViewFor(deps.db.projects.getByChannel(channelId)!, deps, nowMs, true), nowMs)
+          sendHtml(res, 200, renderDetail(detail, nowMs) + `\n<hx-partial hx-target="#project-${channelId}">${selectedCard}</hx-partial>`)
+          return
         }
         if (parts[0] === "partials" && parts[1] === "projects" && parts.length === 4 && (parts[3] === "start" || parts[3] === "stop" || parts[3] === "restart")) {
           if (method !== "POST") return sendJson(res, 405, { error: "method not allowed" })
