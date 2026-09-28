@@ -84,7 +84,7 @@ export function renderProjectCard(p: ProjectView, now: number): string {
   }
   if (p.status === "provisioning") actions.push(`<button class="btn" disabled>Starting…</button>`)
   actions.push(`<button class="btn" hx-get="/partials/projects/${id}/detail" hx-target="#detail" hx-swap="innerHTML" hx-disabled-elt="find button">Logs</button>`)
-  actions.push(`<button class="btn danger" hx-post="/partials/projects/${id}/delete" hx-target="#projects" hx-swap="innerHTML" hx-confirm="Remove #${escapeHtml(p.name)}? This stops the sandbox and deletes the Discord channel. The host directory is kept.">Remove</button>`)
+  actions.push(`<button class="btn danger" hx-post="/partials/projects/${id}/delete" hx-target="#projects" hx-swap="innerHTML" hx-disabled-elt="find button" hx-confirm="Remove #${escapeHtml(p.name)}? This stops the sandbox and deletes the Discord channel. The host directory is kept.">Remove</button>`)
   return `<article id="project-${id}" class="project ${p.status}"${current}>
     <div class="row1">
       <div>
@@ -252,7 +252,7 @@ export function renderPage(s: PageState): string {
       <div class="panel"><div class="head"><span class="t">Audit trail</span></div><div class="body" id="audit">${renderAudit(s.audit)}</div></div>
     </aside>
   </div>
-  <section class="detail empty" id="detail"></section>
+  <section class="detail" id="detail"></section>
   <footer>Celly ops console · loopback only, no authentication by design · can create and remove projects</footer>
 </div>
 <div id="events" hx-sse:connect="/events" hx-swap="none" hidden></div>

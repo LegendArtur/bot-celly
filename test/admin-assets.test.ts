@@ -11,6 +11,12 @@ test("the vendored admin assets are present and identifiable", () => {
   expect(sse.length).toBeGreaterThan(1_000)
 })
 
+test("app.css keeps the detail panel hidden only while it is empty", () => {
+  const css = readFileSync("assets/admin/app.css", "utf8")
+  expect(css).toContain("#detail:empty")
+  expect(css).not.toContain(".detail.empty")
+})
+
 test("readAsset serves only allowlisted files with content types", () => {
   expect(isAllowedAsset("app.css")).toBe(true)
   expect(isAllowedAsset("app.js")).toBe(true)

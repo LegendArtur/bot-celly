@@ -1,6 +1,6 @@
 import { createServer } from "node:http"
 import type { ServerResponse } from "node:http"
-import { existsSync, readFileSync } from "node:fs"
+import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs"
 import type { Db } from "./db.ts"
 import type { Project, Thread, UsageTotals } from "./types.ts"
 import { redact } from "./log.js"
@@ -14,6 +14,22 @@ import {
 import type { AuditView, DetailView, ProjectView, SessionView, StatsView } from "./admin/views.ts"
 
 export const ADMIN_HOST = "127.0.0.1"
+
+const LOG_TAIL_BYTES = 64 * 1024
+
+function tailFileSync(path: string, maxBytes: number): string {
+  const size = statSync(path).size
+  const start = Math.max(0, size - maxBytes)
+  const length = size - start
+  const fd = openSync(path, "r")
+  try {
+    const buf = Buffer.alloc(length)
+    const bytes = readSync(fd, buf, 0, length, start)
+    return buf.subarray(0, bytes).toString("utf8")
+  } finally {
+    closeSync(fd)
+  }
+}
 
 export interface AdminCreateInput {
   guildId: string
@@ -98,7 +114,7 @@ function buildDetail(deps: AdminDeps, channelId: string): DetailView | undefined
   if (!project) return undefined
   const nowMs = deps.now?.() ?? Date.now()
   const file = deps.logFileFor(channelId)
-  const logs = file && existsSync(file) ? tailLines(redact(readFileSync(file, "utf8"), deps.secrets), 200) : []
+  const logs = file && existsSync(file) ? tailLines(redact(tailFileSync(file, LOG_TAIL_BYTES), deps.secrets), 200) : []
   const projectView = projectViewFor(project, deps, nowMs)
   const sessions: SessionView[] = deps.db.threads.byChannel(channelId).map((t: Thread) => ({
     threadId: t.threadId, title: t.title ?? `session ${t.sessionId}`, sessionId: t.sessionId,
@@ -153,6 +169,7 @@ export async function createAdminServer(deps: AdminDeps): Promise<AdminServer> {
   const startedAt = now()
   const sse = createSseHub()
   const signatures = new Map<string, string>()
+  const logStats = new Map<string, string>()
   const partial = (target: string, html: string) => `<hx-partial hx-target="${target}">${html}</hx-partial>`
 
   function region(target: string, html: string, signature: string): void {
@@ -167,6 +184,7 @@ export async function createAdminServer(deps: AdminDeps): Promise<AdminServer> {
     const totals = deps.db.usage.totals()
     return [
       partial("#projects", renderProjects(projects, nowMs)),
+      partial("#project-count", String(projects.length)),
       partial("#stats", renderStats(buildStats(projects, totals, Math.max(0, nowMs - startedAt)))),
       partial("#usage", renderUsage(totals)),
       partial("#audit", renderAudit(buildAudit(deps))),
@@ -185,14 +203,25 @@ export async function createAdminServer(deps: AdminDeps): Promise<AdminServer> {
       const projects = buildProjects(deps, nowMs)
       const totals = deps.db.usage.totals()
       const auditRaw = deps.auditTail?.(20) ?? []
-      region("#projects", renderProjects(projects, nowMs), JSON.stringify(list.map((p) => [p.channelId, p.status, p.hostPort, p.lastActiveAt])))
-      region("#stats", renderStats(buildStats(projects, totals, Math.max(0, nowMs - startedAt))), JSON.stringify([list.length, projects.filter((p) => p.status === "ready").length, totals.cost, totals.tokensIn + totals.tokensOut, Math.floor((nowMs - startedAt) / 60_000)]))
+      const stats = buildStats(projects, totals, Math.max(0, nowMs - startedAt))
+      region("#projects", renderProjects(projects, nowMs), JSON.stringify(projects.map((p) => [p.channelId, p.status, p.hostPort, p.lastActiveAt, p.name, p.sandboxName, p.spend, p.tokens, p.sessions])))
+      region("#project-count", String(projects.length), String(projects.length))
+      region("#stats", renderStats(stats), JSON.stringify(stats))
       region("#usage", renderUsage(totals), JSON.stringify(totals))
       region("#audit", renderAudit(buildAudit(deps)), JSON.stringify(auditRaw))
       for (const p of list) {
         if (p.status !== "ready") continue
         const file = deps.logFileFor(p.channelId)
-        const tail = file && existsSync(file) ? tailLines(redact(readFileSync(file, "utf8"), deps.secrets), 200).join("\n") : ""
+        if (!file || !existsSync(file)) {
+          logStats.delete(p.channelId)
+          region(`#logs-${p.channelId}`, renderLogLines([]), "")
+          continue
+        }
+        const stat = statSync(file)
+        const key = `${stat.mtimeMs}:${stat.size}`
+        if (logStats.get(p.channelId) === key) continue
+        logStats.set(p.channelId, key)
+        const tail = tailLines(redact(tailFileSync(file, LOG_TAIL_BYTES), deps.secrets), 200).join("\n")
         region(`#logs-${p.channelId}`, renderLogLines(tail ? tail.split("\n") : []), tail)
       }
     } catch (e) {
@@ -356,7 +385,7 @@ export async function createAdminServer(deps: AdminDeps): Promise<AdminServer> {
           if (!file || !existsSync(file)) return sendJson(res, 404, { error: "log not found" })
           const requested = Number(url.searchParams.get("lines") ?? "200")
           const count = Number.isFinite(requested) && requested > 0 ? Math.min(Math.floor(requested), 2000) : 200
-          const lines = tailLines(redact(readFileSync(file, "utf8"), deps.secrets), count)
+          const lines = tailLines(redact(tailFileSync(file, LOG_TAIL_BYTES), deps.secrets), count)
           sendJson(res, 200, { channelId, file, lines })
           return
         }

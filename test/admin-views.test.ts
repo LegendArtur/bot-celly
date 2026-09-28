@@ -59,6 +59,7 @@ test("renderProjectCard escapes names and wires actions to fragments", () => {
   expect(html).toContain(`hx-post="/partials/projects/c1/delete"`)
   expect(html).toContain("$2.40")
   expect(html).toContain("640k")
+  expect(html).toMatch(/hx-post="\/partials\/projects\/c1\/delete"[^>]*hx-disabled-elt="find button"/)
 })
 
 test("renderProjectCard only offers Start when degraded and disables while provisioning", () => {
@@ -135,6 +136,8 @@ test("renderPage includes the asset scripts, SSE connection, and create form", (
   expect(html).toContain(`hx-sse:connect="/events"`)
   expect(html).toContain(`id="projects"`)
   expect(html).toContain(`id="notice"`)
+  expect(html).toContain(`id="detail"`)
+  expect(html).not.toContain("detail empty")
   expect(html).toContain(`hx-post="/partials/projects"`)
   expect(html).toContain(`name="guildId" value="g1"`)
 })

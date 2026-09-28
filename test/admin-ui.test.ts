@@ -144,6 +144,40 @@ test("GET /events sends a snapshot, then a changed project update", async () => 
   } finally { controller.abort(); svr.close() }
 })
 
+test("a tick re-renders cards when usage or sessions change and updates the project count", async () => {
+  const { svr, db, base } = await ui({ liveTickMs: 25 })
+  const controller = new AbortController()
+  try {
+    const res = await fetch(`${base}/events`, { signal: controller.signal })
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+    const deadline = Date.now() + 2000
+    let text = ""
+    while (!text.includes(`hx-target="#projects"`) && Date.now() < deadline) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+    db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: "work", model: "m", agent: null,
+      worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 2 })
+    db.threads.addUsage("t1", { cost: 1.5, tokensIn: 1000, tokensOut: 2000, cacheRead: 0, cacheWrite: 0 })
+    while (!text.includes("$1.50") && Date.now() < deadline) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+    expect(text).toContain("$1.50")
+    expect(text).toContain("3.0k")
+    db.projects.insertProvisioning({ ...proj, channelId: "c2", name: "celly-second", sandboxName: "sbx-second", hostPort: 4302 })
+    while (!text.includes(`hx-target="#project-count">2<`) && Date.now() < deadline) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+    expect(text).toContain(`hx-target="#project-count">2<`)
+  } finally { controller.abort(); svr.close() }
+})
+
 test("a changed log file streams into the #logs-c1 target with secrets redacted", async () => {
   const dir = mkdtempSync(join(tmpdir(), "celly-admin-"))
   const file = join(dir, "sbx-demo.log")
