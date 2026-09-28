@@ -177,16 +177,27 @@ export function withDirectory<T extends object>(directory: string | null | undef
   return { ...options, query: { directory } }
 }
 
-function lastUserText(messages: any[]): string | undefined {
-  let last: any
-  for (const message of messages) if (message?.info?.role === "user") last = message
-  if (!last) return undefined
-  const text = (last.parts ?? [])
-    .filter((part: any) => part?.type === "text" && typeof part.text === "string")
-    .map((part: any) => part.text)
-    .join("\n\n")
-    .trim()
-  return text || undefined
+/**
+ * The prompt that produced the recovered assistant message is the nearest
+ * preceding user message with text. Later user messages (a prompt sent just
+ * before a crash, with no assistant part yet) must not be quoted for an
+ * earlier assistant message.
+ */
+function lastUserText(messages: any[], assistant: any): string | undefined {
+  const before: any[] = []
+  for (const message of messages) {
+    if (message === assistant) break
+    if (message?.info?.role === "user") before.push(message)
+  }
+  for (let i = before.length - 1; i >= 0; i--) {
+    const text = (before[i]!.parts ?? [])
+      .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+      .map((part: any) => part.text)
+      .join("\n\n")
+      .trim()
+    if (text) return text
+  }
+  return undefined
 }
 
 export interface RunnerDeps {
@@ -479,7 +490,7 @@ export class Runner {
     const epoch = this.owner.get(thread.threadId)
     const liveMessageId = db.threads.get(thread.threadId)?.liveMessageId ?? null
     const liveMessageIds = db.threads.liveMessageIds(thread.threadId)
-    const renderer = await this.rendererFor(thread.threadId, liveMessageId, liveMessageIds, lastUserText(list))
+    const renderer = await this.rendererFor(thread.threadId, liveMessageId, liveMessageIds, lastUserText(list, last))
     if (last) {
       const messageId = last.info?.id ?? ""
       for (const part of last.parts ?? []) {

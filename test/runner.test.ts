@@ -607,6 +607,36 @@ test("recover seeds the renderer with the last user prompt", async () => {
   expect(seen).toEqual(["fix it"])
 })
 
+test("recover ignores a user prompt sent after the recovered assistant message", async () => {
+  const seen: (string | null | undefined)[] = []
+  const { db } = makeDb("idle", [], null)
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { messages: async () => ({ data: [
+      { info: { id: "m1", role: "user" }, parts: [{ id: "p1", type: "text", text: "first task" }] },
+      { info: { id: "m2", role: "assistant" }, parts: [{ id: "p2", type: "text", text: "working" }] },
+      { info: { id: "m3", role: "user" }, parts: [{ id: "p3", type: "text", text: "second task" }] },
+    ] }) } }) as any,
+    createRenderer: async (_threadId, _liveId, _liveIds, prompt) => { seen.push(prompt); return makeRenderer() as any },
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.recover({ threadId: "t1", sessionId: "s1" })
+  expect(seen).toEqual(["first task"])
+})
+
+test("recover skips user messages without text parts", async () => {
+  const seen: (string | null | undefined)[] = []
+  const { db } = makeDb("idle", [], null)
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { messages: async () => ({ data: [
+      { info: { id: "m1", role: "user" }, parts: [{ id: "p1", type: "text", text: "has text" }] },
+      { info: { id: "m2", role: "user" }, parts: [{ id: "p2", type: "file", filename: "a.png" }] },
+      { info: { id: "m3", role: "assistant" }, parts: [{ id: "p3", type: "text", text: "done" }] },
+    ] }) } }) as any,
+    createRenderer: async (_threadId, _liveId, _liveIds, prompt) => { seen.push(prompt); return makeRenderer() as any },
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.recover({ threadId: "t1", sessionId: "s1" })
+  expect(seen).toEqual(["has text"])
+})
+
 test("a stale idle frame cannot terminate a newer run (epoch ownership)", async () => {
   const sent: string[] = []
   let releaseFinalize!: () => void
