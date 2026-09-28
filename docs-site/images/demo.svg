@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 660" width="960" height="660" role="img" aria-label="Mockup of Celly streaming a coding agent reply inside a Discord thread">
+  <defs>
+    <linearGradient id="celly" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7C3AED"/>
+      <stop offset="1" stop-color="#5865F2"/>
+    </linearGradient>
+    <style>
+      .ui { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+      .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="960" height="660" rx="14" fill="#313338"/>
+  <rect x="0" y="0" width="960" height="60" rx="14" fill="#2b2d31"/>
+  <rect x="0" y="46" width="960" height="14" fill="#2b2d31"/>
+  <line x1="0" y1="60" x2="960" y2="60" stroke="#1e1f22"/>
+
+  <text class="ui" x="24" y="39" fill="#949ba4" font-size="26" font-weight="600">#</text>
+  <text class="ui" x="46" y="39" fill="#f2f3f5" font-size="19" font-weight="700">my-app</text>
+  <text class="ui" x="132" y="39" fill="#4e5058" font-size="18">|</text>
+  <text class="ui" x="148" y="38" fill="#949ba4" font-size="14">thread · Add a /health endpoint</text>
+
+  <rect x="792" y="17" width="144" height="26" rx="13" fill="#232428"/>
+  <circle cx="810" cy="30" r="4" fill="#23a55a"/>
+  <text class="ui" x="822" y="35" fill="#b5bac1" font-size="12">Celly is working…</text>
+
+  <circle cx="46" cy="112" r="18" fill="#5865F2"/>
+  <text class="ui" x="46" y="118" fill="#ffffff" font-size="15" font-weight="700" text-anchor="middle">A</text>
+  <text class="ui" x="78" y="100" fill="#f2f3f5" font-size="15" font-weight="700">artur</text>
+  <text class="ui" x="128" y="100" fill="#949ba4" font-size="12">Today at 09:14</text>
+  <text class="ui" x="78" y="127" fill="#dbdee1" font-size="16">Add a /health endpoint that returns 200 ok.</text>
+
+  <circle cx="46" cy="200" r="18" fill="url(#celly)"/>
+  <text class="ui" x="46" y="206" fill="#ffffff" font-size="15" font-weight="700" text-anchor="middle">C</text>
+  <text class="ui" x="78" y="189" fill="#c4b5fd" font-size="15" font-weight="700">Celly</text>
+  <rect x="126" y="176" width="40" height="17" rx="4" fill="#5865F2"/>
+  <text class="ui" x="146" y="189" fill="#ffffff" font-size="10" font-weight="700" text-anchor="middle">APP</text>
+
+  <rect x="78" y="202" width="176" height="24" rx="6" fill="#2b2d31"/>
+  <text class="mono" x="89" y="219" fill="#b5bac1" font-size="13">bash · npm test</text>
+
+  <text class="ui" x="78" y="252" fill="#dbdee1" font-size="16">Added a health check in <tspan class="mono" fill="#a5d6ff">src/server.ts</tspan> and wired it into the router.</text>
+  <text class="ui" x="78" y="278" fill="#dbdee1" font-size="16">All tests pass — 42 passed.</text>
+  <rect x="258" y="265" width="9" height="16" rx="1" fill="#dbdee1"/>
+
+  <text class="ui" x="46" y="332" fill="#949ba4" font-size="11" font-weight="700" letter-spacing="0.6">PERMISSION REQUEST</text>
+  <rect x="46" y="344" width="84" height="34" rx="6" fill="#248046"/>
+  <text class="ui" x="88" y="366" fill="#ffffff" font-size="14" font-weight="700" text-anchor="middle">Allow</text>
+  <rect x="140" y="344" width="122" height="34" rx="6" fill="#4e5058"/>
+  <text class="ui" x="201" y="366" fill="#ffffff" font-size="14" font-weight="600" text-anchor="middle">Allow always</text>
+  <rect x="272" y="344" width="80" height="34" rx="6" fill="#da373c"/>
+  <text class="ui" x="312" y="366" fill="#ffffff" font-size="14" font-weight="700" text-anchor="middle">Deny</text>
+
+  <rect x="24" y="596" width="912" height="48" rx="8" fill="#383a40"/>
+  <text class="ui" x="44" y="626" fill="#949ba4" font-size="18">#</text>
+  <text class="ui" x="66" y="626" fill="#6d6f78" font-size="15">Message #my-app</text>
+</svg>
