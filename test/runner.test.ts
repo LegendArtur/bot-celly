@@ -264,6 +264,21 @@ test("idle drains the queue", async () => {
   expect(runner.activeCount).toBe(1)
 })
 
+test("queued drains seed their own prompt", async () => {
+  const seen: (string | null | undefined)[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async () => {} } }) as any,
+    createRenderer: async (_threadId, _liveId, _liveIds, prompt) => { seen.push(prompt); return makeRenderer() as any },
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.prompt("t1", "first", "u")
+  await runner.prompt("t1", "second", "u")
+  await runner.onEvent("t1", { kind: "text", sessionId: "s1", messageId: "m", partId: "p", text: "a" })
+  await runner.onEvent("t1", { kind: "idle", sessionId: "s1" })
+  await runner.onEvent("t1", { kind: "text", sessionId: "s1", messageId: "m", partId: "p2", text: "b" })
+  expect(seen).toEqual(["first", "second"])
+})
+
 test("permission event responds with the evaluated decision", async () => {
   const responses: any[] = []
   const { db } = makeDb()
@@ -576,6 +591,20 @@ test("recover sends once when there is no persisted live message", async () => {
     sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
   await runner.recover({ threadId: "t1", sessionId: "s1" })
   expect(sends).toEqual(["recovered"])
+})
+
+test("recover seeds the renderer with the last user prompt", async () => {
+  const seen: (string | null | undefined)[] = []
+  const { db } = makeDb("idle", [], null)
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { messages: async () => ({ data: [
+      { info: { id: "m1", role: "user" }, parts: [{ id: "p1", type: "text", text: "fix it" }] },
+      { info: { id: "m2", role: "assistant" }, parts: [{ id: "p2", type: "text", text: "done" }] },
+    ] }) } }) as any,
+    createRenderer: async (_threadId, _liveId, _liveIds, prompt) => { seen.push(prompt); return makeRenderer() as any },
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.recover({ threadId: "t1", sessionId: "s1" })
+  expect(seen).toEqual(["fix it"])
 })
 
 test("a stale idle frame cannot terminate a newer run (epoch ownership)", async () => {

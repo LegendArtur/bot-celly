@@ -97,7 +97,8 @@ export function sanitizeThreadName(prompt: string): string {
 
 export const TOOL_TITLE_MAX = 120
 function truncateToolTitle(title: string, max = TOOL_TITLE_MAX): string {
-  return title.length > max ? title.slice(0, max - 1) + "…" : title
+  const flat = title.replace(/\s+/g, " ").trim()
+  return flat.length > max ? flat.slice(0, max - 1) + "…" : flat
 }
 
 export function toolGlyph(status: string): string {
@@ -140,8 +141,10 @@ function renderSegment(segment: Segment): string {
   if (segment.kind === "text") return segment.text
   if (segment.kind === "notice") {
     const flat = segment.text.replace(/\s+/g, " ").trim()
+    const label = `> ${noticeGlyph(segment.tone)} **${noticeLabel(segment.tone)}**`
+    if (!flat) return label
     const clipped = flat.length > NOTICE_TEXT_MAX ? flat.slice(0, NOTICE_TEXT_MAX - 1).trimEnd() + "…" : flat
-    return `> ${noticeGlyph(segment.tone)} **${noticeLabel(segment.tone)}** — ${clipped}`
+    return `${label} — ${clipped}`
   }
   const title = segment.title ? ` · ${truncateToolTitle(segment.title)}` : ""
   return `> ${toolGlyph(segment.status)} \`${segment.name}\`${title}`
@@ -225,6 +228,8 @@ export class Renderer {
     const revision = this.revision
     const chunks = chunkMessage(this.body(), 1900)
     if (chunks.length === 0) {
+      // Never send(""): an empty body is not a message. If earlier chunks
+      // existed and the body shrank to nothing, drop them instead.
       if (this.ids.length > 0) {
         const surplus = this.ids.splice(0)
         if (this.deps.delete) for (const id of surplus) await this.deps.delete(id)

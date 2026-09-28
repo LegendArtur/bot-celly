@@ -177,6 +177,18 @@ export function withDirectory<T extends object>(directory: string | null | undef
   return { ...options, query: { directory } }
 }
 
+function lastUserText(messages: any[]): string | undefined {
+  let last: any
+  for (const message of messages) if (message?.info?.role === "user") last = message
+  if (!last) return undefined
+  const text = (last.parts ?? [])
+    .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+    .map((part: any) => part.text)
+    .join("\n\n")
+    .trim()
+  return text || undefined
+}
+
 export interface RunnerDeps {
   db: Db
   clientFor(threadId: string): OpencodeClient
@@ -241,10 +253,10 @@ export class Runner {
   private ownsEpoch(threadId: string, epoch: number | undefined): boolean {
     return this.owner.get(threadId) === epoch
   }
-  private rendererFor(threadId: string, liveMessageId?: string | null, liveMessageIds?: string[] | null): Promise<Renderer> {
+  private rendererFor(threadId: string, liveMessageId?: string | null, liveMessageIds?: string[] | null, promptOverride?: string | null): Promise<Renderer> {
     let renderer = this.renderers.get(threadId)
     if (!renderer) {
-      renderer = this.deps.createRenderer(threadId, liveMessageId, liveMessageIds, this.prompts.get(threadId))
+      renderer = this.deps.createRenderer(threadId, liveMessageId, liveMessageIds, promptOverride ?? this.prompts.get(threadId))
       this.renderers.set(threadId, renderer)
       renderer.catch(() => { if (this.renderers.get(threadId) === renderer) this.renderers.delete(threadId) })
     }
@@ -467,7 +479,7 @@ export class Runner {
     const epoch = this.owner.get(thread.threadId)
     const liveMessageId = db.threads.get(thread.threadId)?.liveMessageId ?? null
     const liveMessageIds = db.threads.liveMessageIds(thread.threadId)
-    const renderer = await this.rendererFor(thread.threadId, liveMessageId, liveMessageIds)
+    const renderer = await this.rendererFor(thread.threadId, liveMessageId, liveMessageIds, lastUserText(list))
     if (last) {
       const messageId = last.info?.id ?? ""
       for (const part of last.parts ?? []) {

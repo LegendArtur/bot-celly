@@ -1,6 +1,6 @@
 import { MessageFlags } from "discord.js"
 import { expect, test } from "vitest"
-import { Renderer, chunkMessage, renderPayload, sanitizeThreadName } from "../src/render.ts"
+import { Renderer, chunkMessage, formatPrompt, renderPayload, sanitizeThreadName, toolGlyph } from "../src/render.ts"
 
 test("chunks plain text under the cap", () => {
   expect(chunkMessage("a".repeat(4500), 1900).every((c) => c.length <= 1900)).toBe(true)
@@ -370,4 +370,46 @@ test("renderer flattens multiline notices", async () => {
   r.push({ kind: "notice", sessionId: "s", partId: "n1", text: "line one\nline two", tone: "warn" })
   await r.finalize()
   expect(sends).toEqual(["> ⚠️ **Warning** — line one line two"])
+})
+
+test("toolGlyph maps every opencode status", () => {
+  expect(toolGlyph("pending")).toBe("⏳")
+  expect(toolGlyph("running")).toBe("🔄")
+  expect(toolGlyph("completed")).toBe("✅")
+  expect(toolGlyph("error")).toBe("❌")
+  expect(toolGlyph("mystery")).toBe("•")
+})
+
+test("formatPrompt clamps exactly at the boundary", () => {
+  expect(formatPrompt("x".repeat(300))).toBe(`> **you** · ${"x".repeat(300)}`)
+  expect(formatPrompt("x".repeat(301))).toBe(`> **you** · ${"x".repeat(299)}…`)
+})
+
+test("renderer clamps and flattens a long info notice", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "notice", sessionId: "s", partId: "n1", text: "word\n".repeat(400), tone: "info" })
+  await r.finalize()
+  expect(sends[0]!.startsWith("> ℹ️ **Note** — ")).toBe(true)
+  expect(sends[0]!.endsWith("…")).toBe(true)
+  expect(sends[0]!.length).toBeLessThanOrEqual("> ℹ️ **Note** — ".length + 500)
+})
+
+test("renderer renders a blank notice without a dangling separator", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "notice", sessionId: "s", partId: "n1", text: "   ", tone: "warn" })
+  await r.finalize()
+  expect(sends).toEqual(["> ⚠️ **Warning**"])
+})
+
+test("renderer flattens multiline tool titles", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "t1", name: "bash", status: "completed", title: "line one\nline two" })
+  await r.finalize()
+  expect(sends).toEqual(["> ✅ `bash` · line one line two"])
 })
