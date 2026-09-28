@@ -32,13 +32,16 @@ This guide covers running Celly as a long-lived service on a Linux host with
 ## 2. Build and configure
 
 ```bash
-git clone https://github.com/LegendArtur/bot-celly.git ~/discordAI
-cd ~/discordAI
+git clone https://github.com/LegendArtur/bot-celly.git ~/bot-celly
+cd ~/bot-celly
 npm ci
 npm run build
-cp .env.example .env   # fill in DISCORD_TOKEN and DISCORD_GUILD_ID
+cp .env.example .env   # fill in the required values
 node dist/index.js     # first foreground boot; Ctrl-C once it is ready
 ```
+
+The required values are documented in
+[Configuration](/guides/configuration).
 
 ## 3. systemd user service
 
@@ -51,7 +54,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/discordAI
+WorkingDirectory=%h/bot-celly
 ExecStart=/bin/bash -lc 'exec node dist/index.js'
 Restart=on-failure
 RestartSec=5
@@ -73,49 +76,14 @@ loginctl enable-linger "$USER"
 journalctl --user -u celly -f
 ```
 
-## 4. Backups and log rotation
-
-Celly backs up `DATA_DIR/bot.db` with SQLite `VACUUM INTO` on an interval and
-prunes old copies. It also rotates `bot.log` and every per-project server log.
-
-| Variable | Default | Behavior |
-| --- | --- | --- |
-| `BACKUP_INTERVAL_HOURS` | `24` | Hours between backups; `0` disables backups. |
-| `BACKUP_KEEP` | `7` | Backup files kept before the oldest is pruned. |
-| `LOG_MAX_BYTES` | `5000000` | Rotate a log after this many bytes. |
-| `LOG_MAX_FILES` | `3` | Rotated copies kept (`.1`…`.N`). |
-
-Backups are named `data/backups/bot-<ISO>.db`. To restore one, stop the service,
-replace the database, and start it again:
-
-```bash
-systemctl --user stop celly
-cp data/backups/bot-2026-09-27T00-00-00-000Z.db data/bot.db
-systemctl --user start celly
-```
-
-## 5. Admin page (optional)
-
-Set `ADMIN_PORT` (default `4560`, `0` disables) to serve a loopback-only status
-page and JSON API:
-
-- `GET /` — HTML status page
-- `GET /api/projects`, `GET /api/health`
-- `POST /api/projects/<channelId>/start|stop`
-- `GET /api/logs/<channelId>?lines=200` — redacted log tail
-- `GET /api/audit?limit=100` — when the audit log is enabled
-
-It binds `127.0.0.1` only and has no authentication: reach it through an SSH
-tunnel (`ssh -L 4560:127.0.0.1:4560 host`) and never expose the port.
-
-## 6. Verifying a deployment
+## 4. Verifying a deployment
 
 - `sbx diagnose` reports a healthy daemon and authentication.
 - `systemctl --user status celly` is `active (running)`.
 - `curl -s http://127.0.0.1:4560/api/health` returns `{"ok":true,...}`.
 - `data/bot.log` shows the preflight passing and the Discord client logging in.
 
-## 7. Troubleshooting
+## 5. Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
@@ -123,3 +91,11 @@ tunnel (`ssh -L 4560:127.0.0.1:4560 host`) and never expose the port.
 | Boot fails with an `sbx login` error | Expired credentials | Re-run `sbx login` as the service user, then `systemctl --user restart celly`. |
 | Service stops at logout | No lingering user session | `loginctl enable-linger "$USER"`. |
 | Admin port unreachable | It listens on loopback by design | Use an SSH tunnel; do not expose it publicly. |
+
+## 6. Admin, backups, and paths
+
+- The loopback admin page, log rotation, SQLite backups, and restore are covered
+  in [Operations](/guides/operations).
+- The sensitive-path denylist and `PROJECTS_ROOT` containment are covered in
+  [Configuration](/guides/configuration).
+- Known limitations are listed in [Limitations](/reference/limitations).

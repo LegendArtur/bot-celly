@@ -49,9 +49,8 @@ sequenceDiagram
     end
 ```
 
-Stack: TypeScript, Node 24.x (pinned via `engines` + `.nvmrc`), discord.js 14.x,
-the exact-pinned `@opencode-ai/sdk`, and `node:sqlite`. Tests run on vitest,
-development uses `tsx`, and the build is `tsc`.
+The runtime, libraries, and tooling are listed on
+[Tech stack](/project/tech-stack).
 
 ## Module map
 
@@ -147,8 +146,7 @@ On boot, before subscribing, each ready project goes through `ensureReady()`
 because its sandbox may have stopped and its serve child died with the previous
 bot process. Threads left `running` or `aborting` are recovered from session
 history and either finalized or re-attached to a new renderer. The in-memory
-queue is not restored — see the limitations in the
-[changelog](/changelog).
+queue is not restored — see [Limitations](/reference/limitations).
 
 ## Related
 

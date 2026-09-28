@@ -1,0 +1,34 @@
+---
+title: Tech stack
+description: The runtime, tooling, and credits behind Celly — including the Kimaki project it is inspired by.
+---
+
+## Runtime
+
+- **TypeScript** on **Node 24.x**, pinned via `engines` and `.nvmrc`.
+- **[discord.js](https://discord.js.org) 14.x** for the Discord client,
+  commands, and components.
+- **[@opencode-ai/sdk](https://opencode.ai)** (exact-pinned) for the OpenCode
+  server client.
+- **`node:sqlite`** for the projects/threads database.
+- **[Docker Sandboxes](https://www.docker.com/products/docker-sandboxes/)**
+  (`sbx`) for the per-project microVM.
+- **[OpenCode](https://opencode.ai)** as the agent server inside each sandbox.
+
+## Tooling
+
+- **vitest** for tests, **tsx** for development, **tsc** for the build.
+- **Changesets** for versioning and release notes.
+- **Mintlify** for this documentation site.
+
+See [Architecture](/reference/architecture) for how these fit together and the
+[module map](/reference/architecture#module-map) for where each concern lives.
+
+## Credits and inspiration
+
+Celly is inspired by **[remorses/kimaki](https://github.com/remorses/kimaki)**
+(MIT). Celly reimplements Kimaki's core idea — channels as projects, threads as
+sessions — and runs each project in an `sbx` sandbox instead of a local process.
+
+Built on Docker Sandboxes (`sbx`) and OpenCode. Celly's own code is MIT; see
+[LICENSE](https://github.com/LegendArtur/bot-celly/blob/main/LICENSE).

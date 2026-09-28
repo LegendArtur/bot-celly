@@ -1,0 +1,14 @@
+`ADMIN_PORT` (default `4560`, `0` disables) serves a loopback-only status page
+and JSON API. It binds **`127.0.0.1` only** and has **no authentication by
+design**: it is safe precisely because it is not network-exposed. It is never
+reachable from another device or the network, so never bind it to `0.0.0.0`,
+publish it, or port-forward it.
+
+For remote access, tunnel the loopback port over SSH:
+
+```sh
+ssh -L 4560:127.0.0.1:4560 user@host
+```
+
+Then open `http://127.0.0.1:4560` on your local machine. Set `ADMIN_PORT=0` to
+disable the page entirely.

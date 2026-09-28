@@ -8,20 +8,6 @@
     "light": "#FF9756"
   },
   "navigation": {
-    "global": {
-      "anchors": [
-        {
-          "anchor": "GitHub",
-          "href": "https://github.com/LegendArtur/bot-celly",
-          "icon": "github"
-        },
-        {
-          "anchor": "Kimaki inspiration",
-          "href": "https://github.com/remorses/kimaki",
-          "icon": "lightbulb"
-        }
-      ]
-    },
     "groups": [
       {
         "group": "Get started",
@@ -33,6 +19,7 @@
           "guides/configuration",
           "guides/providers",
           "guides/terminal-attach",
+          "guides/operations",
           "guides/deployment",
           "guides/deployment-linux"
         ]
@@ -42,12 +29,13 @@
         "pages": [
           "reference/commands",
           "reference/architecture",
-          "reference/security"
+          "reference/security",
+          "reference/limitations"
         ]
       },
       {
         "group": "Project",
-        "pages": ["changelog", "contributing"]
+        "pages": ["project/tech-stack", "changelog", "contributing"]
       }
     ]
   },

@@ -37,3 +37,19 @@ jobs:
           node-version-file: .nvmrc
       - run: npm run docs:validate
       - run: npm run docs:links
+
+  meta:
+    name: docs & changeset
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check docs and changeset
+        env:
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          export CHANGED_FILES="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")"
+          node scripts/check-docs.mjs

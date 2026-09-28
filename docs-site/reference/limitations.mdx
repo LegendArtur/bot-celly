@@ -1,0 +1,34 @@
+---
+title: Limitations
+description: Known limitations at the current release, and where deferred work is tracked.
+---
+
+This is the canonical list. The README mirrors it, and the deployment guides
+link here instead of restating it.
+
+- **The message queue is not persisted across restarts.** Queued-but-unsent
+  prompts are dropped; active runs re-attach from session history.
+- **Role names are not accepted** for role configuration; use role IDs.
+- **The finalization footer shows cost and in/out tokens.** Cache reads and
+  writes are tracked in `/cost` but are not rendered in the footer.
+- **Access control is global across guilds.** `ACCESS_ROLE_ID`,
+  `BLOCK_ROLE_ID`, and `OWNER_ROLE_ID` apply to every configured guild;
+  per-guild roles are not supported. A configured guild the bot cannot see is
+  skipped at startup with a warning.
+- **Provider secrets are host-only.** Managing `sbx secret` from Discord is
+  deferred; register credentials on the host.
+- **Not yet implemented:** per-user command rate limiting, sandbox disk-usage
+  warnings, and `DATA_DIR` cloud-sync detection. Keep `DATA_DIR` out of synced
+  folders yourself.
+- **Some checks are host-only.** The `sbx` spike, `sbx policy ls` semantics,
+  Windows path mapping, and live Discord behavior are exercised on the host, not
+  in the Linux test suite.
+
+Deferred features and commands are listed in the
+[commands reference](/reference/commands#deferred) and the
+[changelog](/changelog).
+
+## Related
+
+- [Commands](/reference/commands) — the current surface and what is deferred.
+- [Configuration](/guides/configuration) — the variables behind these limits.

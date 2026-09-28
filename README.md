@@ -48,6 +48,7 @@ The whole model fits in three lines:
 - [Quick start](#quick-start)
 - [Commands](#commands)
 - [Security](#security)
+- [Operations](#operations)
 - [FAQ and troubleshooting](#faq-and-troubleshooting)
 - [Development](#development)
 - [Status and roadmap](#status-and-roadmap)
@@ -66,7 +67,8 @@ The whole model fits in three lines:
 - **Per-thread worktrees.** `/worktree` creates, merges, and removes git
   worktrees under `<project>/.celly/worktrees`, and `/fork` (or `/btw`) forks a
   session with its worktree.
-- **Model and agent switching.** `/model` and `/agent` pick per-thread settings.
+- **Model, agent, and thinking depth.** `/model`, `/agent`, and `/thinking` pick
+  per-thread settings.
 - **Abort.** `/abort` stops the current run, or every active run in the channel.
 - **Approvals.** `/mode` picks `auto`, `buttons`, or `plan`; `buttons` posts
   permission requests as Discord buttons and agent questions as
@@ -118,9 +120,9 @@ for the module map, create saga, and boot recovery.
 
 Gather these before you start — the setup steps assume they are ready.
 
-- [ ] **A host where `sbx` runs.** Windows 11 for v1, or macOS/Linux where
-      Docker Sandboxes runs. The bot cannot run inside a Linux container: only
-      the host can execute `sbx`.
+- [ ] **A host where `sbx` runs.** Windows 11, or macOS/Linux where Docker
+      Sandboxes runs. The bot cannot run inside a Linux container: only the host
+      can execute `sbx`.
 - [ ] **[Node 24.x](https://nodejs.org)** exactly (pinned by `engines` and
       `.nvmrc`).
 - [ ] **[Docker Sandboxes](https://www.docker.com/products/docker-sandboxes/)
@@ -180,7 +182,7 @@ The everyday handful:
 | `/new [prompt]` | Start a session in the project channel. |
 | `/resume` | Reopen a past session in a new thread. |
 | `/abort` | Stop the current run, or all runs in the channel. |
-| `/model` · `/agent` | Switch the model or agent for a thread. |
+| `/model` · `/agent` · `/thinking` | Switch the model, agent, or thinking depth for a thread. |
 | `/mode auto\|buttons\|plan` | Choose how approvals are requested. |
 | `/cost` | Show accumulated cost, tokens, and the session budget. |
 
@@ -202,6 +204,7 @@ The everyday handful:
 | `/abort` | channel or thread | Abort the current run (or all runs). |
 | `/model` | thread or project channel | Choose the model for this thread or the channel default. |
 | `/agent` | thread or project channel | Choose the agent for this thread or the channel default. |
+| `/thinking [depth]` | thread or project channel | Choose the current model's thinking depth (variant) for this thread or the channel default. |
 | `/attach` | thread | Show the terminal attach command for this thread. |
 | `/session-id` | thread | Show this thread's session id and attach command. |
 | `/queue` | thread | Show and manage queued prompts for this thread. |
@@ -249,6 +252,21 @@ full model.
 
 </details>
 
+## Operations
+
+The host is designed to run unattended:
+
+- **Logs.** Console output plus `DATA_DIR/bot.log` (JSONL) and per-project
+  `DATA_DIR/logs/<project>.log`, with token/password redaction.
+- **Admin page.** A loopback-only status page and JSON API on
+  `127.0.0.1:4560` (`ADMIN_PORT`), unauthenticated by design and never
+  network-exposed.
+- **Backups.** Scheduled SQLite backups under `DATA_DIR/backups` with pruning.
+- **Rotation.** `bot.log` and project server logs rotate by size.
+
+The full operational guide is in
+[Operations](https://celly.agub.dev/guides/operations).
+
 ## FAQ and troubleshooting
 
 **The bot is online but ignores plain messages.**
@@ -256,8 +274,8 @@ Enable the **Message Content** intent in the Discord Developer Portal, then
 restart the bot.
 
 **`sbx: command not found`, or the bot exits during preflight.**
-Celly must run on the host that owns `sbx` (Windows 11 for v1), not inside a
-Linux container. Install and log in first (see [Prerequisites](#prerequisites)).
+Celly must run on the host that owns `sbx` (Windows 11), not inside a Linux
+container. Install and log in first (see [Prerequisites](#prerequisites)).
 
 **Startup complains the network policy is missing.**
 Run `sbx policy init balanced`.
@@ -275,7 +293,8 @@ Use role **IDs**, not role names.
 
 **Where do I look when something is off?**
 The loopback-only admin page on `127.0.0.1:4560` (projects, health, logs,
-audit) and `data/bot.log`.
+audit) and `data/bot.log`. See
+[Operations](https://celly.agub.dev/guides/operations).
 
 ## Development
 
@@ -299,7 +318,7 @@ Docs live in `docs-site/` (`npm run docs:dev`, `npm run docs:validate`,
 
 ## Status and roadmap
 
-v1 is the command set above. Deferred to v1.1:
+The command set above is the current surface. Deferred:
 
 - **Input:** voice messages and image attachments.
 - **Surfaces:** OpenCode web UI, diff viewer, tunnels/screenshare, forum-channel
@@ -322,14 +341,19 @@ v1 is the command set above. Deferred to v1.1:
   mapping, live Discord behavior) are exercised on the host, not in the Linux
   test environment.
 
+The canonical list, including what is deferred, lives in
+[Limitations](https://celly.agub.dev/reference/limitations).
+
 ## Contributing
 
 Issues and pull requests are welcome. Before opening a PR, run `npm test`,
 `npm run typecheck`, and `npm run build`. Keep the **argv-only invariant**, add
-tests for behavior changes, add a changeset for behavior changes, and never
-commit secrets. This project follows the [Code of Conduct](CODE_OF_CONDUCT.md);
-report vulnerabilities via [SECURITY.md](SECURITY.md), not a public issue. See
-[Contributing](https://celly.agub.dev/contributing) for details.
+tests for behavior changes, add a changeset for behavior changes, **update the
+docs and this README**, and never commit secrets. This project follows the
+[Code of Conduct](CODE_OF_CONDUCT.md); report vulnerabilities via
+[SECURITY.md](SECURITY.md), not a public issue. See
+[Contributing](https://celly.agub.dev/contributing) for details and `AGENTS.md`
+for the definition of done.
 
 ## License
 
@@ -340,6 +364,8 @@ MIT. See [LICENSE](LICENSE).
 - Inspired by [remorses/kimaki](https://github.com/remorses/kimaki) (MIT).
 - Built on [Docker Sandboxes](https://www.docker.com/products/docker-sandboxes/)
   (`sbx`) and [OpenCode](https://opencode.ai).
+- The full stack and credits are on
+  [Tech stack](https://celly.agub.dev/project/tech-stack).
 
 <p align="center">
   <a href="https://github.com/LegendArtur/bot-celly/actions/workflows/ci.yml"><img src="https://github.com/LegendArtur/bot-celly/actions/workflows/ci.yml/badge.svg" alt="CI"></a>

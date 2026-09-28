@@ -47,14 +47,7 @@ flowchart LR
 
 ## argv-only spawns
 
-Every `sbx` invocation uses `spawn(bin, args, { shell: false })`. No command is
-ever passed through a host shell:
-
-- Sandbox names are validated by regex.
-- Project paths and `!cmd` are passed as single argv elements.
-- Unit tests include adversarial names and paths.
-
-Only `src/sbx.ts` spawns processes; a test guards that against regressions.
+<Snippet file="snippets/argv-only.mdx" />
 
 ## Per-project microVM
 
@@ -65,13 +58,12 @@ mounted. The host filesystem outside that directory is unreachable by the agent.
 
 - A project's directory must resolve (realpath, case-insensitive) **inside**
   `PROJECTS_ROOT`. Ancestors and descendants of denied paths are rejected too.
-- The denylist covers the bot repo, `DATA_DIR`, sensitive profile subtrees
-  (`.ssh`, `.aws`, `.gnupg`, `.config`, `.docker`, `.kube`, `.azure`, `.npmrc`,
-  `.netrc`, `.celly`, `AppData`), and system directories.
 - Text attachments are sanitized (basename only, no `..`, no reserved Windows
   device names, no control characters) and written under `.celly/inbox` with a
   containment check after resolution.
 - A single helper owns path logic; call sites do not hand-roll it.
+
+The full denylist is in [Configuration](/guides/configuration).
 
 ## Loopback and password
 
@@ -88,18 +80,23 @@ recreated.
   consequence is that anything running locally on the host can read status and
   redacted log tails and start or stop projects, so local code shares the host
   trust boundary. It must never be rebound to `0.0.0.0`, published, or
-  port-forwarded; use an SSH tunnel for remote access.
+  port-forwarded.
 - It exposes project names/status, start/stop actions, and redacted log tails.
   Log redaction reuses the same `redact` path as `bot.log`.
 - Backups are written under `DATA_DIR/backups` (`VACUUM INTO` output) and stay
   in the host trust domain, alongside `bot.db`.
 
+See [Operations](/guides/operations) for how to run and reach these surfaces.
+
 ## Bot-enforced permission policy
 
 The sandbox config sets a default-deny policy, and the bot re-asserts it at the
 API layer after every wake and health check so a project-level `opencode.json`
-cannot weaken it:
+cannot weaken it. The policy is built by `cellyPolicy()` in `src/opencode.ts`;
+the full set is below.
 
+<AccordionGroup>
+  <Accordion title="Full permission policy (JSON)">
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
@@ -116,18 +113,45 @@ cannot weaken it:
       "printenv*": "deny",
       "env": "deny",
       "cat *opencode.env*": "deny",
-      "cat */.config/celly/*": "deny"
+      "cat */.config/celly/*": "deny",
+      "awk *opencode.env*": "deny",
+      "awk */.config/celly/*": "deny",
+      "base64 *opencode.env*": "deny",
+      "base64 */.config/celly/*": "deny",
+      "cp *opencode.env*": "deny",
+      "cp */.config/celly/*": "deny",
+      "grep *opencode.env*": "deny",
+      "grep */.config/celly/*": "deny",
+      "head *opencode.env*": "deny",
+      "head */.config/celly/*": "deny",
+      "less *opencode.env*": "deny",
+      "less */.config/celly/*": "deny",
+      "od *opencode.env*": "deny",
+      "od */.config/celly/*": "deny",
+      "sed *opencode.env*": "deny",
+      "sed */.config/celly/*": "deny",
+      "strings *opencode.env*": "deny",
+      "strings */.config/celly/*": "deny",
+      "tail *opencode.env*": "deny",
+      "tail */.config/celly/*": "deny",
+      "xxd *opencode.env*": "deny",
+      "xxd */.config/celly/*": "deny",
+      "*opencode.env*": "deny",
+      "*/.config/celly/*": "deny"
     },
     "external_directory": "deny",
     "question": "allow"
   }
 }
 ```
+  </Accordion>
+</AccordionGroup>
 
-- The `bash` deny list also blocks common inspection utilities (`awk`, `base64`,
-  `cat`, `cp`, `grep`, `head`, `less`, `od`, `sed`, `strings`, `tail`, `xxd`)
-  from reading `opencode.env` or `~/.config/celly/`, plus catch-all patterns for
-  both paths.
+- The `bash` deny list blocks publishing (`npm`, `pnpm`, `yarn`), `git push`,
+  `git clean -fdx`, env inspection (`printenv`, `env`), and reads of
+  `opencode.env` or `~/.config/celly/` — including via the inspection utilities
+  `awk`, `base64`, `cat`, `cp`, `grep`, `head`, `less`, `od`, `sed`, `strings`,
+  `tail`, and `xxd`, plus catch-all patterns for both paths.
 - `external_directory: deny` keeps tools inside the mounted project.
 - `question: "allow"` lets the agent ask questions; Celly decides per approval
   mode. `auto` and `plan` reject them immediately, and `buttons` surfaces them
@@ -190,3 +214,5 @@ commands can do.
 
 - [Architecture](/reference/architecture) — where these controls live.
 - [Configuration](/guides/configuration) — the path denylist and `DATA_DIR`.
+- [Operations](/guides/operations) — the admin page and backups.
+- [Limitations](/reference/limitations) — what is not yet enforced.

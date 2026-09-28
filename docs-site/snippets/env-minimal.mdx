@@ -1,0 +1,11 @@
+Start from `.env.example` and set the two required values; everything else has a
+working default:
+
+```dotenv
+DISCORD_TOKEN=your-bot-token
+DISCORD_GUILD_IDS=111111111111111111,222222222222222222
+```
+
+`DISCORD_GUILD_IDS` accepts a comma-separated list; entries are trimmed, blanks
+dropped, and duplicates ignored. `DISCORD_GUILD_ID` (single guild) is still
+accepted when `DISCORD_GUILD_IDS` is unset.

@@ -1,0 +1,12 @@
+Celly backs up `DATA_DIR/bot.db` with SQLite `VACUUM INTO` on an interval and
+prunes old copies. It also rotates `bot.log` and every per-project server log.
+
+| Variable | Default | Behavior |
+| --- | --- | --- |
+| `BACKUP_INTERVAL_HOURS` | `24` | Hours between backups; `0` disables. |
+| `BACKUP_KEEP` | `7` | Backups kept before the oldest is pruned. |
+| `LOG_MAX_BYTES` | `5000000` | Rotate a log after this many bytes. |
+| `LOG_MAX_FILES` | `3` | Rotated copies kept (`.1`…`.N`). |
+
+Backups are written to `DATA_DIR/backups/bot-<ISO>.db` (for example
+`bot-2026-09-27T00-00-00-000Z.db`).

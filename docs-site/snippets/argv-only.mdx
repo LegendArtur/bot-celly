@@ -1,0 +1,4 @@
+Every `sbx` invocation uses `spawn(bin, args, { shell: false })`. No command is
+ever passed through a host shell: sandbox names are validated by regex, and
+project paths and `!cmd` are passed as single argv elements. Only `src/sbx.ts`
+spawns processes; a unit test guards that against regressions.
