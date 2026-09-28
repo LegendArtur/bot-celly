@@ -11,3 +11,4 @@ data/
 # Worktrees and SDD scratch
 .worktrees/
 .superpowers/
+docs/superpowers/
