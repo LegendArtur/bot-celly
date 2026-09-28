@@ -24,7 +24,7 @@ test("updates status and sandbox path", () => {
 })
 test("threads store render state and filter by activity", () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
-  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
+  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null, variant: null,
     worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 })
   db.threads.setRenderState("t1", "running"); db.threads.setLiveMessage("t1", "m1")
   expect(db.threads.get("t1")).toMatchObject({ renderState: "running", liveMessageId: "m1" })
@@ -32,7 +32,7 @@ test("threads store render state and filter by activity", () => {
 })
 test("persists the ordered live message ids and falls back to the single id", () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
-  const row = { threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
+  const row = { threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null, variant: null,
     worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 }
   db.threads.upsert(row)
   expect(db.threads.liveMessageIds("t1")).toEqual([])
@@ -46,7 +46,7 @@ test("persists the ordered live message ids and falls back to the single id", ()
 
 test("upsert updates the session id on conflict", () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
-  const row = { threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
+  const row = { threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null, variant: null,
     worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 }
   db.threads.upsert(row)
   db.threads.upsert({ ...row, sessionId: "s2", lastActiveAt: 9 })
@@ -54,7 +54,7 @@ test("upsert updates the session id on conflict", () => {
 })
 test("updates per-thread model and agent overrides", () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
-  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
+  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null, variant: null,
     worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 })
   db.threads.setModel("t1", "anthropic/claude")
   db.threads.setAgent("t1", "build")
@@ -62,9 +62,18 @@ test("updates per-thread model and agent overrides", () => {
   db.threads.setModel("t1", null)
   expect(db.threads.get("t1")?.model).toBeNull()
 })
+test("updates the per-thread thinking depth", () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null, variant: null,
+    worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 })
+  db.threads.setVariant("t1", "high")
+  expect(db.threads.get("t1")?.variant).toBe("high")
+  db.threads.setVariant("t1", null)
+  expect(db.threads.get("t1")?.variant).toBeNull()
+})
 test("setWorktree stores and clears the thread worktree path", () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
-  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
+  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null, variant: null,
     worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 })
   db.threads.setWorktree("t1", "/sandbox/celly-demo/workspace/.celly/worktrees/t1")
   expect(db.threads.get("t1")?.worktreePath).toBe("/sandbox/celly-demo/workspace/.celly/worktrees/t1")
@@ -109,7 +118,7 @@ test("v2 migration repairs a pre-cascade threads table", () => {
 })
 test("removing a project cascades to its threads", () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
-  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
+  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null, variant: null,
     worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 })
   db.projects.remove("c1")
   expect(db.projects.getByChannel("c1")).toBeUndefined()
@@ -222,7 +231,7 @@ test("the appended migration adds scheduled_tasks to an older database", () => {
 
 test("addUsage accumulates per-thread totals", () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
-  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
+  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null, variant: null,
     worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 })
   expect(db.usage.thread("t1")).toEqual({ cost: 0, tokensIn: 0, tokensOut: 0, cacheRead: 0, cacheWrite: 0 })
   db.threads.addUsage("t1", { cost: 0.5, tokensIn: 10, tokensOut: 2, cacheRead: 3, cacheWrite: 4 })
@@ -232,11 +241,11 @@ test("addUsage accumulates per-thread totals", () => {
 
 test("usage aggregates per channel and across all threads", () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
-  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
+  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null, variant: null,
     worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 })
   db.threads.addUsage("t1", { cost: 0.1, tokensIn: 1, tokensOut: 1, cacheRead: 0, cacheWrite: 0 })
   db.projects.insertProvisioning({ ...proj, channelId: "c2", name: "other", sandboxName: "celly-other", hostPort: 4301 })
-  db.threads.upsert({ threadId: "t2", channelId: "c2", sessionId: "s2", title: null, model: null, agent: null,
+  db.threads.upsert({ threadId: "t2", channelId: "c2", sessionId: "s2", title: null, model: null, agent: null, variant: null,
     worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 })
   db.threads.addUsage("t2", { cost: 0.2, tokensIn: 2, tokensOut: 2, cacheRead: 0, cacheWrite: 0 })
   expect(db.usage.channel("c1")).toEqual({ cost: 0.1, tokensIn: 1, tokensOut: 1, cacheRead: 0, cacheWrite: 0 })
@@ -249,7 +258,7 @@ test("usage aggregates per channel and across all threads", () => {
 
 test("thread upsert preserves accumulated usage", () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
-  const row = { threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null,
+  const row = { threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null, variant: null,
     worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 }
   db.threads.upsert(row)
   db.threads.addUsage("t1", { cost: 0.4, tokensIn: 4, tokensOut: 4, cacheRead: 0, cacheWrite: 0 })

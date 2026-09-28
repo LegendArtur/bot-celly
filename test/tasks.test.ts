@@ -10,7 +10,7 @@ function setup() {
 }
 
 function threadRow(threadId: string, lastActiveAt: number) {
-  return { threadId, channelId: "c1", sessionId: `s-${threadId}`, title: null, model: null, agent: null,
+  return { threadId, channelId: "c1", sessionId: `s-${threadId}`, title: null, model: null, agent: null, variant: null,
     worktreePath: null, liveMessageId: null, renderState: "idle" as const, createdAt: 1, lastActiveAt }
 }
 

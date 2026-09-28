@@ -11,7 +11,7 @@ export interface UsageTotals {
 export type RenderState = "idle" | "running" | "aborting" | "errored"
 export interface Thread {
   threadId: string; channelId: string; sessionId: string
-  title: string | null; model: string | null; agent: string | null
+  title: string | null; model: string | null; agent: string | null; variant: string | null
   worktreePath: string | null; liveMessageId: string | null
   renderState: RenderState; createdAt: number; lastActiveAt: number
 }

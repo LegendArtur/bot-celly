@@ -676,6 +676,30 @@ test("prompt applies the thread's model and agent overrides", async () => {
   expect(bodies[0]).toEqual({ parts: [{ type: "text", text: "hi" }], model: { providerID: "anthropic", modelID: "claude" }, agent: "build" })
 })
 
+test("prompt passes the thread's thinking depth as the model variant", async () => {
+  const bodies: any[] = []
+  const { db } = makeDb()
+  db.threads.get = () => ({ renderState: "running", model: "anthropic/claude", agent: null, variant: "high" })
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async (a: any) => { bodies.push(a.body) } } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.prompt("t1", "hi", "u")
+  expect(bodies[0]).toEqual({ parts: [{ type: "text", text: "hi" }], model: { providerID: "anthropic", modelID: "claude" }, variant: "high" })
+})
+
+test("prompt omits a default thinking depth", async () => {
+  const bodies: any[] = []
+  const { db } = makeDb()
+  db.threads.get = () => ({ renderState: "running", model: "anthropic/claude", agent: null, variant: "default" })
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async (a: any) => { bodies.push(a.body) } } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4 })
+  await runner.prompt("t1", "hi", "u")
+  expect(bodies[0]).toEqual({ parts: [{ type: "text", text: "hi" }], model: { providerID: "anthropic", modelID: "claude" } })
+})
+
 test("Runner caches one renderer per thread: two text events yield one send and one edit", async () => {
   const sends: string[] = []
   const edits: string[] = []

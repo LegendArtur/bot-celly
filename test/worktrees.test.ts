@@ -64,7 +64,7 @@ test("mergeOutcome reports success, deduplicated conflicts, and hard failures", 
 const ROOT = "/sandbox/celly-demo/workspace"
 
 function threadRow(over: any = {}) {
-  return { threadId: "t1", channelId: "c", sessionId: "s1", title: null, model: null, agent: null,
+  return { threadId: "t1", channelId: "c", sessionId: "s1", title: null, model: null, agent: null, variant: null,
     worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 1, ...over }
 }
 

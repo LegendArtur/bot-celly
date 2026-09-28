@@ -344,6 +344,7 @@ export class Runner {
         if (slash > 0) body.model = { providerID: thread.model.slice(0, slash), modelID: thread.model.slice(slash + 1) }
       }
       if (thread?.agent) body.agent = thread.agent
+      if (thread?.variant && thread.variant !== "default") body.variant = thread.variant
       await client.session.promptAsync(withDirectory(this.deps.directoryFor?.(threadId), { path: { id: sessionId }, body }) as any)
       return undefined
     } catch (e) {

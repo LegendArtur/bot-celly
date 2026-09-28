@@ -238,7 +238,7 @@ export function createForkThread(deps: ForkThreadDeps): (input: ForkThreadInput)
     const thread = await channel.threads.create({ name: title })
     if (input.authorId) await thread.members.add(input.authorId).catch(() => {})
     deps.db.threads.upsert({ threadId: thread.id, channelId: project.channelId, sessionId, title,
-      model: source.model, agent: source.agent, worktreePath: source.worktreePath,
+      model: source.model, agent: source.agent, variant: source.variant, worktreePath: source.worktreePath,
       liveMessageId: null, renderState: "idle", createdAt: Date.now(), lastActiveAt: Date.now() })
     deps.registerSession(thread.id, sessionId)
     let notice: string | undefined

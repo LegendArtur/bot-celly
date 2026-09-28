@@ -35,6 +35,7 @@ with block checked first.
 | `/abort` | authorized | Abort the current run in a thread, or every active run in the project channel. |
 | `/model` | authorized | Choose the model for this thread, or the channel default in a project channel (two-step provider → model select). |
 | `/agent` | authorized | Choose the agent for this thread, or the channel default in a project channel (select). |
+| `/thinking [depth]` | authorized | Choose the current model's thinking depth (variant, for example `low`/`high`/`max`) for this thread, or the channel default in a project channel (select). `depth` sets it directly; `default` clears it. |
 | `/attach` | thread | Show the exact `sbx exec` + `opencode attach` command for this thread's session (ephemeral). |
 | `/session-id` | thread | Show this thread's session id and the attach command behind a spoiler (ephemeral). |
 | `/queue` | authorized | Show the first 10 queued prompts for this thread with Remove and Clear buttons (ephemeral). |

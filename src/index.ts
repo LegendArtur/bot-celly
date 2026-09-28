@@ -36,9 +36,9 @@ import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
 import { SessionRoutes } from "./routing.js"
 import { createForkThread, createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "./handlers.js"
 import { createIdleSweeper, formatIdleStopNotice } from "./idle.js"
-import { buildPromptText, channelIdForBucket, createSubscriptionGate, describeDiscordStartupError, findCategoryId, formatStartupBanner, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, uniqueChannelName } from "./helpers.js"
+import { buildPromptText, channelIdForBucket, createSubscriptionGate, describeDiscordStartupError, findCategoryId, formatStartupBanner, modelVariants, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
-export { buildPromptText, createSubscriptionGate, findCategoryId, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, uniqueChannelName } from "./helpers.js"
+export { buildPromptText, createSubscriptionGate, findCategoryId, modelVariants, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
 // Boot/upgrade wakes a stopped sandbox via `ensureReady`, which is not user
 // activity. Record the wake so the idle sweeper does not immediately stop a
@@ -236,7 +236,7 @@ async function main(): Promise<void> {
     const defaults = seedThreadDefaults((key) => db.settings.get(key), project.channelId)
     const record: Thread = {
       threadId, channelId: project.channelId, sessionId, title,
-      model: defaults.model, agent: defaults.agent,
+      model: defaults.model, agent: defaults.agent, variant: defaults.variant,
       worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: now, lastActiveAt: now,
     }
     db.threads.upsert(record)
@@ -556,7 +556,7 @@ async function main(): Promise<void> {
     listCaches.set(key, cache)
     return cache
   }
-  const loadModels = async (channelId: string): Promise<{ id: string; name: string }[]> => {
+  const loadModels = async (channelId: string): Promise<{ id: string; name: string; variants?: string[] }[]> => {
     const project = db.projects.getByChannel(channelId)
     if (!project) return []
     try {
@@ -564,7 +564,7 @@ async function main(): Promise<void> {
       const res: any = await sdk.config.providers()
       const data = res?.data ?? res
       const providers = Array.isArray(data?.providers) ? data.providers : []
-      const out: { id: string; name: string }[] = []
+      const out: { id: string; name: string; variants?: string[] }[] = []
       for (const p of providers) {
         const providerId = typeof p?.id === "string" && p.id ? p.id : undefined
         if (!providerId) continue
@@ -572,7 +572,7 @@ async function main(): Promise<void> {
         for (const [mid, model] of Object.entries(models)) {
           const id = `${providerId}/${mid}`
           const name = (model as any)?.name
-          out.push({ id, name: typeof name === "string" && name ? name : `${p?.name ?? providerId}/${mid}` })
+          out.push({ id, name: typeof name === "string" && name ? name : `${p?.name ?? providerId}/${mid}`, variants: modelVariants(model as any) })
         }
       }
       return out
@@ -602,6 +602,7 @@ async function main(): Promise<void> {
   }
   const setThreadModel = (threadId: string, model: string | null): void => { if (db.threads.get(threadId)) db.threads.setModel(threadId, model) }
   const setThreadAgent = (threadId: string, agent: string | null): void => { if (db.threads.get(threadId)) db.threads.setAgent(threadId, agent) }
+  const setThreadVariant = (threadId: string, variant: string | null): void => { if (db.threads.get(threadId)) db.threads.setVariant(threadId, variant) }
   const setChannelModel = (channelId: string, model: string | null): void => {
     if (!model || !db.projects.getByChannel(channelId)) return
     db.settings.set(`default_model:${channelId}`, model)
@@ -609,6 +610,11 @@ async function main(): Promise<void> {
   const setChannelAgent = (channelId: string, agent: string | null): void => {
     if (!agent || !db.projects.getByChannel(channelId)) return
     db.settings.set(`default_agent:${channelId}`, agent)
+  }
+  const setChannelVariant = (channelId: string, variant: string | null): void => {
+    if (!db.projects.getByChannel(channelId)) return
+    if (variant) db.settings.set(`default_variant:${channelId}`, variant)
+    else db.settings.set(`default_variant:${channelId}`, "")
   }
 
   const commandDeps: CommandDeps = {
@@ -621,7 +627,7 @@ async function main(): Promise<void> {
     createThread: createThreadForProject,
     forkThread,
     listSessions, listModels, listAgents,
-    setThreadModel, setThreadAgent, setChannelModel, setChannelAgent,
+    setThreadModel, setThreadAgent, setThreadVariant, setChannelModel, setChannelAgent, setChannelVariant,
     sessions,
     worktree: worktrees,
     sessionBudgetUsd: cfg.sessionBudgetUsd,

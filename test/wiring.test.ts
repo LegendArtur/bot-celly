@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { expect, test } from "vitest"
 import { ChannelType } from "discord.js"
-import { buildPromptText, createSubscriptionGate, findCategoryId, isMainModule, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, touchAfterWake, uniqueChannelName } from "../src/index.ts"
+import { buildPromptText, createSubscriptionGate, findCategoryId, isMainModule, modelVariants, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, touchAfterWake, uniqueChannelName } from "../src/index.ts"
 
 test("findCategoryId prefers the configured category", () => {
   expect(findCategoryId({ channels: { cache: new Map() } }, "configured")).toBe("configured")
@@ -125,14 +125,29 @@ test("touchAfterWake records activity after ensureReady, and not if the wake fai
   expect(calls).toEqual([])
 })
 
+test("modelVariants lists the variant keys and tolerates malformed shapes", () => {
+  expect(modelVariants({ variants: { high: {}, max: {} } })).toEqual(["high", "max"])
+  expect(modelVariants({ variants: {} })).toEqual([])
+  expect(modelVariants({})).toEqual([])
+  expect(modelVariants({ variants: "nope" })).toEqual([])
+  expect(modelVariants({ variants: null })).toEqual([])
+})
+
 test("seedThreadDefaults prefers the channel default then the global default", () => {
   const settings: Record<string, string> = {
     default_model: "global/model",
     default_agent: "global-agent",
+    default_variant: "global-high",
     "default_model:c1": "channel/model",
     "default_agent:c1": "channel-agent",
+    "default_variant:c1": "channel-max",
   }
-  expect(seedThreadDefaults((key) => settings[key], "c1")).toEqual({ model: "channel/model", agent: "channel-agent" })
-  expect(seedThreadDefaults((key) => settings[key], "c2")).toEqual({ model: "global/model", agent: "global-agent" })
-  expect(seedThreadDefaults(() => undefined, "c1")).toEqual({ model: null, agent: null })
+  expect(seedThreadDefaults((key) => settings[key], "c1")).toEqual({ model: "channel/model", agent: "channel-agent", variant: "channel-max" })
+  expect(seedThreadDefaults((key) => settings[key], "c2")).toEqual({ model: "global/model", agent: "global-agent", variant: "global-high" })
+  expect(seedThreadDefaults(() => undefined, "c1")).toEqual({ model: null, agent: null, variant: null })
+})
+
+test("seedThreadDefaults ignores an emptied channel variant and falls back to the global default", () => {
+  const settings: Record<string, string> = { default_variant: "global-high", "default_variant:c1": "" }
+  expect(seedThreadDefaults((key) => settings[key], "c1").variant).toBe("global-high")
 })

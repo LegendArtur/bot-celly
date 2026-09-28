@@ -77,6 +77,15 @@ thread; a thread with neither set uses the `DEFAULT_MODEL` / `DEFAULT_AGENT`
 seeded at first boot.
 </Note>
 
+## Thinking depth (model variants)
+
+Some models expose *variants* — named reasoning settings such as `high` and
+`max` (Anthropic) or `none`/`low`/`medium`/`high`/`xhigh` (OpenAI). `/thinking`
+lists the variants the current model advertises and stores your choice per
+thread (or as the channel default in a project channel). Choosing `default`
+clears the override. A variant the selected model does not support is ignored,
+so changing models never leaves you stuck on a stale depth.
+
 ## Login inside the sandbox
 
 `sbx secret` is the supported path for API keys. If a provider offers its own

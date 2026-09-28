@@ -44,11 +44,19 @@ export function buildPromptText(text: string, attachmentPaths: string[]): string
 export function seedThreadDefaults(
   get: (key: string) => string | undefined,
   channelId: string,
-): { model: string | null; agent: string | null } {
+): { model: string | null; agent: string | null; variant: string | null } {
   return {
     model: get(`default_model:${channelId}`) ?? get("default_model") ?? null,
     agent: get(`default_agent:${channelId}`) ?? get("default_agent") ?? null,
+    variant: get(`default_variant:${channelId}`) || get("default_variant") || null,
   }
+}
+
+/** The thinking-depth variant names a provider model advertises, if any. */
+export function modelVariants(model: { variants?: unknown }): string[] {
+  const variants = model?.variants
+  if (!variants || typeof variants !== "object") return []
+  return Object.keys(variants as Record<string, unknown>)
 }
 
 export const CHANNEL_NAME_MAX = 90

@@ -46,6 +46,8 @@ export function commandData(): any[] {
     { name: "abort", description: "Abort the current run" },
     { name: "model", description: "Choose the model for this thread" },
     { name: "agent", description: "Choose the agent for this thread" },
+    { name: "thinking", description: "Choose the thinking depth (model variant) for this thread", options: [
+      { type: ApplicationCommandOptionType.String, name: "depth", description: "Depth name (for example low, high, max) or 'default'" } ] },
     { name: "queue", description: "Show and manage this thread's queued prompts" },
     { name: "undo", description: "Revert the session to its last user message" },
     { name: "redo", description: "Restore messages reverted by the last /undo" },
@@ -139,12 +141,14 @@ export interface CommandDeps {
   createThread?(input: CreateThreadInput): Promise<{ threadId: string; sessionId: string; notice?: string }>
   forkThread?(input: ForkThreadInput): Promise<ForkedThread>
   listSessions?(channelId: string): Promise<{ id: string; title: string }[]>
-  listModels?(channelId: string): Promise<{ id: string; name: string }[]>
+  listModels?(channelId: string): Promise<{ id: string; name: string; variants?: string[] }[]>
   listAgents?(channelId: string): Promise<{ id: string; name: string }[]>
   setThreadModel?(threadId: string, model: string | null): void
   setThreadAgent?(threadId: string, agent: string | null): void
+  setThreadVariant?(threadId: string, variant: string | null): void
   setChannelModel?(channelId: string, model: string | null): void
   setChannelAgent?(channelId: string, agent: string | null): void
+  setChannelVariant?(channelId: string, variant: string | null): void
   sessions?: SessionOps
   approvals?: ApprovalManager
   audit?(entry: AuditDraft): void
@@ -156,6 +160,7 @@ export const RESUME_SELECT = "resume"
 export const MODEL_PROVIDER_SELECT = "model-provider"
 export const MODEL_SELECT = "model"
 export const AGENT_SELECT = "agent"
+export const THINKING_SELECT = "thinking"
 export const QUEUE_REMOVE = "queue-remove"
 export const QUEUE_CLEAR = "queue-clear"
 
@@ -436,6 +441,31 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       const where = thread ? "thread" : "channel"
       return void await interaction.editReply({ content: `Choose an agent for this ${where}:`, components: [selectRow(selectCustomId(AGENT_SELECT, scope), "Select an agent", options)], allowedMentions: { parse: [] } })
     }
+    if (interaction.commandName === "thinking") {
+      const thread = deps.db.threads.get(interaction.channelId)
+      const channelProject = thread ? undefined : deps.db.projects.getByChannel(interaction.channelId)
+      const scope = thread ? thread.threadId : channelProject ? interaction.channelId : undefined
+      if (!scope) return void await interaction.editReply(noMentions("this channel is not a project"))
+      // Spec §9: wake the sandbox before asking it for models.
+      await deps.projects.ensureReady?.(thread?.channelId ?? interaction.channelId)
+      const direct = interaction.options.getString("depth", false)
+      if (direct) {
+        const variant = direct === "default" ? null : direct
+        if (thread) deps.setThreadVariant?.(scope, variant)
+        else deps.setChannelVariant?.(scope, variant)
+        const label = thread ? "thinking depth" : "channel thinking depth"
+        return void await interaction.editReply(noMentions(variant ? `${label} set to ${variant}` : `${label} reset to default`))
+      }
+      const channelId = thread?.channelId ?? interaction.channelId
+      const model = thread?.model ?? deps.db.settings.get(`default_model:${channelId}`) ?? deps.db.settings.get("default_model") ?? null
+      if (!model) return void await interaction.editReply(noMentions("set a model with /model first"))
+      const models = (await deps.listModels?.(channelId)) ?? []
+      const variants = models.find((m) => m.id === model)?.variants ?? []
+      if (!variants.length) return void await interaction.editReply(noMentions(`${model} has no thinking depths`))
+      const options = [{ label: "default (no override)", value: "default" }, ...variants.map((v) => ({ label: v, value: v }))]
+      const where = thread ? "thread" : "channel"
+      return void await interaction.editReply({ content: `Choose a thinking depth for this ${where}:`, components: [selectRow(selectCustomId(THINKING_SELECT, scope), "Select a thinking depth", options)], allowedMentions: { parse: [] } })
+    }
     if (interaction.commandName === "fork" || interaction.commandName === "btw") {
       const source = deps.db.threads.get(interaction.channelId)
       if (!source) return void await interaction.editReply(noMentions(`use /${interaction.commandName} inside a thread`))
@@ -628,6 +658,17 @@ export async function handleSelect(interaction: any, deps: CommandDeps): Promise
       }
       deps.setChannelAgent?.(scope, value ?? null)
       return void await interaction.editReply({ content: `channel agent set to ${value ?? "default"}`, components: [], allowedMentions: { parse: [] } })
+    }
+    if (action === THINKING_SELECT) {
+      const scope = id ?? interaction.channelId
+      const variant = value && value !== "default" ? value : null
+      const label = variant ?? "default"
+      if (deps.db.threads.get(scope)) {
+        deps.setThreadVariant?.(scope, variant)
+        return void await interaction.editReply({ content: `thinking depth set to ${label}`, components: [], allowedMentions: { parse: [] } })
+      }
+      deps.setChannelVariant?.(scope, variant)
+      return void await interaction.editReply({ content: `channel thinking depth set to ${label}`, components: [], allowedMentions: { parse: [] } })
     }
     return void await interaction.editReply({ content: "unknown selection", components: [], allowedMentions: { parse: [] } })
   } catch (e) {

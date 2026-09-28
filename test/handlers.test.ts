@@ -13,7 +13,7 @@ const project = (over: Partial<Project> = {}): Project => ({
   sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", status: "ready", createdAt: 1, ...over,
 })
 const thread = (over: Partial<Thread> = {}): Thread => ({
-  threadId: "t1", channelId: "c", sessionId: "s1", title: "hello", model: null, agent: null,
+  threadId: "t1", channelId: "c", sessionId: "s1", title: "hello", model: null, agent: null, variant: null,
   worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 1, ...over,
 })
 
@@ -410,7 +410,7 @@ test("createForkThread forks the session and copies model, agent, and worktree",
   db.projects.insertProvisioning({ channelId: "c", guildId: "g", name: "demo", directory: "C:\\p",
     sandboxPath: null, sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 })
   db.threads.upsert({ threadId: "t1", channelId: "c", sessionId: "s1", title: "source", model: "anthropic/claude",
-    agent: "build", worktreePath: "/sandbox/celly-demo/workspace/.celly/worktrees/t1",
+    agent: "build", variant: "high", worktreePath: "/sandbox/celly-demo/workspace/.celly/worktrees/t1",
     liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 1 })
   const forkCalls: any[] = []
   const created: any[] = []
@@ -428,7 +428,7 @@ test("createForkThread forks the session and copies model, agent, and worktree",
   const result = await fork({ sourceThreadId: "t1", title: "btw · hi", prompt: "hi", authorId: "u1" })
   expect(forkCalls).toEqual([{ path: { id: "s1" }, query: { directory: "/sandbox/celly-demo/workspace/.celly/worktrees/t1" } }])
   expect(created).toEqual([{ name: "btw · hi" }])
-  expect(db.threads.get("t9")).toMatchObject({ sessionId: "s9", model: "anthropic/claude", agent: "build",
+  expect(db.threads.get("t9")).toMatchObject({ sessionId: "s9", model: "anthropic/claude", agent: "build", variant: "high",
     worktreePath: "/sandbox/celly-demo/workspace/.celly/worktrees/t1", channelId: "c" })
   expect(result).toEqual({ threadId: "t9", sessionId: "s9", notice: undefined })
   expect(prompted).toEqual(["t9"])
