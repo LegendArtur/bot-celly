@@ -136,3 +136,12 @@ test("seedThreadDefaults prefers the channel default then the global default", (
   expect(seedThreadDefaults((key) => settings[key], "c2")).toEqual({ model: "global/model", agent: "global-agent" })
   expect(seedThreadDefaults(() => undefined, "c1")).toEqual({ model: null, agent: null })
 })
+
+test("index wires project create, remove, and restart into the admin server", () => {
+  const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8")
+  expect(source).toContain("guildIds: cfg.guildIds")
+  expect(source).toContain("restart: async (channelId)")
+  expect(source).toContain("remove: async (channelId)")
+  expect(source).toContain("create: async (input, onProgress)")
+  expect(source).toContain("projects.restartServer(channelId)")
+})

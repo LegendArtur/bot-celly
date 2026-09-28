@@ -132,13 +132,17 @@ project channel; the next message wakes the project again. Leave
 
 ## Admin page, backups, and log rotation
 
-`ADMIN_PORT` (default `4560`, `0` disables) starts an HTTP status page and JSON
-API that binds **`127.0.0.1` only**. It is **local by design and
-unauthenticated**: there is no login or token, and it is reachable only from the
-machine running Celly at `http://127.0.0.1:<ADMIN_PORT>`. It is not reachable
-from other devices or the network. Because it trusts anything on the host, never
-bind it to `0.0.0.0` and never publish or port-forward it. For remote access,
-forward the loopback port over SSH:
+`ADMIN_PORT` (default `4560`, `0` disables) starts an HTTP ops console and JSON
+API that binds **`127.0.0.1` only**. The console shows live project cards with
+start/stop/restart, project create/remove, usage and cost, the audit trail, and
+per-project logs and sessions. Creating a project creates its Discord channel and
+sandbox; removing a project deletes its Discord channel and sandbox but keeps the
+host directory. It is **local by design and unauthenticated**: there is no login
+or token, and it is reachable only from the machine running Celly at
+`http://127.0.0.1:<ADMIN_PORT>`. It is not reachable from other devices or the
+network. Because it trusts anything on the host, never bind it to `0.0.0.0` and
+never publish or port-forward it. For remote access, forward the loopback port
+over SSH:
 
 ```sh
 ssh -L 4560:127.0.0.1:4560 user@host
