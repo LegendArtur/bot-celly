@@ -18,16 +18,20 @@ async function admin(over: any = {}) {
     port: 0,
     db,
     secrets: over.secrets ?? [],
+    guildIds: over.guildIds ?? ["g1"],
     logFileFor: over.logFileFor ?? (() => undefined),
     start: async (channelId: string) => { calls.push(`start:${channelId}`) },
     stop: async (channelId: string) => { calls.push(`stop:${channelId}`) },
+    restart: async (channelId: string) => { calls.push(`restart:${channelId}`) },
+    create: async (input: any) => { calls.push(`create:${input.name}`) },
+    remove: async (channelId: string) => { calls.push(`remove:${channelId}`) },
     auditTail: over.auditTail,
     now: over.now,
   })
   return { svr, db, calls, base: `http://127.0.0.1:${svr.port}` }
 }
 
-test("the admin server binds loopback and renders the HTML status page", async () => {
+test("the admin server binds loopback and renders the ops console", async () => {
   const { svr, db, base } = await admin()
   db.projects.insertProvisioning({ ...proj, channelId: "c2", name: "<b>bold</b>", sandboxName: "celly-bold", hostPort: 4301 })
   try {
@@ -38,9 +42,9 @@ test("the admin server binds loopback and renders the HTML status page", async (
     const body = await res.text()
     expect(body).toContain("demo")
     expect(body).toContain("&lt;b&gt;bold&lt;/b&gt;")
-    expect(body).toContain("Local only")
-    expect(body).toContain("127.0.0.1")
-    expect(body).toContain("ADMIN_PORT=0")
+    expect(body).toContain("/assets/htmx.min.js")
+    expect(body).toContain('hx-sse:connect="/events"')
+    expect(body).not.toContain("pw")
   } finally {
     svr.close()
   }
@@ -85,8 +89,9 @@ test("POST start and stop call the injected actions and 404 unknown projects", a
 
 test("a failing project action returns a JSON 500", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
-  const svr = await createAdminServer({ port: 0, db, secrets: [], logFileFor: () => undefined,
-    start: async () => { throw new Error("boom") }, stop: async () => {} })
+  const svr = await createAdminServer({ port: 0, db, secrets: [], guildIds: [], logFileFor: () => undefined,
+    start: async () => { throw new Error("boom") }, stop: async () => {}, restart: async () => {},
+    create: async () => {}, remove: async () => {} })
   try {
     const res = await fetch(`http://127.0.0.1:${svr.port}/api/projects/c1/start`, { method: "POST" })
     expect(res.status).toBe(500)

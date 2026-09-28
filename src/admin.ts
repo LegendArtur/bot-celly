@@ -2,19 +2,40 @@ import { createServer } from "node:http"
 import type { ServerResponse } from "node:http"
 import { existsSync, readFileSync } from "node:fs"
 import type { Db } from "./db.ts"
+import type { Project, Thread, UsageTotals } from "./types.ts"
 import { redact } from "./log.js"
+import { attachCommand } from "./attach.js"
+import { readAsset } from "./admin/assets.js"
+import {
+  formatClock, renderAudit, renderPage, renderProjects,
+  renderStats, renderUsage,
+} from "./admin/views.js"
+import type { AuditView, DetailView, ProjectView, SessionView, StatsView } from "./admin/views.ts"
 
 export const ADMIN_HOST = "127.0.0.1"
 
+export interface AdminCreateInput {
+  guildId: string
+  name: string
+  cloneUrl?: string
+  branch?: string
+}
+
 export interface AdminDeps {
   port: number
-  db: Pick<Db, "projects">
+  db: Pick<Db, "projects" | "threads" | "usage">
   secrets: string[]
+  guildIds: string[]
   logFileFor(channelId: string): string | undefined
   start(channelId: string): Promise<void>
   stop(channelId: string): Promise<void>
+  restart(channelId: string): Promise<void>
+  create(input: AdminCreateInput, onProgress?: (stage: string) => void): Promise<void>
+  remove(channelId: string): Promise<void>
   auditTail?(limit: number): unknown[]
   now?(): number
+  liveTickMs?: number
+  log?: { warn(message: string, fields?: Record<string, unknown>): void }
 }
 
 export interface AdminServer {
@@ -23,14 +44,67 @@ export interface AdminServer {
   close(): void
 }
 
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
-}
-
 export function tailLines(text: string, count: number): string[] {
   const lines = text.split(/\r?\n/)
   if (lines[lines.length - 1] === "") lines.pop()
   return lines.slice(-count)
+}
+
+function projectViewFor(p: Project, deps: AdminDeps, now: number, selected = false): ProjectView {
+  const usage = deps.db.usage.channel(p.channelId)
+  return {
+    channelId: p.channelId, name: p.name, status: p.status, hostPort: p.hostPort,
+    sandboxName: p.sandboxName, lastActiveAt: p.lastActiveAt,
+    spend: usage.cost, tokens: usage.tokensIn + usage.tokensOut,
+    sessions: deps.db.threads.byChannel(p.channelId).length,
+    ...(selected ? { selected: true } : {}),
+  }
+}
+
+function buildProjects(deps: AdminDeps, now: number): ProjectView[] {
+  return deps.db.projects.list().map((p) => projectViewFor(p, deps, now))
+}
+
+function buildStats(projects: ProjectView[], totals: UsageTotals, uptimeMs: number): StatsView {
+  return {
+    total: projects.length,
+    ready: projects.filter((p) => p.status === "ready").length,
+    degraded: projects.filter((p) => p.status === "degraded").length,
+    provisioning: projects.filter((p) => p.status === "provisioning").length,
+    cost: totals.cost,
+    tokens: totals.tokensIn + totals.tokensOut,
+    uptimeMs,
+  }
+}
+
+function toAuditView(raw: unknown): AuditView {
+  const e = (raw ?? {}) as Record<string, unknown>
+  const ts = typeof e.ts === "string" ? Date.parse(e.ts) : Number.NaN
+  return {
+    time: Number.isFinite(ts) ? formatClock(ts) : "",
+    kind: typeof e.kind === "string" ? e.kind : "event",
+    detail: typeof e.detail === "string" ? e.detail : "",
+    decision: typeof e.decision === "string" ? e.decision : "",
+  }
+}
+
+function buildAudit(deps: AdminDeps): AuditView[] {
+  return (deps.auditTail?.(20) ?? []).map(toAuditView)
+}
+
+function buildDetail(deps: AdminDeps, channelId: string): DetailView | undefined {
+  const project = deps.db.projects.getByChannel(channelId)
+  if (!project) return undefined
+  const nowMs = deps.now?.() ?? Date.now()
+  const file = deps.logFileFor(channelId)
+  const logs = file && existsSync(file) ? tailLines(redact(readFileSync(file, "utf8"), deps.secrets), 200) : []
+  const projectView = projectViewFor(project, deps, nowMs)
+  const sessions: SessionView[] = deps.db.threads.byChannel(channelId).map((t: Thread) => ({
+    threadId: t.threadId, title: t.title ?? `session ${t.sessionId}`, sessionId: t.sessionId,
+    model: t.model, agent: t.agent, renderState: t.renderState, lastActiveAt: t.lastActiveAt,
+    attach: attachCommand(project, t.sessionId),
+  }))
+  return { project: projectView, logs, sessions }
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -53,9 +127,18 @@ export async function createAdminServer(deps: AdminDeps): Promise<AdminServer> {
         const parts = url.pathname.split("/").filter(Boolean)
         const method = req.method ?? "GET"
         if (parts.length === 0 && method === "GET") {
-          const rows = deps.db.projects.list()
-            .map((p) => `<li>${escapeHtml(p.name)} — ${escapeHtml(p.status)} (${p.hostPort})</li>`).join("")
-          sendHtml(res, 200, `<!doctype html><html><head><meta charset="utf-8"><title>Celly admin</title></head><body><h1>Celly</h1><p><strong>Local only</strong> — listening on 127.0.0.1; not reachable from other devices. There is no authentication by design. Set ADMIN_PORT=0 to disable.</p><ul>${rows}</ul></body></html>`)
+          const nowMs = now()
+          const totals = deps.db.usage.totals()
+          const projectViews = buildProjects(deps, nowMs)
+          sendHtml(res, 200, renderPage({
+            now: nowMs,
+            uptimeMs: Math.max(0, nowMs - startedAt),
+            projects: projectViews,
+            stats: buildStats(projectViews, totals, Math.max(0, nowMs - startedAt)),
+            usage: totals,
+            audit: buildAudit(deps),
+            guildIds: deps.guildIds,
+          }))
           return
         }
         if (parts[0] === "api" && parts[1] === "projects" && parts.length === 2 && method === "GET") {
