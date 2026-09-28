@@ -71,3 +71,48 @@ test("GET /assets serves allowlisted files and 404s anything else", async () => 
     expect((await fetch(`${base}/assets/..%2Fpackage.json`)).status).toBe(404)
   } finally { svr.close() }
 })
+
+test("fragment actions call the injected function and return the card plus partials", async () => {
+  const { svr, base, calls } = await ui()
+  try {
+    const res = await fetch(`${base}/partials/projects/c1/restart`, { method: "POST" })
+    expect(res.status).toBe(200)
+    const body = await res.text()
+    expect(calls).toEqual(["restart:c1"])
+    expect(body).toContain(`id="project-c1"`)
+    expect(body).toContain(`hx-partial hx-target="#stats"`)
+    expect(body).toContain(`hx-partial hx-target="#usage"`)
+    expect(body).toContain(`hx-partial hx-target="#audit"`)
+  } finally { svr.close() }
+})
+
+test("fragment action on an unknown project is a 404 and a throwing action renders an error card", async () => {
+  const { svr, base } = await ui()
+  try {
+    expect((await fetch(`${base}/partials/projects/nope/start`, { method: "POST" })).status).toBe(404)
+    expect((await fetch(`${base}/partials/projects/c1/start`, { method: "GET" })).status).toBe(405)
+  } finally { svr.close() }
+  const failing = await createAdminServer({
+    port: 0, db: (() => { const d = openDb(":memory:"); d.migrate(); d.projects.insertProvisioning(proj); return d })(),
+    secrets: [], guildIds: [], logFileFor: () => undefined,
+    start: async () => { throw new Error("boom") }, stop: async () => {}, restart: async () => {},
+    create: async () => {}, remove: async () => {},
+  })
+  try {
+    const res = await fetch(`http://127.0.0.1:${failing.port}/partials/projects/c1/start`, { method: "POST" })
+    expect(res.status).toBe(200)
+    const body = await res.text()
+    expect(body).toContain("id=\"project-c1\"")
+    expect(body).toContain("boom")
+  } finally { failing.close() }
+})
+
+test("POST /api/projects/:id/restart mirrors the JSON action shape", async () => {
+  const { svr, base, calls } = await ui()
+  try {
+    const res = await fetch(`${base}/api/projects/c1/restart`, { method: "POST" })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, action: "restart", channelId: "c1" })
+    expect(calls).toEqual(["restart:c1"])
+  } finally { svr.close() }
+})

@@ -7,8 +7,8 @@ import { redact } from "./log.js"
 import { attachCommand } from "./attach.js"
 import { readAsset } from "./admin/assets.js"
 import {
-  formatClock, renderAudit, renderPage, renderProjects,
-  renderStats, renderUsage,
+  escapeHtml, formatClock, renderAudit, renderPage, renderProjectCard,
+  renderProjects, renderStats, renderUsage,
 } from "./admin/views.js"
 import type { AuditView, DetailView, ProjectView, SessionView, StatsView } from "./admin/views.ts"
 
@@ -107,6 +107,13 @@ function buildDetail(deps: AdminDeps, channelId: string): DetailView | undefined
   return { project: projectView, logs, sessions }
 }
 
+function renderCardWithError(deps: AdminDeps, channelId: string, message: string): string | undefined {
+  const project = deps.db.projects.getByChannel(channelId)
+  if (!project) return undefined
+  const card = renderProjectCard(projectViewFor(project, deps, deps.now?.() ?? Date.now()), deps.now?.() ?? Date.now())
+  return card.replace("</article>", `<div class="notice error">${escapeHtml(message)}</div></article>`)
+}
+
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json" })
   res.end(JSON.stringify(body))
@@ -160,6 +167,28 @@ export async function createAdminServer(deps: AdminDeps): Promise<AdminServer> {
           if (parts[1] === "usage") return sendHtml(res, 200, renderUsage(totals))
           return sendHtml(res, 200, renderAudit(buildAudit(deps)))
         }
+        if (parts[0] === "partials" && parts[1] === "projects" && parts.length === 4 && (parts[3] === "start" || parts[3] === "stop" || parts[3] === "restart")) {
+          if (method !== "POST") return sendJson(res, 405, { error: "method not allowed" })
+          const channelId = parts[2]!
+          if (!deps.db.projects.getByChannel(channelId)) return sendJson(res, 404, { error: "unknown project" })
+          const action = parts[3]
+          const nowMs = now()
+          try {
+            await (action === "start" ? deps.start(channelId) : action === "stop" ? deps.stop(channelId) : deps.restart(channelId))
+            const totals = deps.db.usage.totals()
+            const projects = buildProjects(deps, nowMs)
+            const body = renderProjectCard(projectViewFor(deps.db.projects.getByChannel(channelId)!, deps, nowMs), nowMs)
+              + `\n<hx-partial hx-target="#stats">${renderStats(buildStats(projects, totals, Math.max(0, nowMs - startedAt)))}</hx-partial>`
+              + `\n<hx-partial hx-target="#usage">${renderUsage(totals)}</hx-partial>`
+              + `\n<hx-partial hx-target="#audit">${renderAudit(buildAudit(deps))}</hx-partial>`
+            sendHtml(res, 200, body)
+          } catch (e) {
+            const message = e instanceof Error ? e.message : String(e)
+            const body = renderCardWithError(deps, channelId, message) ?? ""
+            sendHtml(res, 200, body)
+          }
+          return
+        }
         if (parts[0] === "api" && parts[1] === "projects" && parts.length === 2 && method === "GET") {
           sendJson(res, 200, deps.db.projects.list().map((p) => ({ channelId: p.channelId, name: p.name, status: p.status, hostPort: p.hostPort })))
           return
@@ -170,13 +199,14 @@ export async function createAdminServer(deps: AdminDeps): Promise<AdminServer> {
           sendJson(res, 200, { ok: true, projects: projects.length, ready: projects.filter((p) => p.status === "ready").length, uptimeMs: Math.max(0, now() - startedAt) })
           return
         }
-        if (parts[0] === "api" && parts[1] === "projects" && parts.length === 4 && (parts[3] === "start" || parts[3] === "stop")) {
+        if (parts[0] === "api" && parts[1] === "projects" && parts.length === 4 && (parts[3] === "start" || parts[3] === "stop" || parts[3] === "restart")) {
           if (method !== "POST") return sendJson(res, 405, { error: "method not allowed" })
           const channelId = parts[2]!
           if (!deps.db.projects.getByChannel(channelId)) return sendJson(res, 404, { error: "unknown project" })
           const action = parts[3]
+          const run = action === "start" ? deps.start : action === "stop" ? deps.stop : deps.restart
           try {
-            await (action === "start" ? deps.start(channelId) : deps.stop(channelId))
+            await run(channelId)
             sendJson(res, 200, { ok: true, action, channelId })
           } catch (e) {
             sendJson(res, 500, { error: e instanceof Error ? e.message : String(e) })
