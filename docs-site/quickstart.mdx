@@ -14,7 +14,7 @@ binary.
 - **Docker Sandboxes `sbx` >= 0.45** installed and logged in.
 - A Docker login and an initialized network policy.
 - A Discord application with a bot token, the **Message Content** intent
-  enabled, and a single guild.
+  enabled, and one or more guild IDs.
 - An OpenCode provider credential registered through `sbx secret`.
 
 ## Setup
@@ -46,17 +46,10 @@ binary.
   </Step>
 
   <Step title="Configure `.env`">
-    Set **only** `DISCORD_TOKEN` and `DISCORD_GUILD_ID`. Every other setting has
-    a working default.
-
-    ```dotenv
-    DISCORD_TOKEN=your-bot-token
-    DISCORD_GUILD_ID=your-guild-id
-    ```
+    <Snippet file="snippets/env-minimal.mdx" />
 
     `PROJECTS_ROOT` defaults to `~/Celly/projects`
-    (`%USERPROFILE%\Celly\projects` on Windows) and is created on boot. The full
-    variable list is in [Configuration](/guides/configuration).
+    (`%USERPROFILE%\Celly\projects` on Windows) and is created on boot.
   </Step>
 
   <Step title="Run the bot">
@@ -90,6 +83,9 @@ binary.
 
 - [Configuration](/guides/configuration) — every environment variable and its
   default.
+- [Providers](/guides/providers) — credentials, custom hosts, and model
+  selection.
 - [Terminal attach](/guides/terminal-attach) — drive the same sessions from a
   shell.
 - [Deployment](/guides/deployment) — run Celly at logon with Task Scheduler.
+- [Operations](/guides/operations) — the admin page, logs, and backups.

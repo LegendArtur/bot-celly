@@ -1,0 +1,15 @@
+A project directory must resolve (realpath, case-insensitive) **inside**
+`PROJECTS_ROOT`. On top of containment, a sensitive-path denylist rejects any
+project directory that overlaps:
+
+- The bot repository itself (`process.cwd()`).
+- `DATA_DIR`.
+- Under the user profile: `.ssh`, `.aws`, `.gnupg`, `.config`, `.docker`,
+  `.kube`, `.azure`, `.npmrc`, `.netrc`, `.celly`, and `AppData`.
+- System directories (`C:\Windows`, `System32`, `Program Files`, `ProgramData`,
+  or `/etc`, `/usr`, `/bin`, `/sbin`, `/var`, `/opt`, `/System`, `/Library` on
+  POSIX).
+
+Because containment is checked both ways, you also cannot register a parent of
+`PROJECTS_ROOT` or of any denied path. `PROJECTS_ROOT` is intentionally **not**
+runtime-editable; changing it means editing `.env` and restarting.

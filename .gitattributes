@@ -1,0 +1,3 @@
+# Normalize line endings: store LF in the repository and check out LF, so
+# Windows editors and tools that emit CRLF do not create whole-file diffs.
+* text=auto eol=lf

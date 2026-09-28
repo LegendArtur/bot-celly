@@ -14,14 +14,13 @@ The model is small enough to hold in your head:
 
 - **Channel = project.** One `sbx` sandbox and one host directory.
 - **Thread = session.** One OpenCode conversation.
-- The bot runs **on the `sbx` host** (Windows 11 for v1), because only the host
-  can invoke the `sbx` CLI. It supervises one long-lived
-  `sbx exec ... opencode serve` child per project and talks to it over the
-  sandbox's published loopback port using the `@opencode-ai/sdk`.
+- The bot runs **on the `sbx` host**, because only the host can invoke the `sbx`
+  CLI. It supervises one long-lived `sbx exec ... opencode serve` child per
+  project and talks to it over the sandbox's published loopback port using the
+  `@opencode-ai/sdk`.
 
 The name leans on a forge metaphor. Each project's sandbox is its forge
-(`celly-<slug>`), the default Discord category is **Forge**, and the theme is
-generic smithing folklore rather than any trademarked name.
+(`celly-<slug>`), and the default Discord category is **Forge**.
 
 ## Topology
 
@@ -63,10 +62,6 @@ flowchart LR
 Provider credentials are injected by `sbx secret` at the host proxy. They are
 never stored in the bot or the repository.
 
-**Inspired by [Kimaki](https://github.com/remorses/kimaki)** (MIT): Celly is a
-deliberately lightweight re-implementation of its command surface, with `sbx`
-sandboxes replacing Kimaki's local process management.
-
 ## Start here
 
 <CardGroup cols={2}>
@@ -75,25 +70,27 @@ sandboxes replacing Kimaki's local process management.
     minutes.
   </Card>
   <Card title="Commands" icon="terminal" href="/reference/commands">
-    The full v1 command surface, access rules, and what is deferred.
+    The full command surface, access rules, and what is deferred.
   </Card>
 </CardGroup>
 
-## What you get in v1
+## What you get
 
 - **Per-project sandbox isolation.** Every project owns a microVM; the host
-  filesystem outside the mounted project directory is unreachable by the agent.
-- **Streaming replies.** Assistant text and tool activity stream into the thread
-  and are throttled into a single live message.
-- **Session resume.** `/resume` reopens a past OpenCode session in a new thread.
-- **Model and agent switching.** `/model` and `/agent` pick per-thread settings.
-- **Abort.** `/abort` stops the current run (in a thread) or every active run in
-  the project channel.
-- **Shell.** A message starting with `!` runs `bash -lc <command>` inside the
-  project's sandbox and posts the output.
-- **Terminal coexistence.** Sessions are shared between Discord and a terminal
-  attached to the same sandbox.
+  filesystem outside the mounted project directory is unreachable. See
+  [Security](/reference/security).
+- **Streaming replies** throttled into a single live message, with fence-aware
+  chunking.
+- **Approvals.** `auto`, `buttons`, or `plan` per channel, with Discord
+  permission buttons and interactive agent questions. See
+  [Approvals](/reference/commands#approvals-and-questions).
+- **Sessions everywhere.** `/resume`, `/fork`, `/undo`/`/redo`, `/compact`,
+  `/diff`, and terminal attach all share one OpenCode session.
+- **Per-thread git worktrees** under `<project>/.celly/worktrees`.
+- **Cost tracking and budgets** with `/cost` and `/budget`.
+- **Multi-guild** deployment and a loopback [admin page](/guides/operations).
 
 Read the [architecture reference](/reference/architecture) for how the create
 saga, supervised server, and event router fit together, and the
-[security reference](/reference/security) for the enforced invariants.
+[security reference](/reference/security) for the enforced invariants. Celly is
+inspired by [Kimaki](/project/tech-stack#credits-and-inspiration).

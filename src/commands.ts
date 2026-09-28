@@ -448,21 +448,37 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (!scope) return void await interaction.editReply(noMentions("this channel is not a project"))
       // Spec §9: wake the sandbox before asking it for models.
       await deps.projects.ensureReady?.(thread?.channelId ?? interaction.channelId)
-      const direct = interaction.options.getString("depth", false)
-      if (direct) {
-        const variant = direct === "default" ? null : direct
-        if (thread) deps.setThreadVariant?.(scope, variant)
-        else deps.setChannelVariant?.(scope, variant)
-        const label = thread ? "thinking depth" : "channel thinking depth"
-        return void await interaction.editReply(noMentions(variant ? `${label} set to ${variant}` : `${label} reset to default`))
-      }
       const channelId = thread?.channelId ?? interaction.channelId
-      const model = thread?.model ?? deps.db.settings.get(`default_model:${channelId}`) ?? deps.db.settings.get("default_model") ?? null
-      if (!model) return void await interaction.editReply(noMentions("set a model with /model first"))
-      const models = (await deps.listModels?.(channelId)) ?? []
-      const variants = models.find((m) => m.id === model)?.variants ?? []
-      if (!variants.length) return void await interaction.editReply(noMentions(`${model} has no thinking depths`))
-      const options = [{ label: "default (no override)", value: "default" }, ...variants.map((v) => ({ label: v, value: v }))]
+      const apply = (variant: string | null): void => { if (thread) deps.setThreadVariant?.(scope, variant); else deps.setChannelVariant?.(scope, variant) }
+      const label = thread ? "thinking depth" : "channel thinking depth"
+      // Variant names are the thinking depths the model advertises via OpenCode;
+      // resolve the effective model's list so a typed depth can be validated.
+      const resolveVariants = async (): Promise<{ model: string; variants: string[] } | string> => {
+        const model = thread?.model ?? deps.db.settings.get(`default_model:${channelId}`) ?? deps.db.settings.get("default_model") ?? null
+        if (!model) return "set a model with /model first"
+        const models = (await deps.listModels?.(channelId)) ?? []
+        const variants = models.find((m) => m.id === model)?.variants ?? []
+        if (!variants.length) return `${model} has no thinking depths`
+        return { model, variants }
+      }
+      const direct = interaction.options.getString("depth", false)
+      if (direct !== undefined && direct !== null) {
+        const value = direct.trim().toLowerCase()
+        if (!value || value === "default") {
+          apply(null)
+          return void await interaction.editReply(noMentions(`${label} reset to default`))
+        }
+        const resolved = await resolveVariants()
+        if (typeof resolved === "string") return void await interaction.editReply(noMentions(resolved))
+        if (!resolved.variants.includes(value)) {
+          return void await interaction.editReply(noMentions(`unknown thinking depth '${direct}' for ${resolved.model}; choose one of: ${["default", ...resolved.variants].join(", ")}`))
+        }
+        apply(value)
+        return void await interaction.editReply(noMentions(`${label} set to ${value}`))
+      }
+      const resolved = await resolveVariants()
+      if (typeof resolved === "string") return void await interaction.editReply(noMentions(resolved))
+      const options = [{ label: "default (no override)", value: "default" }, ...resolved.variants.map((v) => ({ label: v, value: v }))]
       const where = thread ? "thread" : "channel"
       return void await interaction.editReply({ content: `Choose a thinking depth for this ${where}:`, components: [selectRow(selectCustomId(THINKING_SELECT, scope), "Select a thinking depth", options)], allowedMentions: { parse: [] } })
     }

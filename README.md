@@ -1,37 +1,57 @@
-# Celly
+<h1 align="center">Celly</h1>
 
-> A Discord forge for coding agents.
+<p align="center"><strong>A Discord forge for coding agents.</strong></p>
 
-[![Docs](https://img.shields.io/badge/docs-celly.agub.dev-7C3AED)](https://celly.agub.dev)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D24%20%3C25-brightgreen)](package.json)
-[![CI](https://github.com/LegendArtur/bot-celly/actions/workflows/ci.yml/badge.svg)](https://github.com/LegendArtur/bot-celly/actions/workflows/ci.yml)
-[![Changelog](https://img.shields.io/badge/changelog-celly.agub.dev%2Fchangelog-7C3AED)](https://celly.agub.dev/changelog)
-[![Inspired by Kimaki](https://img.shields.io/badge/inspired%20by-kimaki-7C3AED)](https://github.com/remorses/kimaki)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](#contributing)
+<p align="center">
+  <img src="docs-site/images/demo.svg" alt="Celly streaming a coding agent's reply inside a Discord thread" width="820">
+</p>
 
-Celly turns [Discord](https://discord.com) into a control surface for
-[OpenCode](https://opencode.ai) coding agents. Every project gets its own
-isolated `sbx` (Docker Sandboxes) microVM on your host, and you drive it from a
-Discord channel and thread. Start a session from your phone, watch it work, and
-pick it back up later.
+Start a coding agent from your phone, in a channel you already keep open. Celly
+turns [Discord](https://discord.com) into a control surface for
+[OpenCode](https://opencode.ai) agents: kick off work, watch it stream, approve a
+command, and pick the session back up later.
 
-Inspired by [Kimaki](https://github.com/remorses/kimaki) — Celly reimplements its
-core idea (channels as projects, threads as sessions) and runs each project in a
-`sbx` sandbox instead of a local process.
+It is for people who want an always-on coding agent without exposing their whole
+machine: each project runs in its own disposable sandbox, and the only thing the
+agent can reach is that project's directory. For a deeper tour, see the
+[docs](https://celly.agub.dev).
 
-**Documentation:** https://celly.agub.dev
+## Why Celly
+
+- **Drive agents from anywhere.** No terminal required — Discord on desktop or
+  mobile is the whole UI.
+- **Isolation by default.** Every project gets its own microVM, not a shared
+  shell on your host.
+- **Nothing to babysit.** Start a session, close the app, come back to the
+  transcript and the running sandbox.
+- **Built on OpenCode.** Use the same sessions from Discord *and* a terminal
+  attached to the sandbox.
+
+## How it works
+
+The whole model fits in three lines:
+
+- **Channel = project.** One sandbox and one host directory per Discord channel.
+- **Thread = session.** One OpenCode conversation per thread.
+- **The bot runs on the sandbox host.** It supervises one
+  `sbx exec ... opencode serve` child per project and talks to it over the
+  sandbox's loopback port. Only the host can run the `sbx` (Docker Sandboxes)
+  CLI, which is why Celly is host-only.
 
 ## Contents
 
+- [Why Celly](#why-celly)
+- [How it works](#how-it-works)
 - [Features](#features)
 - [Architecture](#architecture)
-- [Requirements](#requirements)
+- [Prerequisites](#prerequisites)
 - [Quick start](#quick-start)
 - [Commands](#commands)
 - [Security](#security)
+- [Operations](#operations)
+- [FAQ and troubleshooting](#faq-and-troubleshooting)
 - [Development](#development)
-- [Status / roadmap](#status--roadmap)
+- [Status and roadmap](#status-and-roadmap)
 - [Limitations](#limitations)
 - [Contributing](#contributing)
 - [License](#license)
@@ -47,7 +67,8 @@ core idea (channels as projects, threads as sessions) and runs each project in a
 - **Per-thread worktrees.** `/worktree` creates, merges, and removes git
   worktrees under `<project>/.celly/worktrees`, and `/fork` (or `/btw`) forks a
   session with its worktree.
-- **Model and agent switching.** `/model` and `/agent` pick per-thread settings.
+- **Model, agent, and thinking depth.** `/model`, `/agent`, and `/thinking` pick
+  per-thread settings.
 - **Abort.** `/abort` stops the current run, or every active run in the channel.
 - **Approvals.** `/mode` picks `auto`, `buttons`, or `plan`; `buttons` posts
   permission requests as Discord buttons and agent questions as
@@ -97,16 +118,23 @@ Discord (channel = project, thread = session)
 See the [architecture reference](https://celly.agub.dev/reference/architecture)
 for the module map, create saga, and boot recovery.
 
-## Requirements
+## Prerequisites
 
-- **Windows 11 host** (or macOS/Linux where `sbx` runs). The bot cannot run
-  inside a Linux container: only the host can execute `sbx`.
-- **Node 24.x** exactly (pinned by `engines` and `.nvmrc`).
-- **Docker Sandboxes `sbx` >= 0.45**.
-- A Docker login and an initialized network policy (`sbx policy init balanced`).
-- A Discord application with a bot token, the **Message Content** intent, and one
-  or more guild IDs.
-- An OpenCode provider configured through `sbx secret`.
+Gather these before you start — the setup steps assume they are ready.
+
+- [ ] **A host where `sbx` runs.** Windows 11, or macOS/Linux where Docker
+      Sandboxes runs. The bot cannot run inside a Linux container: only the host
+      can execute `sbx`.
+- [ ] **[Node 24.x](https://nodejs.org)** exactly (pinned by `engines` and
+      `.nvmrc`).
+- [ ] **[Docker Sandboxes](https://www.docker.com/products/docker-sandboxes/)
+      `sbx` >= 0.45**, installed and logged in.
+- [ ] **A Docker login** and an initialized network policy
+      (`sbx policy init balanced`).
+- [ ] **A [Discord application](https://discord.com/developers/applications)**
+      with a bot token, the **Message Content** intent enabled, and one or more
+      guild IDs.
+- [ ] **An OpenCode provider configured** through `sbx secret`.
 
 ## Quick start
 
@@ -137,12 +165,31 @@ for the module map, create saga, and boot recovery.
 3. **Run** `node dist/index.js`, then `/project add name:<name> path:<path>` and
    send a message in the new channel.
 
+> **You'll know it worked when:** the bot comes online, your `/project add`
+> command creates a channel under the **Forge** category, and a plain message in
+> that channel opens a thread and streams the agent's reply.
+
 The full walkthrough is in the
 [Quickstart](https://celly.agub.dev/quickstart). Every environment variable
 is documented in
 [Configuration](https://celly.agub.dev/guides/configuration).
 
 ## Commands
+
+The everyday handful:
+
+| Command | What it does |
+|---|---|
+| `/project add <name> <path>` | Register a directory and spin up its sandbox. |
+| `/new [prompt]` | Start a session in the project channel. |
+| `/resume` | Reopen a past session in a new thread. |
+| `/abort` | Stop the current run, or all runs in the channel. |
+| `/model` · `/agent` · `/thinking` | Switch the model, agent, or thinking depth for a thread. |
+| `/mode auto\|buttons\|plan` | Choose how approvals are requested. |
+| `/cost` | Show accumulated cost, tokens, and the session budget. |
+
+<details>
+<summary>All commands</summary>
 
 | Command | Where | Description |
 |---|---|---|
@@ -159,6 +206,7 @@ is documented in
 | `/abort` | channel or thread | Abort the current run (or all runs). |
 | `/model` | thread or project channel | Choose the model for this thread or the channel default. |
 | `/agent` | thread or project channel | Choose the agent for this thread or the channel default. |
+| `/thinking [depth]` | thread or project channel | Choose the current model's thinking depth (variant) for this thread or the channel default. |
 | `/attach` | thread | Show the terminal attach command for this thread. |
 | `/session-id` | thread | Show this thread's session id and attach command. |
 | `/queue` | thread | Show and manage queued prompts for this thread. |
@@ -180,20 +228,75 @@ is documented in
 | `/task remove <id>` | guild (owner) | Remove a scheduled task. |
 | `!<command>` | channel or thread | Run a shell command in the sandbox. |
 
+</details>
+
 Full details and the deferred list are in the
 [commands reference](https://celly.agub.dev/reference/commands).
 
 ## Security
 
-Every `sbx` call is argv-only (`shell: false`), each project runs in its own
-microVM, project paths are contained under `PROJECTS_ROOT` and checked against a
-sensitive-path denylist, the server is loopback-only with a generated password,
-and a bot-enforced permission policy is re-asserted after every wake. Provider
-credentials live in `sbx secret` and never touch argv or Discord.
+At a glance:
+
+- **argv-only `sbx` calls** (`shell: false`) — no shell interpolation.
+- **One microVM per project** — the host filesystem outside the mount is
+  unreachable by the agent.
+- **Contained paths** under `PROJECTS_ROOT`, checked against a sensitive-path
+  denylist.
+- **Loopback-only server** with a generated password; provider credentials live
+  in `sbx secret` and never touch argv or Discord.
+
+<details>
+<summary>Full security model</summary>
 
 The deny list is defense-in-depth, not a hard boundary — the sandbox is. Read
 the [security reference](https://celly.agub.dev/reference/security) for the
 full model.
+
+</details>
+
+## Operations
+
+The host is designed to run unattended:
+
+- **Logs.** Console output plus `DATA_DIR/bot.log` (JSONL) and per-project
+  `DATA_DIR/logs/<project>.log`, with token/password redaction.
+- **Admin page.** A loopback-only status page and JSON API on
+  `127.0.0.1:4560` (`ADMIN_PORT`), unauthenticated by design and never
+  network-exposed.
+- **Backups.** Scheduled SQLite backups under `DATA_DIR/backups` with pruning.
+- **Rotation.** `bot.log` and project server logs rotate by size.
+
+The full operational guide is in
+[Operations](https://celly.agub.dev/guides/operations).
+
+## FAQ and troubleshooting
+
+**The bot is online but ignores plain messages.**
+Enable the **Message Content** intent in the Discord Developer Portal, then
+restart the bot.
+
+**`sbx: command not found`, or the bot exits during preflight.**
+Celly must run on the host that owns `sbx` (Windows 11), not inside a Linux
+container. Install and log in first (see [Prerequisites](#prerequisites)).
+
+**Startup complains the network policy is missing.**
+Run `sbx policy init balanced`.
+
+**The agent fails with a provider or auth error.**
+Register the provider with `sbx secret set <provider>` on the host and confirm
+you are logged in with `sbx login`.
+
+**A project shows unhealthy, or the serve child will not start.**
+Check `data/bot.log`, then run `/project start <name>` (or
+`/project restart <name>`).
+
+**Role configuration is rejected.**
+Use role **IDs**, not role names.
+
+**Where do I look when something is off?**
+The loopback-only admin page on `127.0.0.1:4560` (projects, health, logs,
+audit) and `data/bot.log`. See
+[Operations](https://celly.agub.dev/guides/operations).
 
 ## Development
 
@@ -215,9 +318,9 @@ node scripts/smoke.mjs C:\path\to\project    # create → prompt → abort → r
 Docs live in `docs-site/` (`npm run docs:dev`, `npm run docs:validate`,
 `npm run docs:links`).
 
-## Status / roadmap
+## Status and roadmap
 
-v1 is the command set above. Deferred to v1.1:
+The command set above is the current surface. Deferred:
 
 - **Input:** voice messages and image attachments.
 - **Surfaces:** OpenCode web UI, diff viewer, tunnels/screenshare, forum-channel
@@ -240,14 +343,19 @@ v1 is the command set above. Deferred to v1.1:
   mapping, live Discord behavior) are exercised on the host, not in the Linux
   test environment.
 
+The canonical list, including what is deferred, lives in
+[Limitations](https://celly.agub.dev/reference/limitations).
+
 ## Contributing
 
 Issues and pull requests are welcome. Before opening a PR, run `npm test`,
 `npm run typecheck`, and `npm run build`. Keep the **argv-only invariant**, add
-tests for behavior changes, add a changeset for behavior changes, and never
-commit secrets. This project follows the [Code of Conduct](CODE_OF_CONDUCT.md);
-report vulnerabilities via [SECURITY.md](SECURITY.md), not a public issue. See
-[Contributing](https://celly.agub.dev/contributing) for details.
+tests for behavior changes, add a changeset for behavior changes, **update the
+docs and this README**, and never commit secrets. This project follows the
+[Code of Conduct](CODE_OF_CONDUCT.md); report vulnerabilities via
+[SECURITY.md](SECURITY.md), not a public issue. See
+[Contributing](https://celly.agub.dev/contributing) for details and `AGENTS.md`
+for the definition of done.
 
 ## License
 
@@ -258,3 +366,10 @@ MIT. See [LICENSE](LICENSE).
 - Inspired by [remorses/kimaki](https://github.com/remorses/kimaki) (MIT).
 - Built on [Docker Sandboxes](https://www.docker.com/products/docker-sandboxes/)
   (`sbx`) and [OpenCode](https://opencode.ai).
+- The full stack and credits are on
+  [Tech stack](https://celly.agub.dev/project/tech-stack).
+
+<p align="center">
+  <a href="https://github.com/LegendArtur/bot-celly/actions/workflows/ci.yml"><img src="https://github.com/LegendArtur/bot-celly/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
+</p>

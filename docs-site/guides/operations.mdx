@@ -1,0 +1,65 @@
+---
+title: Operations
+description: The loopback admin page, logs, log rotation, SQLite backups, and restore for a running Celly host.
+---
+
+This page is the single source of truth for Celly's operational surfaces: the
+admin page, logs, log rotation, backups, and restore. The
+[deployment guides](/guides/deployment) link here instead of repeating it.
+
+## Admin page
+
+<Snippet file="snippets/admin-page.mdx" />
+
+The page trusts anything on the host, so local code shares the host trust
+boundary. See [Security](/reference/security) for the threat model.
+
+### Endpoints
+
+- `GET /` — HTML status page.
+- `GET /api/projects`, `GET /api/health`.
+- `POST /api/projects/<channelId>/start|stop`.
+- `GET /api/logs/<channelId>?lines=200` — redacted log tail.
+- `GET /api/audit?limit=100` — recent audit entries.
+
+## Logs
+
+Celly logs to the console (colored on a TTY) and to `DATA_DIR/bot.log` as JSONL.
+Each project's supervised `opencode serve` child appends to
+`DATA_DIR/logs/<project>.log`. `LOG_LEVEL` (`debug`, `info`, `warn`, `error`)
+sets console verbosity. Tokens, passwords, and `Authorization` headers are
+redacted before they reach either sink.
+
+## Backups and log rotation
+
+<Snippet file="snippets/backups-logs.mdx" />
+
+### Restore
+
+Stop the bot first so the database is not open while it is replaced.
+
+<Tabs>
+  <Tab title="Windows">
+    ```powershell
+    Stop-ScheduledTask -TaskName Celly
+    Copy-Item data\backups\bot-<ISO>.db data\bot.db -Force
+    Start-ScheduledTask -TaskName Celly
+    ```
+  </Tab>
+  <Tab title="Linux">
+    ```bash
+    systemctl --user stop celly
+    cp data/backups/bot-<ISO>.db data/bot.db
+    systemctl --user start celly
+    ```
+  </Tab>
+</Tabs>
+
+## Related
+
+- [Configuration](/guides/configuration) — `DATA_DIR`, `LOG_LEVEL`, and the
+  ops variables.
+- [Deployment on Windows](/guides/deployment) and
+  [Deployment on Linux](/guides/deployment-linux) — running Celly as a service.
+- [Security](/reference/security) — why the admin page is
+  unauthenticated.

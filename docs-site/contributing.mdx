@@ -18,6 +18,8 @@ The test suite is the contract. Add or update tests for any behavior change.
 
 ## Invariants to keep
 
+These mirror the [security invariants](/reference/security).
+
 - **argv-only.** Never pass user input through a host shell. Every `sbx`
   invocation goes through `src/sbx.ts` with `spawn(bin, args, { shell: false })`;
   only that module may import `child_process` (a test guards this).
@@ -62,6 +64,12 @@ npm run docs:dev        # preview at http://localhost:3000
 npm run docs:validate   # validate docs.json and pages
 npm run docs:links      # check for broken internal links
 ```
+
+Any change that alters behavior, configuration, commands, environment
+variables, or security must also update the affected page here and the README,
+and add a changeset. The canonical limitations live in
+[Limitations](/reference/limitations). `AGENTS.md` states the definition of done
+and CI enforces it (the `meta` job).
 
 ## Related
 

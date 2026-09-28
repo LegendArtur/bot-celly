@@ -83,8 +83,9 @@ Some models expose *variants* — named reasoning settings such as `high` and
 `max` (Anthropic) or `none`/`low`/`medium`/`high`/`xhigh` (OpenAI). `/thinking`
 lists the variants the current model advertises and stores your choice per
 thread (or as the channel default in a project channel). Choosing `default`
-clears the override. A variant the selected model does not support is ignored,
-so changing models never leaves you stuck on a stale depth.
+clears the override. A typed depth is validated against the model's list and
+unknown names are rejected; a depth that later becomes unsupported is ignored
+at prompt time, so changing models never leaves you stuck on a stale depth.
 
 ## Login inside the sandbox
 

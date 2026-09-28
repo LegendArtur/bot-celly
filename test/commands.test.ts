@@ -487,6 +487,48 @@ test("/thinking reports a model without variants", async () => {
 })
 
 test("/thinking with a direct value sets the thread override", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert(threadRow("t1", "c", { model: "anthropic/claude" }))
+  const i = interaction({ commandName: "thinking", channelId: "t1", strings: { depth: "high" } })
+  let set: any
+  await handleCommand(i, {
+    projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
+    listModels: async () => [{ id: "anthropic/claude", name: "Claude", variants: ["high", "max"] }],
+    setThreadVariant: (id: string, v: string | null) => { set = [id, v] },
+  })
+  expect(set).toEqual(["t1", "high"])
+  expect(editOf(i)).toBe("thinking depth set to high")
+})
+
+test("/thinking rejects a depth the model does not support", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert(threadRow("t1", "c", { model: "anthropic/claude" }))
+  const i = interaction({ commandName: "thinking", channelId: "t1", strings: { depth: "loww" } })
+  let set: any
+  await handleCommand(i, {
+    projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
+    listModels: async () => [{ id: "anthropic/claude", name: "Claude", variants: ["high", "max"] }],
+    setThreadVariant: (id: string, v: string | null) => { set = [id, v] },
+  })
+  expect(set).toBeUndefined()
+  expect(editOf(i)).toBe("unknown thinking depth 'loww' for anthropic/claude; choose one of: default, high, max")
+})
+
+test("/thinking normalizes case and whitespace", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert(threadRow("t1", "c", { model: "anthropic/claude" }))
+  const i = interaction({ commandName: "thinking", channelId: "t1", strings: { depth: "  MAX " } })
+  let set: any
+  await handleCommand(i, {
+    projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
+    listModels: async () => [{ id: "anthropic/claude", name: "Claude", variants: ["high", "max"] }],
+    setThreadVariant: (id: string, v: string | null) => { set = [id, v] },
+  })
+  expect(set).toEqual(["t1", "max"])
+  expect(editOf(i)).toBe("thinking depth set to max")
+})
+
+test("/thinking with a direct value and no model asks for a model", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
   const i = interaction({ commandName: "thinking", channelId: "t1", strings: { depth: "high" } })
   let set: any
@@ -494,8 +536,22 @@ test("/thinking with a direct value sets the thread override", async () => {
     projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
     setThreadVariant: (id: string, v: string | null) => { set = [id, v] },
   })
-  expect(set).toEqual(["t1", "high"])
-  expect(editOf(i)).toBe("thinking depth set to high")
+  expect(set).toBeUndefined()
+  expect(editOf(i)).toBe("set a model with /model first")
+})
+
+test("/thinking rejects a depth when the model has no variants", async () => {
+  const db = fresh(); db.projects.insertProvisioning(proj)
+  db.threads.upsert(threadRow("t1", "c", { model: "deepseek/deepseek-chat" }))
+  const i = interaction({ commandName: "thinking", channelId: "t1", strings: { depth: "low" } })
+  let set: any
+  await handleCommand(i, {
+    projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
+    listModels: async () => [{ id: "deepseek/deepseek-chat", name: "DeepSeek Chat", variants: [] }],
+    setThreadVariant: (id: string, v: string | null) => { set = [id, v] },
+  })
+  expect(set).toBeUndefined()
+  expect(editOf(i)).toBe("deepseek/deepseek-chat has no thinking depths")
 })
 
 test("/thinking default clears the thread override", async () => {
@@ -513,10 +569,12 @@ test("/thinking default clears the thread override", async () => {
 
 test("/thinking in a project channel sets the channel default", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
+  db.settings.set("default_model:c", "anthropic/claude")
   const i = interaction({ commandName: "thinking", channelId: "c", strings: { depth: "max" } })
   let set: any
   await handleCommand(i, {
     projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
+    listModels: async () => [{ id: "anthropic/claude", name: "Claude", variants: ["high", "max"] }],
     setChannelVariant: (id: string, v: string | null) => { set = [id, v] },
   })
   expect(set).toEqual(["c", "max"])
