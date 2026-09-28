@@ -113,7 +113,7 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 }
 
 function sendHtml(res: ServerResponse, status: number, body: string): void {
-  res.writeHead(status, { "content-type": "text/html; charset=utf-8" })
+  res.writeHead(status, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
   res.end(body)
 }
 
@@ -140,6 +140,25 @@ export async function createAdminServer(deps: AdminDeps): Promise<AdminServer> {
             guildIds: deps.guildIds,
           }))
           return
+        }
+        if (parts[0] === "assets" && parts.length === 2 && method === "GET") {
+          const asset = readAsset(parts[1]!)
+          if (!asset) return sendJson(res, 404, { error: "not found" })
+          res.writeHead(200, { "content-type": asset.contentType, "content-length": asset.body.byteLength, "cache-control": "no-store" })
+          res.end(asset.body)
+          return
+        }
+        if (parts[0] === "partials" && parts.length === 2 && (parts[1] === "projects" || parts[1] === "stats" || parts[1] === "usage" || parts[1] === "audit")) {
+          if (method !== "GET") return sendJson(res, 405, { error: "method not allowed" })
+          const nowMs = now()
+          const totals = deps.db.usage.totals()
+          if (parts[1] === "projects") return sendHtml(res, 200, renderProjects(buildProjects(deps, nowMs), nowMs))
+          if (parts[1] === "stats") {
+            const projects = buildProjects(deps, nowMs)
+            return sendHtml(res, 200, renderStats(buildStats(projects, totals, Math.max(0, nowMs - startedAt))))
+          }
+          if (parts[1] === "usage") return sendHtml(res, 200, renderUsage(totals))
+          return sendHtml(res, 200, renderAudit(buildAudit(deps)))
         }
         if (parts[0] === "api" && parts[1] === "projects" && parts.length === 2 && method === "GET") {
           sendJson(res, 200, deps.db.projects.list().map((p) => ({ channelId: p.channelId, name: p.name, status: p.status, hostPort: p.hostPort })))
