@@ -16,6 +16,7 @@
 - Only `src/sbx.ts` may import `node:child_process`.
 - Only `src/opencode.ts` and `src/projects.ts` may match the template pattern `http://127.0.0.1:${`.
 - Style: double quotes, no statement semicolons, 2-space indent.
+- NodeNext module resolution: in `src/admin.ts`, value imports from `src/admin/*` use a `.js` extension (e.g. `./admin/views.js`); type-only imports use `.ts`. The code blocks in this plan follow that rule where value imports appear inline; apply it to every value import.
 - Tests: flat `test(...)` (no `describe`), `import { expect, test } from "vitest"`, `../src/x.ts` imports, temp dirs via `mkdtempSync(join(tmpdir(), "celly-admin-"))` with `try/finally rmSync`.
 - No new npm dependencies; no build step; htmx + hx-sse are committed under `assets/admin/`.
 - All dynamic text passes through `escapeHtml` (`& < > " '`).
@@ -1868,7 +1869,7 @@ Import `renderNotice` from `./admin/views.ts`.
 
 - [ ] **Step 4: Wire the new deps in `src/index.ts`**
 
-Replace the `createAdminServer({...})` call (lines 473-488) with:
+Replace the `createAdminServer({...})` call (lines 473-488) with the block below. If `src/index.ts` already contains this wiring (it may have been applied early to keep `typecheck`/`build` green), verify it matches and leave it unchanged rather than re-applying.
 
 ```ts
 admin = await createAdminServer({
