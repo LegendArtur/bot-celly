@@ -158,7 +158,7 @@ test("a tick re-renders cards when usage or sessions change and updates the proj
       if (chunk.done) break
       text += decoder.decode(chunk.value, { stream: true })
     }
-    db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: "work", model: "m", agent: null,
+    db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: "work", model: "m", agent: null, variant: null,
       worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 2 })
     db.threads.addUsage("t1", { cost: 1.5, tokensIn: 1000, tokensOut: 2000, cacheRead: 0, cacheWrite: 0 })
     while (!text.includes("$1.50") && Date.now() < deadline) {
@@ -287,7 +287,7 @@ test("GET /partials/projects/:id/detail renders logs, sessions, and marks the ca
   const file = join(dir, "sbx-demo.log")
   writeFileSync(file, "[out] booted\n[err] pw-secret leaked\n")
   const { svr, db, base } = await ui({ logFileFor: () => file })
-  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: "work", model: "m", agent: null,
+  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: "work", model: "m", agent: null, variant: null,
     worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 2 })
   try {
     const res = await fetch(`${base}/partials/projects/c1/detail`)
