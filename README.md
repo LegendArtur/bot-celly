@@ -340,3 +340,8 @@ MIT. See [LICENSE](LICENSE).
 - Inspired by [remorses/kimaki](https://github.com/remorses/kimaki) (MIT).
 - Built on [Docker Sandboxes](https://www.docker.com/products/docker-sandboxes/)
   (`sbx`) and [OpenCode](https://opencode.ai).
+
+<p align="center">
+  <a href="https://github.com/LegendArtur/bot-celly/actions/workflows/ci.yml"><img src="https://github.com/LegendArtur/bot-celly/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
+</p>
