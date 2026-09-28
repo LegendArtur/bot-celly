@@ -913,6 +913,7 @@ test("buttons mode delegates non-read-only permissions to the approval manager",
       requestPermission: async (input: any) => { asked.push(input); return "once" },
       askQuestion: async () => null,
       cancel: () => {},
+      cancelThread: () => {},
     },
   })
   await runner.onEvent("t1", { kind: "permission", sessionId: "s1", permissionId: "r1", source: "v2", tool: "bash", patterns: ["npm test"] })
@@ -930,7 +931,7 @@ test("plan mode replies directly without asking", async () => {
     sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4,
     approvalModeFor: () => "plan",
     respondPermission: async (input: any) => { replies.push(input) },
-    approvals: { requestPermission: async (input: any) => { asked.push(input); return "once" }, askQuestion: async () => null, cancel: () => {} },
+    approvals: { requestPermission: async (input: any) => { asked.push(input); return "once" }, askQuestion: async () => null, cancel: () => {}, cancelThread: () => {} },
   })
   await runner.onEvent("t1", { kind: "permission", sessionId: "s1", permissionId: "r1", source: "v1", tool: "read", patterns: ["src/a.ts"] })
   await runner.onEvent("t1", { kind: "permission", sessionId: "s1", permissionId: "r2", source: "v1", tool: "write", patterns: ["src/a.ts"] })
@@ -967,11 +968,31 @@ test("question events are routed to the approval manager", async () => {
       requestPermission: async () => "reject",
       askQuestion: async (input: any) => { asked.push(input); return null },
       cancel: () => {},
+      cancelThread: () => {},
     },
   })
   const questions = [{ question: "Which DB?", header: "DB", options: [{ label: "sqlite", description: "" }] }]
-  await runner.onEvent("t1", { kind: "question", sessionId: "s1", requestId: "q1", questions })
-  expect(asked).toEqual([{ threadId: "t1", sessionId: "s1", requestId: "q1", questions }])
+  await runner.onEvent("t1", { kind: "question", sessionId: "s1", requestId: "q1", source: "v1", questions })
+  expect(asked).toEqual([{ threadId: "t1", sessionId: "s1", requestId: "q1", source: "v1", questions }])
+})
+
+test("question.replied and question.rejected cancel the pending question", async () => {
+  const cancelled: any[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: {} }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4,
+    approvals: {
+      requestPermission: async () => "reject",
+      askQuestion: async () => null,
+      cancel: (sessionId: string, requestId: string) => { cancelled.push([sessionId, requestId]) },
+      cancelThread: () => {},
+    },
+  })
+  await runner.onEvent("t1", { kind: "question-replied", sessionId: "s1", requestId: "q1" })
+  await runner.onEvent("t1", { kind: "question-rejected", sessionId: "s1", requestId: "q2" })
+  expect(cancelled).toEqual([["s1", "q1"], ["s1", "q2"]])
 })
 
 test("permission.replied cancels a pending approval", async () => {
@@ -985,10 +1006,29 @@ test("permission.replied cancels a pending approval", async () => {
       requestPermission: async () => "reject",
       askQuestion: async () => null,
       cancel: (sessionId: string, requestId: string) => { cancelled.push([sessionId, requestId]) },
+      cancelThread: () => {},
     },
   })
   await runner.onEvent("t1", { kind: "permission-replied", sessionId: "s1", requestId: "r9" })
   expect(cancelled).toEqual([["s1", "r9"]])
+})
+
+test("idle clears pending approvals for the thread", async () => {
+  const cleared: string[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: {} }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4,
+    approvals: {
+      requestPermission: async () => "reject",
+      askQuestion: async () => null,
+      cancel: () => {},
+      cancelThread: (threadId: string) => { cleared.push(threadId) },
+    },
+  })
+  await runner.onEvent("t1", { kind: "idle", sessionId: "s1" })
+  expect(cleared).toEqual(["t1"])
 })
 
 test("withDirectory adds the query only when a directory is defined", () => {
