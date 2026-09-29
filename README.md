@@ -336,6 +336,10 @@ The command set above is the current surface. Deferred:
 - **Host-only items** (the spike, `sbx policy ls` semantics, Windows path
   mapping, live Discord behavior) are exercised on the host, not in the Linux
   test environment.
+- **The bash deny list is defense-in-depth, not the sandbox boundary.** Celly
+  statically analyzes shell commands and fails closed on what it cannot prove,
+  but arbitrary wrapper binaries, encoded payloads, and unmodelled shell
+  features can still reach the sandbox. The sandbox is the boundary.
 
 The canonical list, including what is deferred, lives in
 [Limitations](https://celly.agub.dev/reference/limitations).

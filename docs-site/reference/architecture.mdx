@@ -61,14 +61,17 @@ The runtime, libraries, and tooling are listed on
 | `src/ansi.ts` | Zero-dependency ANSI colors and TTY/`NO_COLOR`/`FORCE_COLOR` detection shared by logs and the startup banner. |
 | `src/db.ts` | SQLite schema, `PRAGMA user_version` migrations, `foreign_keys=ON`, typed queries. No business logic. |
 | `src/sbx.ts` | **The only module that invokes `sbx`.** argv-only (`spawn(cmd, args, { shell: false })`), typed errors, timeouts, JSON parsers, path/name validation, port allocation, sandbox lifecycle. |
-| `src/projects.ts` | Project lifecycle orchestration: create/remove sagas with rollback, `ensureReady()`, per-project single-flight mutex, supervised serve child registry, reconcile loop. |
-| `src/opencode.ts` | SDK client registry (basic auth), health polling, SSE subscription lifecycle, client factory. |
+| `src/projects.ts` | Project lifecycle orchestration: create/remove sagas with rollback, `ensureReady()`, per-project single-flight mutex, supervised serve child registry. |
+| `src/opencode.ts` | SDK client registry (basic auth), health polling, client factory. |
 | `src/events.ts` | `EventRouter`: demultiplexes one project SSE stream by `sessionID` to the owning thread, reconnect/resync, buffer caps. |
-| `src/runner.ts` | Per-thread run state machine: session create/reuse, prompt, queue, abort, permission-policy evaluation, dispatch to renderer. |
+| `src/runner.ts` | Per-thread run state machine: session create/reuse, prompt, queue, abort, dispatch to renderer; permission-policy evaluation lives in `src/policy.ts`. |
+| `src/policy.ts` | Shell command parsing and permission policy: deny-list matching, wrapper normalization, and the fail-closed indeterminate policy used by `runner.ts`. |
 | `src/session-utils.ts` | Session-level SDK calls and formatting: undo/redo (`session.revert`/`unrevert`), diff, share/unshare, compact, context usage. |
-| `src/autocomplete.ts` | Stale-while-revalidate suggestion cache backing slash-command autocomplete. |
+| `src/lists.ts` | Cached session, model, and agent listing for the pickers. |
+| `src/list-cache.ts` | Generic stale-while-revalidate cache backing the model/agent pickers. |
 | `src/render.ts` | Pure event → text/chunk functions plus a throttled editor; fence-aware chunking; all output goes through one send/edit chokepoint. |
-| `src/discord.ts` | discord.js client, intents/partials, access control, message router, thread lifecycle, slash-command registration. |
+| `src/typing.ts` | Typing-indicator interval manager for active threads. |
+| `src/discord.ts` | discord.js client construction, intents/partials, access control. |
 | `src/commands.ts` | Slash-command definitions and handlers; delegates to `projects`/`runner`/`sbx`. |
 | `src/shell.ts` | `!cmd` handling: calls `sbx.exec()`, owns output chunking only. |
 | `src/worktrees.ts` | Per-thread worktrees: slug/branch/porcelain/merge parsing, `.gitignore` maintenance, and argv-only `sbx exec git …` add/list/status/merge/remove operations. |
