@@ -137,12 +137,19 @@ Add to `test/commands.test.ts`:
 ```ts
 test("every declared command has a handler branch", async () => {
   for (const command of commandData()) {
-    const i = interaction({ commandName: command.name, channelId: "c" })
-    await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
-    expect(editOf(i), command.name).not.toBe("not implemented in this build")
+    const subs = (command.options ?? [])
+      .filter((o: any) => o.type === ApplicationCommandOptionType.Subcommand)
+      .map((o: any) => o.name)
+    for (const sub of subs.length ? subs : [undefined]) {
+      const i = interaction({ commandName: command.name, channelId: "c", sub })
+      await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
+      expect(editOf(i), `${command.name} ${sub ?? ""}`).not.toBe("not implemented in this build")
+    }
   }
 })
 ```
+
+`ApplicationCommandOptionType` is already imported at the top of `test/commands.test.ts`.
 
 `interaction()` and `editOf()` already exist in this file. A command that loses its branch falls through to the `"not implemented in this build"` reply and fails the test.
 
@@ -207,7 +214,7 @@ For each file, delete the local `fresh()`/`proj`/`project()`/`thread()`/logger d
 
 - `test/admin.test.ts`: `fresh()` → `freshDb()`; `proj` → `projectFixture({ channelId: "c1" })`.
 - `test/db.test.ts`: `fresh()` → `freshDb()`; `proj` → `projectFixture({ channelId: "c1", guildId: "g1", directory: "C:\\p\\demo" })`.
-- `test/handlers.test.ts`: `fresh()` → `freshDb()`, `silent` → `silentLogger`, `project()` → `projectFixture`, `thread()` → `threadRow`.
+- `test/handlers.test.ts`: `fresh()` → `freshDb()`, `silent` → `silentLogger`, `thread()` → `threadRow`, and keep the ready default by wrapping the fixture: `const project = (over: Partial<Project> = {}) => projectFixture({ status: "ready", ...over })`. Do not use bare `projectFixture` here; its default status is `provisioning` and the handler tests rely on `ready`.
 - `test/projects.test.ts`: local `logger()` → `silentLogger`; the local `proj` at line 606 → `projectFixture()`.
 - `test/commands.test.ts`: local `fresh()` → `freshDb()`; `proj` → `projectFixture()`; the local `threadRow` → the shared `threadRow`.
 - `test/tasks.test.ts`, `test/worktrees.test.ts`, `test/idle.test.ts`, `test/attach.test.ts`, `test/backup.test.ts`: same replacement, values preserved via overrides.
@@ -650,7 +657,7 @@ test("listSessions returns [] when the channel is not a project", async () => {
 test("listModels flattens providers and caches the result", async () => {
   let loads = 0
   const lists = createProjectLists({ ...base, clientFor: () => ({ config: { providers: async () => { loads++; return { data: { providers: [{ id: "anthropic", name: "Anthropic", models: { claude: { name: "Claude" } } }] } } } } }) as any })
-  expect(await lists.listModels("c")).toEqual([{ id: "anthropic/claude", name: "Claude", variants: undefined }])
+  expect(await lists.listModels("c")).toEqual([{ id: "anthropic/claude", name: "Claude" }])
   expect(await lists.listModels("c")).toHaveLength(1)
   expect(loads).toBe(1)
 })
