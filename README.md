@@ -2,10 +2,6 @@
 
 <p align="center"><strong>A Discord forge for coding agents.</strong></p>
 
-<p align="center">
-  <img src="docs-site/images/demo.svg" alt="Celly streaming a coding agent's reply inside a Discord thread" width="820">
-</p>
-
 Start a coding agent from your phone, in a channel you already keep open. Celly
 turns [Discord](https://discord.com) into a control surface for
 [OpenCode](https://opencode.ai) agents: kick off work, watch it stream, approve a

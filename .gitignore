@@ -11,3 +11,6 @@ data/
 # Worktrees and SDD scratch
 .worktrees/
 .superpowers/
+
+# Host-side opencode config used while developing this repo
+/config.json
