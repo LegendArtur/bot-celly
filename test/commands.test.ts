@@ -1463,7 +1463,7 @@ test("every declared command has a handler branch", async () => {
       .map((o: any) => o.name)
     for (const sub of subs.length ? subs : [undefined]) {
       const i = interaction({ commandName: command.name, channelId: "c", sub })
-      await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
+      await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => true })
       expect(editOf(i), `${command.name} ${sub ?? ""}`).not.toBe("not implemented in this build")
     }
   }
