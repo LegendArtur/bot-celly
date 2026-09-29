@@ -175,7 +175,10 @@ the full set is below.
 Decisions are bound to the pending request id and are only accepted while the
 request is live; stale or post-restart clicks answer "this request is no longer
 active". Read-only tools and every pattern already denied by the policy (bash
-deny list, sensitive paths, unknown tools) are decided without asking.
+deny list, sensitive paths, unknown tools) are decided without asking. Every
+request dropped without a decision (run ended, opencode resolved it, or the
+timeout fired) is logged with its request id and cause; post-restart drops leave
+no log line because pending requests are held in memory only.
 
 Every permission decision, question answer or rejection, `!shell` command, and
 `/mode` change is appended to `DATA_DIR/audit.jsonl` (mode 0600, one JSON object

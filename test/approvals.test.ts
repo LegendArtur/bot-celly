@@ -22,6 +22,7 @@ function fake(over: Partial<ApprovalManagerDeps> = {}) {
   const questionsReplied: any[] = []
   const questionsRejected: any[] = []
   const audits: any[] = []
+  const logs: Array<{ msg: string; fields?: Record<string, unknown> }> = []
   let n = 0
   const deps: ApprovalManagerDeps = {
     send: async (threadId, content, components) => { sent.push({ threadId, content, components }); return `m${++n}` },
@@ -33,10 +34,10 @@ function fake(over: Partial<ApprovalManagerDeps> = {}) {
     now: () => 1000,
     timeoutMs: APPROVAL_TIMEOUT_MS,
     audit: (entry) => { audits.push(entry) },
-    log: () => {},
+    log: (msg, fields) => { logs.push({ msg, fields }) },
     ...over,
   }
-  return { deps, sent, edited, permissionsReplied, questionsReplied, questionsRejected, audits }
+  return { deps, sent, edited, permissionsReplied, questionsReplied, questionsRejected, audits, logs }
 }
 
 test("requestPermission posts three buttons and resolves the chosen decision", async () => {
@@ -247,4 +248,70 @@ test("cancelThread clears pending requests for one thread only", async () => {
   await expect(q2).resolves.toBeNull()
   await expect(p2).resolves.toBe("reject")
   expect(f.edited.some((e) => e.threadId === "t2" && e.content.includes("no longer active"))).toBe(true)
+})
+
+test("cancel logs a dropped permission with the given cause", async () => {
+  const f = fake()
+  const manager = new ApprovalManager(f.deps)
+  const pending = manager.requestPermission(permission)
+  manager.cancel("s1", "r1", "permission-replied")
+  await expect(pending).resolves.toBe("reject")
+  expect(f.logs).toContainEqual({
+    msg: "permission request dropped",
+    fields: { threadId: "t1", sessionId: "s1", requestId: "r1", cause: "permission-replied" },
+  })
+})
+
+test("cancel logs a dropped question under the default cause", async () => {
+  const f = fake()
+  const manager = new ApprovalManager(f.deps)
+  const pending = manager.askQuestion(questions)
+  manager.cancel("s1", "q1")
+  await expect(pending).resolves.toBeNull()
+  expect(f.logs).toContainEqual({
+    msg: "question request dropped",
+    fields: { threadId: "t1", sessionId: "s1", requestId: "q1", cause: "server-resolved" },
+  })
+})
+
+test("cancelThread logs each dropped request as run-ended", async () => {
+  const f = fake()
+  const manager = new ApprovalManager(f.deps)
+  const q1 = manager.askQuestion(questions)
+  const p2 = manager.requestPermission({ ...permission, threadId: "t2", requestId: "r2" })
+  manager.cancelThread("t1")
+  await expect(q1).resolves.toBeNull()
+  expect(f.logs).toEqual([{
+    msg: "question request dropped",
+    fields: { threadId: "t1", sessionId: "s1", requestId: "q1", cause: "run-ended" },
+  }])
+  manager.cancelThread("t2")
+  await expect(p2).resolves.toBe("reject")
+  expect(f.logs).toContainEqual({
+    msg: "permission request dropped",
+    fields: { threadId: "t2", sessionId: "s1", requestId: "r2", cause: "run-ended" },
+  })
+})
+
+test("timeouts log the drop cause", async () => {
+  vi.useFakeTimers()
+  try {
+    const f = fake({ timeoutMs: 1000 })
+    const manager = new ApprovalManager(f.deps)
+    const permissionAsk = manager.requestPermission(permission)
+    const questionAsk = manager.askQuestion({ ...questions, requestId: "q1" })
+    await vi.advanceTimersByTimeAsync(1000)
+    await expect(permissionAsk).resolves.toBe("reject")
+    await expect(questionAsk).resolves.toBeNull()
+    expect(f.logs).toContainEqual({
+      msg: "permission request dropped",
+      fields: { threadId: "t1", sessionId: "s1", requestId: "r1", cause: "timeout" },
+    })
+    expect(f.logs).toContainEqual({
+      msg: "question request dropped",
+      fields: { threadId: "t1", sessionId: "s1", requestId: "q1", cause: "timeout" },
+    })
+  } finally {
+    vi.useRealTimers()
+  }
 })

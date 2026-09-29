@@ -30,6 +30,14 @@ Each project's supervised `opencode serve` child appends to
 sets console verbosity. Tokens, passwords, and `Authorization` headers are
 redacted before they reach either sink.
 
+When a pending approval or question is dropped before a member decides it, the
+`WARN` line records the `threadId`, `sessionId`, `requestId`, and a `cause`:
+`run-ended`, `server-resolved`, `permission-replied`, `question-replied`,
+`question-rejected`, or `timeout`. Matching that `requestId` against a
+"this request is no longer active" reply from an approval click shows why the
+request was gone. Pending approvals live in memory only, so a bot restart drops
+every one of them; those drops leave no log line.
+
 ## Backups and log rotation
 
 <Snippet file="snippets/backups-logs.mdx" />

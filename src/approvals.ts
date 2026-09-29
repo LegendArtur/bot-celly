@@ -201,6 +201,14 @@ export class ApprovalManager {
   private arm(timer: ReturnType<typeof setTimeout>): void {
     unrefTimer(timer)
   }
+  /**
+   * A pending request that is removed without an authorized member deciding it.
+   * Logging the cause makes the "this request is no longer active" reply
+   * diagnosable: the drop and the later stale click share a requestId.
+   */
+  private drop(kind: "permission" | "question", cause: string, input: { threadId: string; sessionId: string; requestId: string }): void {
+    this.deps.log(`${kind} request dropped`, { threadId: input.threadId, sessionId: input.sessionId, requestId: input.requestId, cause })
+  }
   private async sendSafe(threadId: string, content: string, components: any[]): Promise<string | null> {
     try { return await this.deps.send(threadId, content, components) }
     catch (err) { this.deps.log("approval message send failed", { threadId, error: String(err) }); return null }
@@ -266,6 +274,7 @@ export class ApprovalManager {
     const pending = this.permissions.get(requestId)
     if (!pending) return
     this.permissions.delete(requestId)
+    this.drop("permission", "timeout", { threadId: pending.input.threadId, sessionId: pending.input.sessionId, requestId })
     this.deps.audit?.({ kind: "permission", threadId: pending.input.threadId, actorId: "timeout", detail: describePermission(pending.input), decision: "reject" })
     await this.replyPermissionSafe(pending.input, "reject")
     await this.editSafe(pending.input.threadId, pending.message, "Permission request **timed out**; rejected.")
@@ -276,6 +285,7 @@ export class ApprovalManager {
     const pending = this.questions.get(requestId)
     if (!pending) return
     this.questions.delete(requestId)
+    this.drop("question", "timeout", { threadId: pending.input.threadId, sessionId: pending.input.sessionId, requestId })
     this.deps.audit?.({ kind: "question", threadId: pending.input.threadId, actorId: "timeout", detail: describeQuestions(pending.input.questions), decision: "reject" })
     await this.rejectQuestionSafe(pending.input)
     await this.editSafe(pending.input.threadId, pending.message, "Questions **timed out**; rejected.")
@@ -348,11 +358,12 @@ export class ApprovalManager {
     return true
   }
 
-  cancel(_sessionId: string, requestId: string): void {
+  cancel(sessionId: string, requestId: string, cause = "server-resolved"): void {
     const permission = this.permissions.get(requestId)
     if (permission) {
       this.permissions.delete(requestId)
       clearTimeout(permission.timer)
+      this.drop("permission", cause, { threadId: permission.input.threadId, sessionId, requestId })
       void this.editSafe(permission.input.threadId, permission.message, "This request is no longer active.")
       permission.resolve("reject")
       return
@@ -361,6 +372,7 @@ export class ApprovalManager {
     if (question) {
       this.questions.delete(requestId)
       clearTimeout(question.timer)
+      this.drop("question", cause, { threadId: question.input.threadId, sessionId, requestId })
       void this.editSafe(question.input.threadId, question.message, "This request is no longer active.")
       question.resolve(null)
     }
@@ -376,6 +388,7 @@ export class ApprovalManager {
       if (permission.input.threadId !== threadId) continue
       this.permissions.delete(requestId)
       clearTimeout(permission.timer)
+      this.drop("permission", "run-ended", { threadId, sessionId: permission.input.sessionId, requestId })
       void this.editSafe(permission.input.threadId, permission.message, "This request is no longer active.")
       permission.resolve("reject")
     }
@@ -383,6 +396,7 @@ export class ApprovalManager {
       if (question.input.threadId !== threadId) continue
       this.questions.delete(requestId)
       clearTimeout(question.timer)
+      this.drop("question", "run-ended", { threadId, sessionId: question.input.sessionId, requestId })
       void this.editSafe(question.input.threadId, question.message, "This request is no longer active.")
       question.resolve(null)
     }

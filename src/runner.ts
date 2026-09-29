@@ -265,9 +265,11 @@ export class Runner {
         await this.respondToPermission(threadId, e, decision)
       }
     } else if (e.kind === "permission-replied") {
-      this.deps.approvals?.cancel(e.sessionId, e.requestId)
-    } else if (e.kind === "question-replied" || e.kind === "question-rejected") {
-      this.deps.approvals?.cancel(e.sessionId, e.requestId)
+      this.deps.approvals?.cancel(e.sessionId, e.requestId, "permission-replied")
+    } else if (e.kind === "question-replied") {
+      this.deps.approvals?.cancel(e.sessionId, e.requestId, "question-replied")
+    } else if (e.kind === "question-rejected") {
+      this.deps.approvals?.cancel(e.sessionId, e.requestId, "question-rejected")
     } else if (e.kind === "question") {
       try {
         await this.deps.approvals?.askQuestion({ threadId, sessionId: e.sessionId, requestId: e.requestId, source: e.source, questions: e.questions })

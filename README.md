@@ -69,7 +69,9 @@ The whole model fits in three lines:
 - **Abort.** `/abort` stops the current run, or every active run in the channel.
 - **Approvals.** `/mode` picks `auto`, `buttons`, or `plan`; `buttons` posts
   permission requests as Discord buttons and agent questions as
-  buttons/selects/modals. Decisions are written to a best-effort audit log.
+  buttons/selects/modals. Decisions are written to a best-effort audit log, and
+  requests dropped before a decision (run ended, server-resolved, timed out) are
+  logged with their cause so a stale click can be traced.
 - **Shell.** A message starting with `!` runs `bash -lc <command>` inside the
   project's sandbox.
 - **Text attachments.** Size-capped, written to a validated inbox, referenced in
