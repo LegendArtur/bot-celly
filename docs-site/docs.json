@@ -3,9 +3,9 @@
   "name": "Celly",
   "theme": "almond",
   "colors": {
-    "primary": "#FF9756",
-    "dark": "#FF9756",
-    "light": "#FF9756"
+    "primary": "#00A975",
+    "dark": "#00A975",
+    "light": "#00A975"
   },
   "navigation": {
     "groups": [
