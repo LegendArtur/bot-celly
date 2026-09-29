@@ -1,0 +1,41 @@
+---
+title: Known issues
+description: Confirmed issues with workarounds, including upstream sbx and OpenCode problems that affect Celly.
+---
+
+This page tracks confirmed issues that affect Celly but are not fixed in the
+current release. Each entry lists the symptom, the cause where we know it, a
+workaround if one exists, and a link to the upstream report when the problem
+lives outside this repository.
+
+New entries are added here before or alongside a fix. If a fix ships, the entry
+is removed and the change is recorded in the [changelog](/changelog).
+
+## Project fails to start at boot with `failed to start runtime`
+
+**Status:** open — upstream `sbx` runtime.
+
+**Symptom.** On startup, a project is skipped with a warning and its sandbox
+never comes up:
+
+```
+WARN    project not ready at boot  channelId=[CHANNEL_ID] error="Error: sbx exec failed (1): error: failed to start sandbox: start runtime: request failed: 500 Internal Server Error: failed to start runtime"
+```
+
+The Discord channel shows the project as unhealthy, and `/project start` or
+`/project restart` fails the same way.
+
+**Cause.** This is a bug in the `sbx` runtime, not in Celly. The runtime returns
+a `500 Internal Server Error` when the sandbox is woken, so the supervised
+`opencode serve` child is never created. See the upstream report:
+[docker/sbx-releases#350](https://github.com/docker/sbx-releases/issues/350).
+
+**Workaround.** Restart the host. This is currently the only reliable recovery;
+restarting Celly alone does not clear the stuck runtime.
+
+## Related
+
+- [Limitations](/reference/limitations) — what the current release does not do.
+- [Operations](/guides/operations) — logs and project start/stop/restart.
+- [Roadmap](/project/roadmap) — planned work.
+

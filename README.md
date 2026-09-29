@@ -49,6 +49,7 @@ The whole model fits in three lines:
 - [Development](#development)
 - [Status and roadmap](#status-and-roadmap)
 - [Limitations](#limitations)
+- [Known issues](#known-issues)
 - [Contributing](#contributing)
 - [License](#license)
 - [Credits](#credits)
@@ -284,7 +285,9 @@ you are logged in with `sbx login`.
 
 **A project shows unhealthy, or the serve child will not start.**
 Check `data/bot.log`, then run `/project start <name>` (or
-`/project restart <name>`).
+`/project restart <name>`). If the log shows
+`failed to start runtime` with `500 Internal Server Error`, that is a known
+upstream `sbx` issue — restart the host. See [Known issues](#known-issues).
 
 **Role configuration is rejected.**
 Use role **IDs**, not role names.
@@ -351,6 +354,21 @@ The canonical roadmap is at
 
 The canonical list, including what is deferred, lives in
 [Limitations](https://celly.agub.dev/reference/limitations).
+
+## Known issues
+
+Confirmed bugs with workarounds, including upstream `sbx` and OpenCode problems
+that affect Celly:
+
+- **Project fails to start at boot with `failed to start runtime`.** The `sbx`
+  runtime returns `500 Internal Server Error` when the sandbox is woken, so the
+  project is skipped with a `project not ready at boot` warning and stays
+  unhealthy. This is an upstream `sbx` bug
+  ([docker/sbx-releases#350](https://github.com/docker/sbx-releases/issues/350));
+  the only reliable recovery is to **restart the host**.
+
+The canonical list, with symptoms and workarounds, lives in
+[Known issues](https://celly.agub.dev/reference/known-issues).
 
 ## Contributing
 

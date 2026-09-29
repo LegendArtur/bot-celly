@@ -30,7 +30,8 @@
           "reference/commands",
           "reference/architecture",
           "reference/security",
-          "reference/limitations"
+          "reference/limitations",
+          "reference/known-issues"
         ]
       },
       {
