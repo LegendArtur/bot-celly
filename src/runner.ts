@@ -329,17 +329,20 @@ export class Runner {
     this.clearRenderer(thread.threadId)
     try { this.deps.db.threads.setRenderState(thread.threadId, "idle") } catch {}
   }
-  async handleProjectDown(channelId: string): Promise<void> {
+  private clearChannelState(channelId: string): Thread[] {
     const threads = this.deps.db.threads.byChannel(channelId)
     for (const thread of threads) { this.queue.delete(thread.threadId); this.clearAbortTimer(thread.threadId) }
+    return threads
+  }
+  async handleProjectDown(channelId: string): Promise<void> {
+    const threads = this.clearChannelState(channelId)
     for (const thread of threads) {
       if (!this.active.has(thread.threadId)) continue
       await this.finalizeThread(thread, { partId: `down-${thread.threadId}`, text: "[project server stopped]" })
     }
   }
   async resetChannel(channelId: string, opts: { notify?: boolean } = {}): Promise<void> {
-    const threads = this.deps.db.threads.byChannel(channelId)
-    for (const thread of threads) { this.queue.delete(thread.threadId); this.clearAbortTimer(thread.threadId) }
+    const threads = this.clearChannelState(channelId)
     for (const thread of threads) {
       if (!this.active.has(thread.threadId)) { this.resetThread(thread); continue }
       await this.finalizeThread(thread, opts.notify ? { partId: `stop-${thread.threadId}`, text: "[project stopped]" } : undefined)

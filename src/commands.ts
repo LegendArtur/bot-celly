@@ -7,6 +7,7 @@ import type { Db } from "./db.ts"
 import type { ProjectService } from "./projects.ts"
 import type { QueuedPrompt, Runner } from "./runner.ts"
 import { attachReply, sessionIdReply } from "./attach.js"
+import { getErrorMessage } from "./helpers.js"
 import { formatContextUsage, formatDiff } from "./session-utils.js"
 import type { SessionOps } from "./session-utils.ts"
 import { chunkMessage } from "./render.js"
@@ -192,6 +193,18 @@ export function noMentions(content: string, extra: Record<string, unknown> = {})
   return { content, allowedMentions: { parse: [] }, ...extra }
 }
 
+async function replyError(interaction: any, e: unknown): Promise<void> {
+  const content = `error: ${getErrorMessage(e)}`
+  if (interaction.deferred || interaction.replied) return void await interaction.editReply(noMentions(content))
+  await interaction.reply(noMentions(content, { flags: 64 }))
+}
+
+async function healthSuffix(deps: CommandDeps, channelId: string): Promise<string> {
+  let healthy: boolean | undefined
+  try { healthy = await deps.projects.health?.(channelId) } catch { healthy = false }
+  return healthy === undefined ? "" : healthy ? " healthy" : " unhealthy"
+}
+
 /**
  * Discord rejects a select menu whose option values/labels are empty, exceed
  * 100 chars, duplicate, or number more than 25 — the whole interaction edit
@@ -294,9 +307,7 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (sub === "list") {
         const projects = deps.db.projects.list()
         const lines = await Promise.all(projects.map(async (p) => {
-          let healthy: boolean | undefined
-          try { healthy = await deps.projects.health?.(p.channelId) } catch { healthy = false }
-          const health = healthy === undefined ? "" : healthy ? " healthy" : " unhealthy"
+          const health = await healthSuffix(deps, p.channelId)
           return `${p.name} (${p.status}${health})`
         }))
         return void await interaction.editReply(noMentions(lines.join("\n") || "no projects"))
@@ -305,9 +316,7 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         const p = deps.db.projects.getByName(name)
         if (!p) return void await interaction.editReply(noMentions("not found"))
         const sessions = deps.db.threads.byChannel(p.channelId).length
-        let healthy: boolean | undefined
-        try { healthy = await deps.projects.health?.(p.channelId) } catch { healthy = false }
-        const health = healthy === undefined ? "" : healthy ? " healthy" : " unhealthy"
+        const health = await healthSuffix(deps, p.channelId)
         return void await interaction.editReply(noMentions(`${p.name}: ${p.status}${health} on 127.0.0.1:${p.hostPort} (${sessions} session${sessions === 1 ? "" : "s"})`))
       }
       if (sub === "start") {
@@ -603,9 +612,7 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
     }
     await interaction.editReply(noMentions("not implemented in this build"))
   } catch (e) {
-    const content = `error: ${(e as Error).message}`
-    if (interaction.deferred || interaction.replied) return void await interaction.editReply(noMentions(content))
-    await interaction.reply(noMentions(content, { flags: 64 }))
+    await replyError(interaction, e)
   }
 }
 
@@ -664,9 +671,7 @@ export async function handleSelect(interaction: any, deps: CommandDeps): Promise
     }
     return void await interaction.editReply({ content: "unknown selection", components: [], allowedMentions: { parse: [] } })
   } catch (e) {
-    const content = `error: ${(e as Error).message}`
-    if (interaction.deferred || interaction.replied) return void await interaction.editReply(noMentions(content))
-    await interaction.reply(noMentions(content, { flags: 64 }))
+    await replyError(interaction, e)
   }
 }
 
@@ -691,9 +696,7 @@ export async function handleQueueButton(interaction: any, deps: CommandDeps): Pr
     }
     return void await interaction.editReply({ content: "unknown button", components: [], allowedMentions: { parse: [] } })
   } catch (e) {
-    const content = `error: ${(e as Error).message}`
-    if (interaction.deferred || interaction.replied) return void await interaction.editReply(noMentions(content))
-    await interaction.reply(noMentions(content, { flags: 64 }))
+    await replyError(interaction, e)
   }
 }
 

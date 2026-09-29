@@ -1,6 +1,10 @@
 import { ChannelType } from "discord.js"
 import { ANSI, colorEnabled, paint } from "./ansi.js"
 
+export function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
 export function findCategoryId(
   guild: { channels: { cache: { values(): IterableIterator<{ id: string; name: string; type: ChannelType }> } } },
   configuredId?: string,
