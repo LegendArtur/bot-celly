@@ -170,14 +170,30 @@ export function assertCellyPermissionPolicy(permission: any): void {
 }
 
 /**
+ * True when the running server already reports the celly policy. `external_directory`
+ * stays denied, every bash deny pattern survives, and `share` stays disabled.
+ */
+export function isCellyPolicyEnforced(current: any): boolean {
+  try {
+    assertCellyPermissionPolicy(current?.permission)
+  } catch {
+    return false
+  }
+  return current?.share === "disabled"
+}
+
+/**
  * The v1 config surface reports `question` as `deny` no matter what is PATCHed;
  * the v2 global config surface round-trips it. Merge the allow into the current
- * v2 config and PATCH it. Best-effort: any failure returns false so boot does
- * not depend on a surface that may not exist in a future server.
+ * v2 config and PATCH it, but only when it is not already allowed: the global
+ * update disposes every instance when it changes the file. Best-effort: any
+ * failure returns false so boot does not depend on a surface that may not exist
+ * in a future server.
  */
 export async function enableQuestionPermissionV2(v2: OpencodeV2Client): Promise<boolean> {
   try {
     const current = unwrapConfigResponse(await v2.global.config.get())
+    if (current?.permission?.question === "allow") return true
     const merged = { ...current, permission: { ...(current?.permission ?? {}), question: "allow" } }
     await v2.global.config.update({ config: merged } as any)
     return true
@@ -186,10 +202,27 @@ export async function enableQuestionPermissionV2(v2: OpencodeV2Client): Promise<
   }
 }
 
+/**
+ * Runtime policy enforcement. A PATCH (`config.update`) tears down the whole
+ * opencode instance in current servers, aborting every running session in the
+ * project directory, and it also writes `config.json` into the project. So
+ * assert first: read the running config and only PATCH when it does not already
+ * enforce the policy. This keeps the re-assert-after-wake guarantee (a woken
+ * server or a weakening project `opencode.json` fails the read assertion and is
+ * repaired) without aborting concurrent threads on every prompt.
+ */
 export async function applyAndAssertCellyPolicy(client: PolicyClient, v2?: OpencodeV2Client): Promise<void> {
   const policy = cellyPolicy()
-  await client.config.update({ body: policy } as any)
-  const current = unwrapConfigResponse(await client.config.get())
+  let current: any
+  try {
+    current = unwrapConfigResponse(await client.config.get())
+  } catch {
+    current = undefined
+  }
+  if (!isCellyPolicyEnforced(current)) {
+    await client.config.update({ body: policy } as any)
+    current = unwrapConfigResponse(await client.config.get())
+  }
   assertCellyPermissionPolicy(current?.permission)
   if (current?.share !== "disabled") {
     throw new Error(`celly share policy was not enforced by the server: got ${JSON.stringify(current?.share)}`)

@@ -79,7 +79,8 @@ The whole model fits in three lines:
 - **Access control.** Guild owner, `Manage Guild`/`Administrator`, an access
   role, and a block role.
 - **Hardened permission policy.** A bot-enforced deny list blocks publish, push,
-  and env-file inspection, and is re-asserted after every wake.
+  and env-file inspection. It is verified after every wake and re-written only
+  when the running server has been weakened.
 - **Cost tracking and budgets.** `/cost` reports per-thread and per-channel
   usage, and a session budget (env or `/budget`) stops a run that exceeds it.
 - **Local admin page.** A loopback-only JSON API on

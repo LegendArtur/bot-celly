@@ -54,15 +54,15 @@ test("the sandbox env pins the password, config path, and inline content", () =>
   expect(JSON.parse(match![1]!).permission).toEqual(cellyPolicy().permission)
 })
 
-test("applyAndAssertCellyPolicy patches the policy then verifies it", async () => {
+test("applyAndAssertCellyPolicy verifies first and patches only when the server lacks the policy", async () => {
   const calls: any[] = []
   let stored: any = null
   const client = { config: {
-    update: async (o: any) => { calls.push(["update", o.body]); stored = o.body; return { data: stored } },
     get: async () => { calls.push(["get"]); return { data: stored } },
+    update: async (o: any) => { calls.push(["update", o.body]); stored = o.body; return { data: stored } },
   } }
   await applyAndAssertCellyPolicy(client as any)
-  expect(calls.map((c) => c[0])).toEqual(["update", "get"])
+  expect(calls.map((c) => c[0])).toEqual(["get", "update", "get"])
   expect(stored.permission).toEqual(cellyPolicy().permission)
   expect(stored.share).toBe("disabled")
 })
@@ -128,6 +128,16 @@ test("applyAndAssertCellyPolicy accepts the server's normalized permission map",
   await expect(applyAndAssertCellyPolicy(client as any)).resolves.toBeUndefined()
 })
 
+test("applyAndAssertCellyPolicy does not PATCH when the running server already enforces the policy", async () => {
+  let updates = 0
+  const client = { config: {
+    get: async () => ({ data: { share: "disabled", permission: SERVER_NORMALIZED_PERMISSION } }),
+    update: async () => { updates += 1; return {} },
+  } }
+  await applyAndAssertCellyPolicy(client as any)
+  expect(updates).toBe(0)
+})
+
 test("enableQuestionPermissionV2 merges question allow and PATCHes the global config", async () => {
   const calls: any[] = []
   const v2 = { global: { config: {
@@ -140,6 +150,16 @@ test("enableQuestionPermissionV2 merges question allow and PATCHes the global co
   expect(calls[0].permission.bash).toEqual({ "git push": "deny" })
   expect(calls[0].permission.external_directory).toBe("deny")
   expect(calls[0].share).toBe("disabled")
+})
+
+test("enableQuestionPermissionV2 does not PATCH when question is already allowed", async () => {
+  let updates = 0
+  const v2 = { global: { config: {
+    get: async () => ({ data: { permission: { question: "allow", external_directory: "deny" }, share: "disabled" } }),
+    update: async () => { updates += 1; return {} },
+  } } }
+  await expect(enableQuestionPermissionV2(v2 as any)).resolves.toBe(true)
+  expect(updates).toBe(0)
 })
 
 test("enableQuestionPermissionV2 returns false when the client throws", async () => {
