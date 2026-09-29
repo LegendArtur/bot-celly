@@ -82,7 +82,10 @@ recreated.
   trust boundary. It must never be rebound to `0.0.0.0`, published, or
   port-forwarded.
 - It exposes project names/status, start/stop actions, and redacted log tails.
-  Log redaction reuses the same `redact` path as `bot.log`.
+  Log redaction reuses the same `redact` path as `bot.log`. The console can also
+  create and remove projects: removal deletes the Discord channel and the
+  sandbox and keeps the host directory. It remains unauthenticated and
+  loopback-only.
 - Backups are written under `DATA_DIR/backups` (`VACUUM INTO` output) and stay
   in the host trust domain, alongside `bot.db`.
 

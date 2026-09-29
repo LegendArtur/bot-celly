@@ -1,6 +1,6 @@
 import { MessageFlags } from "discord.js"
 import { expect, test } from "vitest"
-import { Renderer, chunkMessage, renderPayload, sanitizeThreadName } from "../src/render.ts"
+import { Renderer, chunkMessage, formatPrompt, renderPayload, sanitizeThreadName, toolGlyph } from "../src/render.ts"
 
 test("chunks plain text under the cap", () => {
   expect(chunkMessage("a".repeat(4500), 1900).every((c) => c.length <= 1900)).toBe(true)
@@ -273,15 +273,133 @@ test("renderer renders tool lines with a title truncated to 120 chars", async ()
   r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "p1", name: "bash", status: "running", title: "npm test" })
   r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "p2", name: "edit", status: "completed", title: "x".repeat(200) })
   await r.finalize()
-  expect(sends).toEqual([`> [bash] running · npm test\n> [edit] completed · ${"x".repeat(119)}…`])
+  expect(sends).toEqual([`> 🔄 \`bash\` · npm test\n> ✅ \`edit\` · ${"x".repeat(119)}…`])
 })
 
-test("renderer tool lines without a title stay byte-compatible", async () => {
+test("renderer tool lines without a title omit the separator", async () => {
   const sends: string[] = []
   const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
     now: () => 0, intervalMs: 1000 })
   r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "p1", name: "bash", status: "running" })
   await r.finalize()
-  expect(sends).toEqual(["> [bash] running"])
+  expect(sends).toEqual(["> 🔄 `bash`"])
 })
 
+test("renderer interleaves text and tool segments in arrival order", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p1", text: "before" })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "p2", name: "bash", status: "completed", title: "npm test" })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p3", text: "after" })
+  await r.finalize()
+  expect(sends).toEqual(["before\n\n> ✅ `bash` · npm test\n\nafter"])
+})
+
+test("renderer keeps a tool segment in place when its status updates", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "t1", name: "bash", status: "running", title: "npm test" })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p1", text: "mid" })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "t1", name: "bash", status: "completed", title: "npm test" })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "t2", name: "edit", status: "completed", title: "src/x.ts" })
+  await r.finalize()
+  expect(sends).toEqual(["> ✅ `bash` · npm test\n\nmid\n\n> ✅ `edit` · src/x.ts"])
+})
+
+test("renderer upserts duplicate part ids instead of duplicating lines", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "t1", name: "bash", status: "pending", title: "npm test" })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "t1", name: "bash", status: "completed", title: "npm test" })
+  await r.finalize()
+  expect(sends).toEqual(["> ✅ `bash` · npm test"])
+})
+
+test("renderer seeds the prompt as the first segment", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ prompt: "  fix   the bug ", send: async (c) => { sends.push(c); return "m1" },
+    edit: async () => {}, now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "on it" })
+  await r.finalize()
+  expect(sends).toEqual(["> **you** · fix the bug\n\non it"])
+})
+
+test("renderer clamps a long prompt", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ prompt: "x".repeat(400), send: async (c) => { sends.push(c); return "m1" },
+    edit: async () => {}, now: () => 0, intervalMs: 1000 })
+  await r.finalize()
+  expect(sends).toEqual([`> **you** · ${"x".repeat(299)}…`])
+})
+
+test("renderer ignores a blank prompt", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ prompt: "   ", send: async (c) => { sends.push(c); return "m1" },
+    edit: async () => {}, now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "only" })
+  await r.finalize()
+  expect(sends).toEqual(["only"])
+})
+
+test("renderer renders notices with a tone glyph", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "notice", sessionId: "s", partId: "n1", text: "boom", tone: "error" })
+  await r.finalize()
+  expect(sends).toEqual(["> ❌ **Error** — boom"])
+})
+
+test("renderer flattens multiline notices", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "notice", sessionId: "s", partId: "n1", text: "line one\nline two", tone: "warn" })
+  await r.finalize()
+  expect(sends).toEqual(["> ⚠️ **Warning** — line one line two"])
+})
+
+test("toolGlyph maps every opencode status", () => {
+  expect(toolGlyph("pending")).toBe("⏳")
+  expect(toolGlyph("running")).toBe("🔄")
+  expect(toolGlyph("completed")).toBe("✅")
+  expect(toolGlyph("error")).toBe("❌")
+  expect(toolGlyph("mystery")).toBe("•")
+})
+
+test("formatPrompt clamps exactly at the boundary", () => {
+  expect(formatPrompt("x".repeat(300))).toBe(`> **you** · ${"x".repeat(300)}`)
+  expect(formatPrompt("x".repeat(301))).toBe(`> **you** · ${"x".repeat(299)}…`)
+})
+
+test("renderer clamps and flattens a long info notice", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "notice", sessionId: "s", partId: "n1", text: "word\n".repeat(400), tone: "info" })
+  await r.finalize()
+  expect(sends[0]!.startsWith("> ℹ️ **Note** — ")).toBe(true)
+  expect(sends[0]!.endsWith("…")).toBe(true)
+  expect(sends[0]!.length).toBeLessThanOrEqual("> ℹ️ **Note** — ".length + 500)
+})
+
+test("renderer renders a blank notice without a dangling separator", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "notice", sessionId: "s", partId: "n1", text: "   ", tone: "warn" })
+  await r.finalize()
+  expect(sends).toEqual(["> ⚠️ **Warning**"])
+})
+
+test("renderer flattens multiline tool titles", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},
+    now: () => 0, intervalMs: 1000 })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "t1", name: "bash", status: "completed", title: "line one\nline two" })
+  await r.finalize()
+  expect(sends).toEqual(["> ✅ `bash` · line one line two"])
+})

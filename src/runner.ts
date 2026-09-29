@@ -18,10 +18,33 @@ export function withDirectory<T extends object>(directory: string | null | undef
   return { ...options, query: { directory } }
 }
 
+/**
+ * The prompt that produced the recovered assistant message is the nearest
+ * preceding user message with text. Later user messages (a prompt sent just
+ * before a crash, with no assistant part yet) must not be quoted for an
+ * earlier assistant message.
+ */
+function lastUserText(messages: any[], assistant: any): string | undefined {
+  const before: any[] = []
+  for (const message of messages) {
+    if (message === assistant) break
+    if (message?.info?.role === "user") before.push(message)
+  }
+  for (let i = before.length - 1; i >= 0; i--) {
+    const text = (before[i]!.parts ?? [])
+      .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+      .map((part: any) => part.text)
+      .join("\n\n")
+      .trim()
+    if (text) return text
+  }
+  return undefined
+}
+
 export interface RunnerDeps {
   db: Db
   clientFor(threadId: string): OpencodeClient
-  createRenderer(threadId: string, liveMessageId?: string | null, liveMessageIds?: string[] | null): Promise<Renderer>
+  createRenderer(threadId: string, liveMessageId?: string | null, liveMessageIds?: string[] | null, prompt?: string | null): Promise<Renderer>
   sessionFor(threadId: string): Promise<string>
   directoryFor?(threadId: string): string | undefined
   log(msg: string, fields?: Record<string, unknown>): void
@@ -49,6 +72,7 @@ export class Runner {
   private owner = new Map<string, number>()
   private abortTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private renderers = new Map<string, Promise<Renderer>>()
+  private prompts = new Map<string, string>()
   constructor(private readonly deps: RunnerDeps) {}
 
   get activeCount() { return this.active.size }
@@ -81,10 +105,10 @@ export class Runner {
   private ownsEpoch(threadId: string, epoch: number | undefined): boolean {
     return this.owner.get(threadId) === epoch
   }
-  private rendererFor(threadId: string, liveMessageId?: string | null, liveMessageIds?: string[] | null): Promise<Renderer> {
+  private rendererFor(threadId: string, liveMessageId?: string | null, liveMessageIds?: string[] | null, promptOverride?: string | null): Promise<Renderer> {
     let renderer = this.renderers.get(threadId)
     if (!renderer) {
-      renderer = this.deps.createRenderer(threadId, liveMessageId, liveMessageIds)
+      renderer = this.deps.createRenderer(threadId, liveMessageId, liveMessageIds, promptOverride ?? this.prompts.get(threadId))
       this.renderers.set(threadId, renderer)
       renderer.catch(() => { if (this.renderers.get(threadId) === renderer) this.renderers.delete(threadId) })
     }
@@ -102,6 +126,7 @@ export class Runner {
     this.deps.db.threads.setRenderState(threadId, "idle")
     this.active.delete(threadId)
     this.owner.delete(threadId)
+    this.prompts.delete(threadId)
     this.clearRenderer(threadId)
     this.deps.onThreadIdle?.(threadId)
     this.kickGlobalDrain()
@@ -175,6 +200,7 @@ export class Runner {
     const epoch = this.nextEpoch(threadId)
     this.active.add(threadId)
     this.owner.set(threadId, epoch)
+    this.prompts.set(threadId, text)
     try {
       db.threads.setRenderState(threadId, "running"); db.threads.touch(threadId)
       const sessionId = await this.deps.sessionFor(threadId)
@@ -193,6 +219,7 @@ export class Runner {
       if (this.ownsEpoch(threadId, epoch)) {
         this.active.delete(threadId)
         this.owner.delete(threadId)
+        this.prompts.delete(threadId)
         this.clearRenderer(threadId)
         try { db.threads.setRenderState(threadId, "idle") } catch {}
         this.deps.onThreadIdle?.(threadId)
@@ -213,11 +240,11 @@ export class Runner {
       await renderer.tick()
       const budget = this.budgetFor(threadId)
       if (budget > 0 && totals.cost >= budget && db.threads.get(threadId)?.renderState !== "aborting") {
-        const note = `[budget] session budget reached (${formatCost(totals.cost)} of ${formatCost(budget)})`
-        renderer.push({ kind: "text", sessionId: e.sessionId, messageId: "", partId: `budget-${e.sessionId}`, text: note })
+        const note = `session budget reached (${formatCost(totals.cost)} of ${formatCost(budget)})`
+        renderer.push({ kind: "notice", sessionId: e.sessionId, partId: `budget-${e.sessionId}`, text: note, tone: "warn" })
         await renderer.finalize()
         const thread = db.threads.get(threadId)
-        if (thread) await this.deps.notify?.(thread.channelId, note)
+        if (thread) await this.deps.notify?.(thread.channelId, `[budget] ${note}`)
         await this.abort(threadId)
       }
     }
@@ -250,7 +277,7 @@ export class Runner {
     } else if (e.kind === "error") {
       try {
         const r = await this.rendererFor(threadId)
-        r.push({ kind: "text", sessionId: e.sessionId, messageId: "", partId: `err-${e.sessionId}`, text: `[error] ${e.message}` })
+        r.push({ kind: "notice", sessionId: e.sessionId, partId: `err-${e.sessionId}`, text: e.message, tone: "error" })
         await r.finalize()
       } catch (err) {
         this.deps.log("error render finalize failed", { threadId, error: String(err) })
@@ -304,7 +331,7 @@ export class Runner {
     const epoch = this.owner.get(thread.threadId)
     const liveMessageId = db.threads.get(thread.threadId)?.liveMessageId ?? null
     const liveMessageIds = db.threads.liveMessageIds(thread.threadId)
-    const renderer = await this.rendererFor(thread.threadId, liveMessageId, liveMessageIds)
+    const renderer = await this.rendererFor(thread.threadId, liveMessageId, liveMessageIds, lastUserText(list, last))
     if (last) {
       const messageId = last.info?.id ?? ""
       for (const part of last.parts ?? []) {
@@ -317,11 +344,11 @@ export class Runner {
     this.clearAbortTimer(thread.threadId)
     this.idle(thread.threadId, epoch)
   }
-  private async finalizeThread(thread: Thread, note?: { partId: string; text: string }): Promise<void> {
+  private async finalizeThread(thread: Thread, note?: { partId: string; text: string; tone: "info" | "warn" | "error" }): Promise<void> {
     const epoch = this.owner.get(thread.threadId)
     try {
       const renderer = await this.rendererFor(thread.threadId)
-      if (note) renderer.push({ kind: "text", sessionId: thread.sessionId, messageId: "", partId: note.partId, text: note.text })
+      if (note) renderer.push({ kind: "notice", sessionId: thread.sessionId, partId: note.partId, text: note.text, tone: note.tone })
       await renderer.finalize()
     } catch {}
     this.idle(thread.threadId, epoch)
@@ -339,14 +366,14 @@ export class Runner {
     const threads = this.clearChannelState(channelId)
     for (const thread of threads) {
       if (!this.active.has(thread.threadId)) continue
-      await this.finalizeThread(thread, { partId: `down-${thread.threadId}`, text: "[project server stopped]" })
+      await this.finalizeThread(thread, { partId: `down-${thread.threadId}`, text: "project server stopped", tone: "warn" })
     }
   }
   async resetChannel(channelId: string, opts: { notify?: boolean } = {}): Promise<void> {
     const threads = this.clearChannelState(channelId)
     for (const thread of threads) {
       if (!this.active.has(thread.threadId)) { this.resetThread(thread); continue }
-      await this.finalizeThread(thread, opts.notify ? { partId: `stop-${thread.threadId}`, text: "[project stopped]" } : undefined)
+      await this.finalizeThread(thread, opts.notify ? { partId: `stop-${thread.threadId}`, text: "project stopped", tone: "warn" } : undefined)
     }
   }
 }

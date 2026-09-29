@@ -98,14 +98,65 @@ export function sanitizeThreadName(prompt: string): string {
 
 export const TOOL_TITLE_MAX = 120
 function truncateToolTitle(title: string, max = TOOL_TITLE_MAX): string {
-  return title.length > max ? title.slice(0, max - 1) + "…" : title
+  const flat = title.replace(/\s+/g, " ").trim()
+  return flat.length > max ? flat.slice(0, max - 1) + "…" : flat
+}
+
+export function toolGlyph(status: string): string {
+  if (status === "pending") return "⏳"
+  if (status === "running") return "🔄"
+  if (status === "completed") return "✅"
+  if (status === "error") return "❌"
+  return "•"
+}
+
+const PROMPT_TEXT_MAX = 300
+export function formatPrompt(text: string, max = PROMPT_TEXT_MAX): string {
+  const flat = text.replace(/\s+/g, " ").trim()
+  if (!flat) return ""
+  const clipped = flat.length > max ? flat.slice(0, max - 1).trimEnd() + "…" : flat
+  return `> **you** · ${clipped}`
+}
+
+const NOTICE_TEXT_MAX = 500
+type NoticeTone = "info" | "warn" | "error"
+function noticeLabel(tone: NoticeTone): string {
+  if (tone === "error") return "Error"
+  if (tone === "warn") return "Warning"
+  return "Note"
+}
+function noticeGlyph(tone: NoticeTone): string {
+  if (tone === "error") return "❌"
+  if (tone === "warn") return "⚠️"
+  return "ℹ️"
+}
+
+type Segment =
+  | { kind: "prompt"; id: string; text: string }
+  | { kind: "text"; id: string; text: string }
+  | { kind: "tool"; id: string; name: string; status: string; title?: string }
+  | { kind: "notice"; id: string; text: string; tone: NoticeTone }
+
+function renderSegment(segment: Segment): string {
+  if (segment.kind === "prompt") return formatPrompt(segment.text)
+  if (segment.kind === "text") return segment.text
+  if (segment.kind === "notice") {
+    const flat = segment.text.replace(/\s+/g, " ").trim()
+    const label = `> ${noticeGlyph(segment.tone)} **${noticeLabel(segment.tone)}**`
+    if (!flat) return label
+    const clipped = flat.length > NOTICE_TEXT_MAX ? flat.slice(0, NOTICE_TEXT_MAX - 1).trimEnd() + "…" : flat
+    return `${label} — ${clipped}`
+  }
+  const title = segment.title ? ` · ${truncateToolTitle(segment.title)}` : ""
+  return `> ${toolGlyph(segment.status)} \`${segment.name}\`${title}`
+}
+function isQuote(segment: Segment): boolean {
+  return segment.kind === "tool" || segment.kind === "notice"
 }
 
 export class Renderer {
-  private parts = new Map<string, string>()
-  private order: string[] = []
-  private text = ""
-  private tools = new Map<string, string>()
+  private segments: Segment[] = []
+  private segmentIndex = new Map<string, number>()
   private ids: string[] = []
   private lastEdit = Number.NEGATIVE_INFINITY
   private dirty = false
@@ -120,14 +171,39 @@ export class Renderer {
     now(): number; intervalMs: number; onMessageId?(id: string): void; onMessageIds?(ids: string[]): void
     initialMessageId?: string | null
     initialMessageIds?: string[] | null
+    prompt?: string | null
   }) {
     if (deps.initialMessageIds && deps.initialMessageIds.length > 0) this.ids = [...deps.initialMessageIds]
     else if (deps.initialMessageId) this.ids = [deps.initialMessageId]
+    if (deps.prompt && deps.prompt.trim()) {
+      this.upsert({ kind: "prompt", id: "__prompt__", text: deps.prompt })
+      this.dirty = true
+    }
+  }
+  private upsert(segment: Segment): void {
+    const existing = this.segmentIndex.get(segment.id)
+    if (existing === undefined) {
+      this.segmentIndex.set(segment.id, this.segments.length)
+      this.segments.push(segment)
+      return
+    }
+    this.segments[existing] = segment
   }
   private body(): string {
-    const toolLines = [...this.tools.values()].map((t) => `> ${t}`).join("\n")
-    const footer = this.footer ? `-# ${this.footer}` : ""
-    return [toolLines, this.text, footer].filter(Boolean).join("\n\n")
+    let body = ""
+    let previousQuote = false
+    let first = true
+    for (const segment of this.segments) {
+      const rendered = renderSegment(segment)
+      if (!rendered) continue
+      const quote = isQuote(segment)
+      if (first) body = rendered
+      else body += (previousQuote && quote ? "\n" : "\n\n") + rendered
+      previousQuote = quote
+      first = false
+    }
+    if (this.footer) body = body ? `${body}\n\n-# ${this.footer}` : `-# ${this.footer}`
+    return body
   }
   setFooter(text: string): void {
     const next = text.trim()
@@ -142,18 +218,12 @@ export class Renderer {
   }
   push(e: NormalizedEvent): void {
     if (this.startedAt === null) this.startedAt = this.deps.now()
-    if (e.kind === "text") {
-      if (!this.parts.has(e.partId)) this.order.push(e.partId)
-      this.parts.set(e.partId, e.text)
-      this.text = this.order.map((id) => this.parts.get(id) ?? "").filter(Boolean).join("\n\n")
-      this.dirty = true
-      this.revision++
-    } else if (e.kind === "tool") {
-      const title = e.title ? ` · ${truncateToolTitle(e.title)}` : ""
-      this.tools.set(e.partId, `[${e.name}] ${e.status}${title}`)
-      this.dirty = true
-      this.revision++
-    }
+    if (e.kind === "text") this.upsert({ kind: "text", id: e.partId, text: e.text })
+    else if (e.kind === "tool") this.upsert({ kind: "tool", id: e.partId, name: e.name, status: e.status, ...(e.title ? { title: e.title } : {}) })
+    else if (e.kind === "notice") this.upsert({ kind: "notice", id: e.partId, text: e.text, tone: e.tone })
+    else return
+    this.dirty = true
+    this.revision++
   }
   private async runFlush(): Promise<void> {
     const revision = this.revision

@@ -69,7 +69,7 @@ The runtime, libraries, and tooling are listed on
 | `src/session-utils.ts` | Session-level SDK calls and formatting: undo/redo (`session.revert`/`unrevert`), diff, share/unshare, compact, context usage. |
 | `src/lists.ts` | Session, model, and agent listing (models/agents cached). |
 | `src/list-cache.ts` | Generic stale-while-revalidate cache backing the model/agent pickers. |
-| `src/render.ts` | Pure event → text/chunk functions plus a throttled editor; fence-aware chunking; all output goes through one send/edit chokepoint. |
+| `src/render.ts` | Pure event → text/chunk functions plus a throttled editor; fence-aware chunking; parts render in OpenCode's arrival order (text and tool calls interleaved), the run prompt is quoted at the top, and all output goes through one send/edit chokepoint. |
 | `src/typing.ts` | Typing-indicator interval manager for active threads. |
 | `src/discord.ts` | discord.js client construction, intents/partials, access control. |
 | `src/commands.ts` | Slash-command definitions and handlers; delegates to `projects`/`runner`/`sbx`. |

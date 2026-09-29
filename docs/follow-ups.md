@@ -17,3 +17,7 @@ before implementation.
 4. **Release tag.** No git tag or GitHub release is created for 0.2.0 until the
    host-verification checklist passes and you decide the feature set is
    complete. Version remains `0.2.0` locally.
+5. **Reasoning parts and Components V2 cards.** The renderer now preserves
+   OpenCode part order, but `reasoning` parts are still dropped and the run
+   card/color idea is not implemented. Both should layer onto the `Segment`
+   model in `src/render.ts` rather than the old two-bucket layout.
