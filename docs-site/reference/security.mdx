@@ -93,9 +93,12 @@ See [Operations](/guides/operations) for how to run and reach these surfaces.
 
 ## Bot-enforced permission policy
 
-The sandbox config sets a default-deny policy, and the bot re-asserts it at the
+The sandbox config sets a default-deny policy, and the bot verifies it at the
 API layer after every wake and health check so a project-level `opencode.json`
-cannot weaken it. The policy is built by `cellyPolicy()` in `src/opencode.ts`;
+cannot weaken it. A config `PATCH` tears down the project's OpenCode instance and
+aborts every running thread, so the bot reads the running policy first and only
+re-writes it when a rule is missing or weakened — the read is what re-asserts the
+policy after a wake. The policy is built by `cellyPolicy()` in `src/opencode.ts`;
 the full set is below.
 
 <AccordionGroup>

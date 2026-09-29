@@ -290,6 +290,75 @@ test("ensureReady adopts a healthy orphan instead of spawning a second server", 
   } finally { await server.close() }
 })
 
+test("ensureReady asserts the policy without PATCHing an already-enforced adopted server", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
+  let patches = 0
+  const server = await startTestServer((req, res) => {
+    const url = req.url ?? ""
+    if (url.startsWith("/config")) {
+      if (req.method === "PATCH" || req.method === "POST") {
+        patches += 1
+        req.resume()
+        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(cellyPolicy()))
+        return
+      }
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(cellyPolicy()))
+      return
+    }
+    if (url.startsWith("/global/health")) {
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true }))
+      return
+    }
+    res.writeHead(404).end()
+  })
+  try {
+    db.projects.insertProvisioning({ channelId: "chan1", guildId: "g", name: "demo", directory: "C:\\projects\\demo",
+      sandboxPath: null, sandboxName: "celly-demo", hostPort: server.port, serverPassword: "pw", createdAt: Date.now() })
+    db.projects.setStatus("chan1", "ready")
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
+      isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
+    await svc.ensureReady("chan1")
+    await svc.ensureReady("chan1")
+    expect(patches).toBe(0)
+    expect(svc.isAdopted("chan1")).toBe(true)
+  } finally { await server.close() }
+})
+
+test("ensureReady re-asserts the policy on an adopted server that was weakened", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
+  let current: any = { share: "auto", permission: { "*": "allow", external_directory: "allow", question: "allow" } }
+  let patches = 0
+  const server = await startTestServer((req, res) => {
+    const url = req.url ?? ""
+    if (url.startsWith("/config")) {
+      if (req.method === "PATCH" || req.method === "POST") {
+        let body = ""
+        req.on("data", (c: Buffer) => { body += c })
+        req.on("end", () => { patches += 1; try { current = JSON.parse(body) } catch {}; res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(current)) })
+        return
+      }
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(current))
+      return
+    }
+    if (url.startsWith("/global/health")) {
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true }))
+      return
+    }
+    res.writeHead(404).end()
+  })
+  try {
+    db.projects.insertProvisioning({ channelId: "chan1", guildId: "g", name: "demo", directory: "C:\\projects\\demo",
+      sandboxPath: null, sandboxName: "celly-demo", hostPort: server.port, serverPassword: "pw", createdAt: Date.now() })
+    db.projects.setStatus("chan1", "ready")
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
+      isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
+    await svc.ensureReady("chan1")
+    expect(patches).toBe(1)
+    expect(current.share).toBe("disabled")
+    expect(current.permission.external_directory).toBe("deny")
+  } finally { await server.close() }
+})
+
 test("ensureReady rejects while the project is still provisioning", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls } = fakes()
   db.projects.insertProvisioning({ channelId: "chan1", guildId: "g", name: "demo", directory: "C:\\projects\\demo",
