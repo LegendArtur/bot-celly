@@ -6,7 +6,6 @@ import { createUi } from "./cli/ui.js"
 import { createPrompter, runWizard } from "./cli/wizard.js"
 import { hasHardFailure, reportDoctor, runDoctor } from "./cli/doctor.js"
 import { SbxRunner } from "./sbx.js"
-import { main } from "./index.js"
 
 const HELP = `Celly — a Discord control surface for OpenCode
 
@@ -55,15 +54,21 @@ async function run(): Promise<void> {
 
   const applied = applyHome({ env: process.env })
 
-  const needsWizard = options.command === "setup" || !configPresent(process.env)
-  if (needsWizard) {
-    if (!process.stdin.isTTY && options.command !== "setup") {
-      ui.status("fail", "No config found and stdin is not a TTY.")
-      ui.hint(`Pass --token and --guilds, or write ${applied.envFile} yourself.`)
-      process.exit(1)
+  const configOk = configPresent(process.env)
+  const wantsWizard = options.command === "setup" || (options.command !== "doctor" && !configOk)
+  if (wantsWizard) {
+    if (!process.stdin.isTTY) {
+      if (configOk) {
+        ui.status("warn", "No TTY available; keeping the existing configuration.")
+      } else {
+        ui.status("fail", "No config found and stdin is not a TTY.")
+        ui.hint(`Pass --token and --guilds, or write ${applied.envFile} yourself.`)
+        process.exit(1)
+      }
+    } else {
+      const prompter = createPrompter(process.stdin, process.stdout)
+      await runWizard({ env: process.env, envFile: applied.envFile, ui, prompter })
     }
-    const prompter = createPrompter(process.stdin, process.stdout)
-    await runWizard({ env: process.env, envFile: applied.envFile, ui, prompter })
   }
 
   const runner = new SbxRunner()
@@ -84,6 +89,7 @@ async function run(): Promise<void> {
     ui.status("ok", "Setup complete. Run `bot-celly` to start.")
     return
   }
+  const { main } = await import("./index.js")
   await main()
 }
 

@@ -9,6 +9,8 @@ test("is publishable as bot-celly", () => {
   expect(pkg.bin).toEqual({ "bot-celly": "dist/cli.js" })
   expect(pkg.files).toEqual(["dist", "assets"])
   expect(pkg.publishConfig).toMatchObject({ access: "public", provenance: true })
+  expect(pkg.engines).toEqual({ node: ">=24 <25" })
+  expect(pkg.license).toBe("MIT")
   expect((pkg.repository as { url: string }).url).toBe("git+https://github.com/LegendArtur/bot-celly.git")
 })
 
