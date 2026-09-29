@@ -1,8 +1,8 @@
 import { expect, test, vi } from "vitest"
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { createLogger, formatLogLine, redact } from "../src/log.ts"
+import { withTempDir } from "./helpers/tmp.ts"
 
 test("formatLogLine renders local time, padded level, message, and key=value fields", () => {
   const line = formatLogLine({
@@ -134,19 +134,19 @@ test("removing a secret from the array stops redacting it", () => {
   expect(line).toContain("second")
   info.mockRestore()
 })
-test("logger pretty mode writes a human line to the console and JSON to the file", () => {
-  const dir = mkdtempSync(join(tmpdir(), "celly-log-pretty-"))
-  const file = join(dir, "bot.log")
-  const info = vi.spyOn(console, "info").mockImplementation(() => {})
-  try {
-    const log = createLogger({ level: "info", file, pretty: true, color: false })
-    log.info("admin server listening", { port: 4560 })
-    expect(info.mock.calls[0]?.[0]).toMatch(/^\d{2}:\d{2}:\d{2}  INFO   admin server listening  port=4560$/)
-    expect(readFileSync(file, "utf8")).toContain('"msg":"admin server listening"')
-  } finally {
-    info.mockRestore()
-    rmSync(dir, { recursive: true, force: true })
-  }
+test("logger pretty mode writes a human line to the console and JSON to the file", async () => {
+  await withTempDir("celly-log-pretty-", (dir) => {
+    const file = join(dir, "bot.log")
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    try {
+      const log = createLogger({ level: "info", file, pretty: true, color: false })
+      log.info("admin server listening", { port: 4560 })
+      expect(info.mock.calls[0]?.[0]).toMatch(/^\d{2}:\d{2}:\d{2}  INFO   admin server listening  port=4560$/)
+      expect(readFileSync(file, "utf8")).toContain('"msg":"admin server listening"')
+    } finally {
+      info.mockRestore()
+    }
+  })
 })
 test("logger pretty mode still redacts secrets", () => {
   const info = vi.spyOn(console, "info").mockImplementation(() => {})
@@ -159,34 +159,34 @@ test("logger pretty mode still redacts secrets", () => {
   info.mockRestore()
 })
 
-test("truncate clears an existing log file at construction", () => {
-  const dir = mkdtempSync(join(tmpdir(), "celly-log-"))
-  const file = join(dir, "bot.log")
-  const info = vi.spyOn(console, "info").mockImplementation(() => {})
-  try {
-    writeFileSync(file, "old line\n")
-    const log = createLogger({ level: "info", file, truncate: true })
-    log.info("first")
-    const contents = readFileSync(file, "utf8")
-    expect(contents).not.toContain("old line")
-    expect(contents).toContain("first")
-  } finally {
-    info.mockRestore()
-    rmSync(dir, { recursive: true, force: true })
-  }
+test("truncate clears an existing log file at construction", async () => {
+  await withTempDir("celly-log-", (dir) => {
+    const file = join(dir, "bot.log")
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    try {
+      writeFileSync(file, "old line\n")
+      const log = createLogger({ level: "info", file, truncate: true })
+      log.info("first")
+      const contents = readFileSync(file, "utf8")
+      expect(contents).not.toContain("old line")
+      expect(contents).toContain("first")
+    } finally {
+      info.mockRestore()
+    }
+  })
 })
 
-test("logger rotates the file once appends pass maxBytes", () => {
-  const dir = mkdtempSync(join(tmpdir(), "celly-log-rotate-"))
-  const file = join(dir, "bot.log")
-  const info = vi.spyOn(console, "info").mockImplementation(() => {})
-  try {
-    const log = createLogger({ level: "info", file, maxBytes: 200, maxFiles: 2 })
-    for (let i = 0; i < 12; i++) log.info("line", { i })
-    expect(existsSync(`${file}.1`)).toBe(true)
-    expect(readFileSync(`${file}.1`, "utf8")).toContain('"msg":"line"')
-  } finally {
-    info.mockRestore()
-    rmSync(dir, { recursive: true, force: true })
-  }
+test("logger rotates the file once appends pass maxBytes", async () => {
+  await withTempDir("celly-log-rotate-", (dir) => {
+    const file = join(dir, "bot.log")
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    try {
+      const log = createLogger({ level: "info", file, maxBytes: 200, maxFiles: 2 })
+      for (let i = 0; i < 12; i++) log.info("line", { i })
+      expect(existsSync(`${file}.1`)).toBe(true)
+      expect(readFileSync(`${file}.1`, "utf8")).toContain('"msg":"line"')
+    } finally {
+      info.mockRestore()
+    }
+  })
 })

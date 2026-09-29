@@ -1,17 +1,12 @@
 // test/audit.test.ts
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { expect, test } from "vitest"
 import { createAuditLog } from "../src/audit.ts"
+import { withTempDir } from "./helpers/tmp.ts"
 
-function withTempDir(fn: (dir: string) => void): void {
-  const dir = mkdtempSync(join(tmpdir(), "celly-audit-"))
-  try { fn(dir) } finally { rmSync(dir, { recursive: true, force: true }) }
-}
-
-test("creates the audit file with mode 0600", () => {
-  withTempDir((dir) => {
+test("creates the audit file with mode 0600", async () => {
+  await withTempDir("celly-audit-", (dir) => {
     const file = join(dir, "audit.jsonl")
     createAuditLog({ file })
     expect(readFileSync(file, "utf8")).toBe("")
@@ -19,8 +14,8 @@ test("creates the audit file with mode 0600", () => {
   })
 })
 
-test("appends one JSON object per line with the injected clock", () => {
-  withTempDir((dir) => {
+test("appends one JSON object per line with the injected clock", async () => {
+  await withTempDir("celly-audit-", (dir) => {
     const file = join(dir, "audit.jsonl")
     const audit = createAuditLog({ file, clock: () => Date.parse("2026-01-02T03:04:05.000Z") })
     audit.append({ kind: "permission", channelId: "c1", threadId: "t1", actorId: "u1", detail: "bash git push", decision: "reject" })
@@ -33,8 +28,8 @@ test("appends one JSON object per line with the injected clock", () => {
   })
 })
 
-test("tail returns the last N entries oldest-first and ignores malformed lines", () => {
-  withTempDir((dir) => {
+test("tail returns the last N entries oldest-first and ignores malformed lines", async () => {
+  await withTempDir("celly-audit-", (dir) => {
     const file = join(dir, "audit.jsonl")
     const audit = createAuditLog({ file, clock: () => 0 })
     audit.append({ kind: "shell", channelId: "c1", threadId: "c1", actorId: "u1", detail: "echo one", decision: "run" })
@@ -48,16 +43,16 @@ test("tail returns the last N entries oldest-first and ignores malformed lines",
   })
 })
 
-test("tail on a missing file returns an empty list", () => {
-  withTempDir((dir) => {
+test("tail on a missing file returns an empty list", async () => {
+  await withTempDir("celly-audit-", (dir) => {
     const audit = createAuditLog({ file: join(dir, "audit.jsonl") })
     rmSync(join(dir, "audit.jsonl"))
     expect(audit.tail(5)).toEqual([])
   })
 })
 
-test("reports init and append failures through the injected error logger", () => {
-  withTempDir((dir) => {
+test("reports init and append failures through the injected error logger", async () => {
+  await withTempDir("celly-audit-", (dir) => {
     const file = join(dir, "audit.jsonl")
     mkdirSync(file)
     const errors: Array<{ msg: string; fields?: Record<string, unknown> }> = []
@@ -68,8 +63,8 @@ test("reports init and append failures through the injected error logger", () =>
   })
 })
 
-test("append never throws when the file is unwritable", () => {
-  withTempDir((dir) => {
+test("append never throws when the file is unwritable", async () => {
+  await withTempDir("celly-audit-", (dir) => {
     const file = join(dir, "audit.jsonl")
     const audit = createAuditLog({ file })
     rmSync(file)

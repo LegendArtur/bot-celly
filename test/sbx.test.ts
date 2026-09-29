@@ -1,11 +1,11 @@
 // test/sbx.test.ts
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { symlinkSync } from "node:fs"
 import { join } from "node:path"
 import { expect, test } from "vitest"
 import { defaultForbiddenPaths, Sbx, SbxError, SbxRunner, buildSandboxName, isPathInside, isSensitivePath, parseSbxLs, parseSbxPorts, sanitizeAttachmentName, sanitizeProjectDirName, slugify } from "../src/sbx.ts"
 import ls from "./fixtures/sbx-ls.json"
 import ports from "./fixtures/sbx-ports.json"
+import { withTempDir } from "./helpers/tmp.ts"
 
 test("slugify keeps only [a-z0-9-]", () => {
   expect(slugify("My Web_App!" )).toBe("my-web-app")
@@ -104,17 +104,12 @@ test("reserved device names are rejected after trimming", () => {
   expect(() => sanitizeAttachmentName("com1.tar.gz")).toThrow()
   expect(() => sanitizeAttachmentName("conin$")).toThrow()
 })
-test("path containment resolves symlinked ancestors", () => {
-  const root = mkdtempSync(join(tmpdir(), "celly-root-"))
-  const outside = mkdtempSync(join(tmpdir(), "celly-out-"))
-  try {
+test("path containment resolves symlinked ancestors", async () => {
+  await withTempDir("celly-root-", (root) => withTempDir("celly-out-", (outside) => {
     symlinkSync(outside, join(root, "link"))
     expect(isPathInside(root, join(root, "link", "sub", "file.txt"))).toBe(false)
     expect(isPathInside(root, join(root, "nested", "file.txt"))).toBe(true)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-    rmSync(outside, { recursive: true, force: true })
-  }
+  }))
 })
 
 test("project directory names are sanitized without allowing traversal", () => {

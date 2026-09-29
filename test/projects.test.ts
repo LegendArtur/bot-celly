@@ -7,6 +7,7 @@ import { openDb } from "../src/db.ts"
 import { BOOTSTRAP_PREPARE, BOOTSTRAP_VERIFY, cellyPolicy } from "../src/opencode.ts"
 import { ProjectService } from "../src/projects.ts"
 import { projectFixture, silentLogger } from "./helpers/fixtures.ts"
+import { withTempDir } from "./helpers/tmp.ts"
 
 function makeCfg(portStart: number, portEnd: number): any {
   return { projectsRoot: "C:\\projects", sandboxTemplate: "opencode", sandboxCpus: 2, sandboxMemory: "4g",
@@ -84,8 +85,7 @@ test("addProject rejects a prefix-sibling directory", async () => {
 })
 
 test("createProjectDirectory sanitizes the name and creates it under PROJECTS_ROOT", async () => {
-  const root = mkdtempSync(join(tmpdir(), "celly-root-"))
-  try {
+  await withTempDir("celly-root-", async (root) => {
     const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
     const svc = new ProjectService({ sbx, runner: runner as any, db,
       config: { ...makeCfg(4600, 4600), projectsRoot: root }, log: silentLogger, forbiddenPaths: [],
@@ -95,14 +95,11 @@ test("createProjectDirectory sanitizes the name and creates it under PROJECTS_RO
     expect(existsSync(dir)).toBe(true)
     expect(dir).toContain("My App-..-evil")
     await expect(svc.createProjectDirectory("..")).rejects.toThrow(/invalid/)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
+  })
 })
 
 test("createProjectDirectory rejects a sensitive path without creating it", async () => {
-  const root = mkdtempSync(join(tmpdir(), "celly-root-"))
-  try {
+  await withTempDir("celly-root-", async (root) => {
     const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
     const svc = new ProjectService({ sbx, runner: runner as any, db,
       config: { ...makeCfg(4600, 4600), projectsRoot: root }, log: silentLogger,
@@ -110,9 +107,7 @@ test("createProjectDirectory rejects a sensitive path without creating it", asyn
       forbiddenPaths: [join(root, "secret")] } as any)
     await expect(svc.createProjectDirectory("secret")).rejects.toThrow(/sensitive/)
     expect(existsSync(join(root, "secret"))).toBe(false)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
+  })
 })
 
 test("addProject writes and verifies the celly bootstrap before starting the serve child", async () => {
@@ -732,30 +727,30 @@ test("addProject creates the channel in the project's guild", async () => {
 })
 
 test("the supervised child's output is written to data/logs/<sandbox>.log", async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), "celly-logs-"))
-  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, children } = fakes()
-  const server = await healthServer(true)
-  try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db,
-      config: { ...makeCfg(server.port, server.port), dataDir }, log: silentLogger,
-      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
-    await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
-    const password = db.projects.getByChannel("chan-demo")!.serverPassword
-    children[0].emitStdout("hello from the server")
-    children[0].emitStderr(`a warning token=${password}`)
-    const logFile = join(dataDir, "logs", "celly-demo.log")
-    expect(existsSync(logFile)).toBe(true)
-    const contents = readFileSync(logFile, "utf8")
-    expect(contents).toContain("hello from the server")
-    expect(contents).toContain("a warning")
-    expect(contents).not.toContain(password)
-    expect(contents).toContain("[redacted]")
-    // Windows reports synthesized POSIX modes; 0600 is a POSIX-host guarantee.
-    if (process.platform !== "win32") expect(statSync(logFile).mode & 0o777).toBe(0o600)
-  } finally {
-    await server.close()
-    rmSync(dataDir, { recursive: true, force: true })
-  }
+  await withTempDir("celly-logs-", async (dataDir) => {
+    const db = openDb(":memory:"); db.migrate(); const { sbx, runner, children } = fakes()
+    const server = await healthServer(true)
+    try {
+      const svc = new ProjectService({ sbx, runner: runner as any, db,
+        config: { ...makeCfg(server.port, server.port), dataDir }, log: silentLogger,
+        isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
+      await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
+      const password = db.projects.getByChannel("chan-demo")!.serverPassword
+      children[0].emitStdout("hello from the server")
+      children[0].emitStderr(`a warning token=${password}`)
+      const logFile = join(dataDir, "logs", "celly-demo.log")
+      expect(existsSync(logFile)).toBe(true)
+      const contents = readFileSync(logFile, "utf8")
+      expect(contents).toContain("hello from the server")
+      expect(contents).toContain("a warning")
+      expect(contents).not.toContain(password)
+      expect(contents).toContain("[redacted]")
+      // Windows reports synthesized POSIX modes; 0600 is a POSIX-host guarantee.
+      if (process.platform !== "win32") expect(statSync(logFile).mode & 0o777).toBe(0o600)
+    } finally {
+      await server.close()
+    }
+  })
 })
 
 test("project server logs rotate when they exceed logMaxBytes", async () => {

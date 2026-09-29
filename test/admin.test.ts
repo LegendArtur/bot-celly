@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { expect, test } from "vitest"
 import { createAdminServer } from "../src/admin.ts"
 import { freshDb, projectFixture } from "./helpers/fixtures.ts"
+import { withTempDir } from "./helpers/tmp.ts"
 
 const proj = projectFixture({ channelId: "c1" })
 
@@ -94,26 +94,26 @@ test("a failing project action returns a JSON 500", async () => {
 })
 
 test("GET /api/logs tails and redacts the project log", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "celly-admin-"))
-  const file = join(dir, "celly-demo.log")
-  writeFileSync(file, ["one", "two", "pw-secret", "four", "five"].join("\n") + "\n")
-  const { svr, base } = await admin({ secrets: ["pw-secret"], logFileFor: () => file })
-  try {
-    const res = await fetch(`${base}/api/logs/c1?lines=4`)
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.channelId).toBe("c1")
-    expect(body.file).toBe(file)
-    expect(body.lines).toHaveLength(4)
-    expect(body.lines.join("\n")).toContain("[redacted]")
-    expect(body.lines.join("\n")).not.toContain("pw-secret")
-    expect(body.lines.join("\n")).not.toContain("one")
-    const all = await (await fetch(`${base}/api/logs/c1`)).json()
-    expect(all.lines).toHaveLength(5)
-  } finally {
-    svr.close()
-    rmSync(dir, { recursive: true, force: true })
-  }
+  await withTempDir("celly-admin-", async (dir) => {
+    const file = join(dir, "celly-demo.log")
+    writeFileSync(file, ["one", "two", "pw-secret", "four", "five"].join("\n") + "\n")
+    const { svr, base } = await admin({ secrets: ["pw-secret"], logFileFor: () => file })
+    try {
+      const res = await fetch(`${base}/api/logs/c1?lines=4`)
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.channelId).toBe("c1")
+      expect(body.file).toBe(file)
+      expect(body.lines).toHaveLength(4)
+      expect(body.lines.join("\n")).toContain("[redacted]")
+      expect(body.lines.join("\n")).not.toContain("pw-secret")
+      expect(body.lines.join("\n")).not.toContain("one")
+      const all = await (await fetch(`${base}/api/logs/c1`)).json()
+      expect(all.lines).toHaveLength(5)
+    } finally {
+      svr.close()
+    }
+  })
 })
 
 test("GET /api/logs 404s when there is no log file", async () => {

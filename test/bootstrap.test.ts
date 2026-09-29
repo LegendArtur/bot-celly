@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process"
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { readFileSync, rmSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { expect, test } from "vitest"
 import { BOOTSTRAP_PREPARE, BOOTSTRAP_VERIFY, buildBootstrapInstallScript } from "../src/opencode.ts"
+import { withTempDir } from "./helpers/tmp.ts"
 
 const onWindows = process.platform === "win32"
 
@@ -18,10 +18,9 @@ function install(input: string, home: string) {
 // Mirrors the real flow: prepare the dir, then write config/env as the sandbox
 // user with the install script on stdin (0600 via umask), then verify. This is
 // what replaced the /tmp `mv` and the root-owned `sbx cp` + `chmod` paths.
-test.skipIf(onWindows)("bootstrap install script writes a 0600 config/env idempotently", () => {
-  const home = mkdtempSync(join(tmpdir(), "celly-home-"))
-  const dest = join(home, ".config", "celly")
-  try {
+test.skipIf(onWindows)("bootstrap install script writes a 0600 config/env idempotently", async () => {
+  await withTempDir("celly-home-", (home) => {
+    const dest = join(home, ".config", "celly")
     expect(inline(BOOTSTRAP_PREPARE, home).status).toBe(0)
 
     const first = install(buildBootstrapInstallScript("secret-password"), home)
@@ -43,7 +42,5 @@ test.skipIf(onWindows)("bootstrap install script writes a 0600 config/env idempo
     // Verify must fail closed when the config is missing.
     rmSync(dest, { recursive: true, force: true })
     expect(inline(BOOTSTRAP_VERIFY, home).status).not.toBe(0)
-  } finally {
-    rmSync(home, { recursive: true, force: true })
-  }
+  })
 })

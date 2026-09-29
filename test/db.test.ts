@@ -1,11 +1,10 @@
 // test/db.test.ts
 import { DatabaseSync } from "node:sqlite"
-import { mkdtempSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
 import { openDb } from "../src/db.ts"
 import { freshDb, projectFixture } from "./helpers/fixtures.ts"
+import { withTempDir } from "./helpers/tmp.ts"
 
 const proj = projectFixture({ channelId: "c1", guildId: "g1", directory: "C:\\p\\demo" })
 
@@ -80,10 +79,9 @@ test("setWorktree stores and clears the thread worktree path", () => {
   expect(db.threads.get("t1")?.worktreePath).toBeNull()
 })
 test("migrate is idempotent", () => { const db = freshDb(); db.migrate(); expect(db.projects.list()).toEqual([]) })
-test("v2 migration repairs a pre-cascade threads table", () => {
-  const dir = mkdtempSync(join(tmpdir(), "celly-db-"))
-  const file = join(dir, "bot.db")
-  try {
+test("v2 migration repairs a pre-cascade threads table", async () => {
+  await withTempDir("celly-db-", (dir) => {
+    const file = join(dir, "bot.db")
     const legacy = new DatabaseSync(file)
     legacy.exec(`
       PRAGMA foreign_keys = ON;
@@ -111,9 +109,7 @@ test("v2 migration repairs a pre-cascade threads table", () => {
     db.projects.remove("c1")
     expect(db.threads.get("t1")).toBeUndefined()
     db.close()
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
+  })
 })
 test("removing a project cascades to its threads", () => {
   const db = freshDb(); db.projects.insertProvisioning(proj)
@@ -123,10 +119,9 @@ test("removing a project cascades to its threads", () => {
   expect(db.projects.getByChannel("c1")).toBeUndefined()
   expect(db.threads.get("t1")).toBeUndefined()
 })
-test("v4 adds an index on threads.channel_id", () => {
-  const dir = mkdtempSync(join(tmpdir(), "celly-db-index-"))
-  const file = join(dir, "bot.db")
-  try {
+test("v4 adds an index on threads.channel_id", async () => {
+  await withTempDir("celly-db-index-", (dir) => {
+    const file = join(dir, "bot.db")
     const db = openDb(file)
     db.migrate()
     db.close()
@@ -134,9 +129,7 @@ test("v4 adds an index on threads.channel_id", () => {
     const names = (raw.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='threads'").all() as any[]).map((r) => r.name)
     expect(names).toContain("idx_threads_channel")
     raw.close()
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
+  })
 })
 
 test("touch and idleSince expose per-project activity", () => {
@@ -153,10 +146,9 @@ test("touch and idleSince expose per-project activity", () => {
   expect(db.projects.idleSince(99)).toEqual([])
 })
 
-test("a v4 database upgrades with a zeroed projects.last_active_at", () => {
-  const dir = mkdtempSync(join(tmpdir(), "celly-db-idle-"))
-  const file = join(dir, "bot.db")
-  try {
+test("a v4 database upgrades with a zeroed projects.last_active_at", async () => {
+  await withTempDir("celly-db-idle-", (dir) => {
+    const file = join(dir, "bot.db")
     const legacy = new DatabaseSync(file)
     legacy.exec(`
       CREATE TABLE projects (channel_id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, name TEXT NOT NULL UNIQUE,
@@ -179,9 +171,7 @@ test("a v4 database upgrades with a zeroed projects.last_active_at", () => {
     expect(db.projects.idleSince(42).map((p) => p.channelId)).toEqual(["c1"])
     expect(db.projects.idleSince(41)).toEqual([])
     db.close()
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
+  })
 })
 
 test("scheduled_tasks CRUD round-trips and filters due tasks", () => {
@@ -202,10 +192,9 @@ test("scheduled_tasks CRUD round-trips and filters due tasks", () => {
   expect(db.tasks.list()).toEqual([])
 })
 
-test("the appended migration adds scheduled_tasks to an older database", () => {
-  const dir = mkdtempSync(join(tmpdir(), "celly-db-tasks-"))
-  const file = join(dir, "bot.db")
-  try {
+test("the appended migration adds scheduled_tasks to an older database", async () => {
+  await withTempDir("celly-db-tasks-", (dir) => {
+    const file = join(dir, "bot.db")
     const legacy = new DatabaseSync(file)
     legacy.exec(`
       CREATE TABLE projects (channel_id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, name TEXT NOT NULL UNIQUE,
@@ -223,9 +212,7 @@ test("the appended migration adds scheduled_tasks to an older database", () => {
     const id = db.tasks.add({ channelId: "c1", prompt: "p", everyMinutes: 1, nextRunAt: 0, createdAt: 0 })
     expect(db.tasks.list().map((t) => t.id)).toEqual([id])
     db.close()
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
+  })
 })
 
 test("addUsage accumulates per-thread totals", () => {
