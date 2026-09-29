@@ -4,8 +4,8 @@
   "theme": "almond",
   "colors": {
     "primary": "#00FFCB",
-    "dark": "#00C59D",
-    "light": "#00C59D"
+    "dark": "#00FFCB",
+    "light": "#00FFCB"
   },
   "navigation": {
     "groups": [
