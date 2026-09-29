@@ -3,14 +3,12 @@ import { expect, test, vi } from "vitest"
 import { createIdleSweeper, formatIdleStopNotice } from "../src/idle.ts"
 import type { IdleSweeperDeps } from "../src/idle.ts"
 import type { Project } from "../src/types.ts"
+import { projectFixture } from "./helpers/fixtures.ts"
 
 const MINUTE = 60_000
 
-const project = (over: Partial<Project> = {}): Project => ({
-  channelId: "c1", guildId: "g", name: "demo", directory: "C:\\p", sandboxPath: null,
-  sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", status: "ready",
-  createdAt: 1, lastActiveAt: MINUTE, ...over,
-})
+const project = (over: Partial<Project> = {}): Project =>
+  projectFixture({ channelId: "c1", status: "ready", lastActiveAt: MINUTE, ...over })
 
 function makeSweeper(over: Partial<IdleSweeperDeps> = {}) {
   const stops: string[] = []

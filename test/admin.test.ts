@@ -3,15 +3,12 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
 import { createAdminServer } from "../src/admin.ts"
-import { openDb } from "../src/db.ts"
+import { freshDb, projectFixture } from "./helpers/fixtures.ts"
 
-const proj = { channelId: "c1", guildId: "g", name: "demo", directory: "C:\\p",
-  sandboxPath: null, sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 }
-
-function fresh() { const db = openDb(":memory:"); db.migrate(); return db }
+const proj = projectFixture({ channelId: "c1" })
 
 async function admin(over: any = {}) {
-  const db = over.db ?? fresh()
+  const db = over.db ?? freshDb()
   if (!over.skipProject) { db.projects.insertProvisioning(proj); db.projects.setReady("c1", "C:\\p") }
   const calls: string[] = []
   const svr = await createAdminServer({
@@ -84,7 +81,7 @@ test("POST start and stop call the injected actions and 404 unknown projects", a
 })
 
 test("a failing project action returns a JSON 500", async () => {
-  const db = fresh(); db.projects.insertProvisioning(proj)
+  const db = freshDb(); db.projects.insertProvisioning(proj)
   const svr = await createAdminServer({ port: 0, db, secrets: [], logFileFor: () => undefined,
     start: async () => { throw new Error("boom") }, stop: async () => {} })
   try {

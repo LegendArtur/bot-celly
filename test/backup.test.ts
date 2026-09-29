@@ -5,9 +5,9 @@ import { join, relative } from "node:path"
 import { expect, test } from "vitest"
 import { createBackupScheduler } from "../src/backup.ts"
 import { openDb } from "../src/db.ts"
+import { projectFixture } from "./helpers/fixtures.ts"
 
-const proj = { channelId: "c1", guildId: "g1", name: "demo", directory: "C:\\p\\demo",
-  sandboxPath: null, sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 }
+const proj = projectFixture({ channelId: "c1", guildId: "g1", directory: "C:\\p\\demo" })
 
 test("tick writes a VACUUM INTO backup that opens as SQLite", async () => {
   const dir = mkdtempSync(join(tmpdir(), "celly-backup-"))
