@@ -261,7 +261,7 @@ The host is designed to run unattended:
 
 - **Logs.** Console output plus `DATA_DIR/bot.log` (JSONL) and per-project
   `DATA_DIR/logs/<project>.log`, with token/password redaction. The CLI sets
-  `DATA_DIR` to `~/.bot-celly/data`, so logs default to
+  `DATA_DIR` to `~/.bot-celly/data` when `DATA_DIR` is unset, so logs default to
   `~/.bot-celly/data/bot.log`; a source checkout uses `./data`.
 - **Admin page.** A loopback-only status page and JSON API on
   `127.0.0.1:4560` (`ADMIN_PORT`), unauthenticated by design and never
