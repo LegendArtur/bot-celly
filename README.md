@@ -2,8 +2,8 @@
 
 <p align="center"><strong>Drive OpenCode from Discord — one isolated microVM per project.</strong></p>
 
-Start a coding agent from your phone, in a channel you already keep open. Celly
-turns [Discord](https://discord.com) into a control surface for
+Start a sandboxed coding agent from any device. Celly
+turns [Discord](https://discord.com) into a control plane for
 [OpenCode](https://opencode.ai) agents: kick off work, watch it stream, approve a
 command, and pick the session back up later.
 
