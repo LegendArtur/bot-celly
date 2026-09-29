@@ -1,6 +1,6 @@
 ---
 title: Roadmap
-description: What is planned for Celly — install ergonomics, image output, more input types, and hosted cloud sandboxes.
+description: What is planned for Celly — a React dashboard, install ergonomics, image output, more input types, and hosted cloud sandboxes.
 ---
 
 This is the canonical roadmap. It is directional, not a set of commitments; the
@@ -8,6 +8,14 @@ This is the canonical roadmap. It is directional, not a set of commitments; the
 [Limitations](/reference/limitations) covers what the current release does not
 do.
 
+- **React dashboard.** Replace the server-rendered loopback admin page with a
+  React-based bot dashboard: live project cards, streaming logs, cost and budget
+  views, the audit trail, and approvals in one UI. Loopback-only by default, like
+  the current [admin page](/guides/operations#admin-page).
+- **Thread title updater and live thread stats.** Keep each Discord thread's
+  title in sync with its session (renamed from the latest prompt or a generated
+  summary), and surface live per-thread stats — run state, model and agent,
+  queued prompts, tokens, and cost — in the thread or channel.
 - **One-line install.** A single command (for example `npx celly`) to install
   and run Celly, without the manual Node, clone, build, and `.env` steps.
 - **Image output.** Post images the agent produces — screenshots, diagrams,

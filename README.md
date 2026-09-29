@@ -321,6 +321,12 @@ Docs live in `docs-site/` (`npm run docs:dev`, `npm run docs:validate`,
 
 The command set above is the current surface. Planned, not committed:
 
+- **React dashboard.** Replace the server-rendered loopback admin page with a
+  React bot dashboard for project cards, streaming logs, cost and budgets, the
+  audit trail, and approvals, loopback-only by default.
+- **Thread title updater and live thread stats.** Keep each Discord thread's
+  title in sync with its session, and surface live per-thread stats (run state,
+  model and agent, queued prompts, tokens, cost) in the thread or channel.
 - **One-line install.** A single command (for example `npx celly`) to install
   and run Celly, without the manual Node, clone, build, and `.env` steps.
 - **Image output.** Post images the agent produces (screenshots, diagrams) into
