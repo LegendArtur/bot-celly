@@ -1084,6 +1084,18 @@ test("single-quoted substitutions and separators are literal", () => {
   expect(scan.ok && scan.commands).toEqual(["echo '$(git push); git push'"])
 })
 
+test("parameter expansion bodies are scanned for substitutions", () => {
+  const variants = ["echo ${x:-$(git push)}", "echo \"${x:-`git push`}\"", "echo ${x:-${y:-$(git push)}}"]
+  for (const input of variants) {
+    const scan = scanShellCommands(input)
+    expect(scan.ok, input).toBe(true)
+    expect(scan.ok && scan.commands, input).toContain("git push")
+  }
+  const benign = scanShellCommands("echo ${HOME}")
+  expect(benign.ok && benign.commands).toEqual(["echo ${HOME}"])
+  expect(scanShellCommands("echo ${x").ok).toBe(false)
+})
+
 test("quoted heredocs are skipped and unquoted heredocs are scanned for substitutions", () => {
   const quoted = scanShellCommands("cat <<'EOF'\n$(printenv)\ngit push\nEOF")
   expect(quoted.ok).toBe(true)
@@ -1315,10 +1327,11 @@ function collectCommands(input: string, depth: number, commands: string[]): void
       continue
     }
     if (ch === "$" && input[i + 1] === "{") {
-      const end = input.indexOf("}", i + 2)
-      if (end === -1) throw new ScanError("unbalanced ${")
-      current += input.slice(i, end + 1)
-      i = end + 1
+      const parsed = extractBalanced(input, i + 1, "{", "}")
+      if (!parsed) throw new ScanError("unbalanced ${")
+      collectSubstitutions(parsed.text, depth + 1, commands)
+      current += input.slice(i, parsed.next)
+      i = parsed.next
       continue
     }
     if (ch === "$" && input[i + 1] === "(") {
