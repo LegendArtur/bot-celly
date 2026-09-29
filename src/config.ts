@@ -34,6 +34,14 @@ export function loadDotEnv(path = ".env", loader: (p: string) => void = (p) => {
 }
 
 /**
+ * The env file `main()` loads. The CLI points `CELLY_ENV_FILE` at
+ * `~/.bot-celly/.env`; the repo/dev flow falls back to `./.env`.
+ */
+export function envFileFrom(env: NodeJS.ProcessEnv = process.env): string {
+  return env.CELLY_ENV_FILE ?? ".env"
+}
+
+/**
  * Spec §6: `settings` is seeded from env on first boot only. An existing value
  * (set by the user or a future admin surface) is authoritative and never
  * overwritten by re-reading `.env` at every boot.
