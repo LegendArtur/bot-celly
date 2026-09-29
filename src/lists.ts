@@ -29,7 +29,10 @@ export function createProjectLists(deps: ListDeps): ProjectLists {
       const data = res?.data ?? res
       const list = Array.isArray(data) ? data : []
       return list.map((s: any) => ({ id: String(s.id), title: String(s.title ?? s.id) }))
-    } catch { return [] }
+    } catch (err) {
+      deps.log.warn("list sessions failed", { channelId, error: String(err) })
+      return []
+    }
   }
 
   const listCaches = new Map<string, ValueCache<any>>()
@@ -76,7 +79,10 @@ export function createProjectLists(deps: ListDeps): ProjectLists {
       const data = res?.data ?? res
       const list = Array.isArray(data) ? data : []
       return list.filter((a: any) => a?.mode !== "subagent").map((a: any) => ({ id: String(a.name), name: a.description ? `${a.name} — ${a.description}` : String(a.name) }))
-    } catch { return [] }
+    } catch (err) {
+      deps.log.warn("list agents failed", { channelId, error: String(err) })
+      return []
+    }
   }
 
   return {

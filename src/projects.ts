@@ -11,6 +11,7 @@ import { applyAndAssertCellyPolicy, BOOTSTRAP_PREPARE, BOOTSTRAP_VERIFY, buildBo
 import type { OpencodeClient, OpencodeV2Client } from "./opencode.js"
 import { redact } from "./log.js"
 import { rotateIfNeeded } from "./rotate.js"
+import { getErrorMessage } from "./helpers.js"
 
 export interface CloneOptions { url: string; branch?: string }
 const CLONE_URL = /^https:\/\/[^\s"'`\\<>]+$/i
@@ -342,10 +343,11 @@ export class ProjectService {
     this.adopted.delete(channelId)
     const child = this.deps.sbx.execStream(project.sandboxName, buildServeArgs())
     const logFile = join(this.deps.config.dataDir, "logs", `${project.sandboxName}.log`)
-    try { mkdirSync(dirname(logFile), { recursive: true }) } catch {}
-    try { chmodSync(logFile, 0o600) } catch {}
+    try { mkdirSync(dirname(logFile), { recursive: true }) } catch (err) { this.deps.log.warn("project log dir create failed", { channelId, error: getErrorMessage(err) }) }
+    try { chmodSync(logFile, 0o600) } catch (err) { this.deps.log.warn("project log chmod failed", { channelId, error: getErrorMessage(err) }) }
     const logSecrets = [project.serverPassword]
     let writtenSinceRotate = 0
+    let logFailureReported = false
     const appendLog = (prefix: string, data: unknown): void => {
       try {
         const line = redact(`[${prefix}] ${String(data)}`, logSecrets)
@@ -355,7 +357,12 @@ export class ProjectService {
           rotateIfNeeded(logFile, { maxBytes: this.deps.config.logMaxBytes, maxFiles: this.deps.config.logMaxFiles })
         }
         appendFileSync(logFile, line, { mode: 0o600 })
-      } catch {}
+      } catch (err) {
+        if (!logFailureReported) {
+          logFailureReported = true
+          this.deps.log.warn("project log append failed", { channelId, error: getErrorMessage(err) })
+        }
+      }
     }
     child.stdout?.on("data", (d) => { appendLog("out", d); this.deps.log.debug("project server stdout", { channelId, line: String(d) }) })
     child.stderr?.on("data", (d) => { appendLog("err", d); this.deps.log.warn("project server stderr", { channelId, line: String(d) }) })

@@ -33,3 +33,13 @@ test("listAgents drops subagents", async () => {
   const lists = createProjectLists({ ...base, clientFor: () => ({ app: { agents: async () => ({ data: [{ name: "build", description: "Build things" }, { name: "hidden", mode: "subagent" }] }) } }) as any })
   expect(await lists.listAgents("c")).toEqual([{ id: "build", name: "build — Build things" }])
 })
+
+test("listSessions and listAgents log and return [] when the server call fails", async () => {
+  const warnings: string[] = []
+  const lists = createProjectLists({ ...base,
+    clientFor: () => ({ session: { list: async () => { throw new Error("down") } }, app: { agents: async () => { throw new Error("down") } } }) as any,
+    log: { warn: (message) => { warnings.push(message) } } })
+  expect(await lists.listSessions("c")).toEqual([])
+  expect(await lists.listAgents("c")).toEqual([])
+  expect(warnings).toEqual(["list sessions failed", "list agents failed"])
+})
