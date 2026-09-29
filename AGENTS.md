@@ -20,10 +20,10 @@ npm run docs:dev     # preview the docs site
 npm run docs:validate
 npm run docs:links
 npx changeset        # add a changeset for a behavior change
-npx changeset version # bump the version and sync the changelog
+npm run changeset:version # bump the version and sync the changelog
 ```
 
-Releases are tag-driven: run `npx changeset version`, commit the bump, then
+Releases are tag-driven: run `npm run changeset:version`, commit the bump, then
 `git tag v<version> && git push origin v<version>`. The tag triggers
 `.github/workflows/release.yml`, which publishes `bot-celly` to npm with Trusted
 Publishing (OIDC). Do not run `npm publish` by hand once Trusted Publishing is

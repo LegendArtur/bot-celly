@@ -46,6 +46,10 @@ binary.
     (created on boot). Re-run the command to start again; `npx bot-celly doctor`
     checks the host without starting.
 
+    On boot the bot performs a preflight (`sbx version`, policy check,
+    single-instance lock) and fails fast with an actionable message. Logs are
+    written to `~/.bot-celly/data/bot.log`.
+
     <Accordion title="From source">
       ```powershell
       git clone https://github.com/LegendArtur/bot-celly.git
@@ -55,13 +59,9 @@ binary.
       copy .env.example .env    # macOS/Linux: cp .env.example .env
       node dist/index.js
       ```
-    </Accordion>
-  </Step>
 
-  <Step title="Run the bot">
-    On boot the bot performs a preflight (`sbx version`, policy check,
-    single-instance lock) and fails fast with an actionable message. Logs are
-    written to `~/.bot-celly/data/bot.log`.
+      From a source checkout, logs are written to `./data/bot.log`.
+    </Accordion>
   </Step>
 
   <Step title="Add a project and send a message">

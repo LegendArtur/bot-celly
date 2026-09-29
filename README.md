@@ -260,7 +260,9 @@ full model.
 The host is designed to run unattended:
 
 - **Logs.** Console output plus `DATA_DIR/bot.log` (JSONL) and per-project
-  `DATA_DIR/logs/<project>.log`, with token/password redaction.
+  `DATA_DIR/logs/<project>.log`, with token/password redaction. The CLI sets
+  `DATA_DIR` to `~/.bot-celly/data`, so logs default to
+  `~/.bot-celly/data/bot.log`; a source checkout uses `./data`.
 - **Admin page.** A loopback-only status page and JSON API on
   `127.0.0.1:4560` (`ADMIN_PORT`), unauthenticated by design and never
   network-exposed.
@@ -288,7 +290,7 @@ Register the provider with `sbx secret set <provider>` on the host and confirm
 you are logged in with `sbx login`.
 
 **A project shows unhealthy, or the serve child will not start.**
-Check `data/bot.log`, then run `/project start <name>` (or
+Check `~/.bot-celly/data/bot.log`, then run `/project start <name>` (or
 `/project restart <name>`). If the log shows
 `failed to start runtime` with `500 Internal Server Error`, that is a known
 upstream `sbx` issue — restart the host. See [Known issues](#known-issues).
@@ -298,7 +300,7 @@ Use role **IDs**, not role names.
 
 **Where do I look when something is off?**
 The loopback-only admin page on `127.0.0.1:4560` (projects, health, logs,
-audit) and `data/bot.log`. See
+audit) and `~/.bot-celly/data/bot.log`. See
 [Operations](https://celly.agub.dev/guides/operations).
 
 ## Development
