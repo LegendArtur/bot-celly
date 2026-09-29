@@ -24,6 +24,11 @@ do.
   deploy Celly as a hosted service, so no local host is required.
 - **Image and voice input.** Send images and voice messages as prompts, not just
   text and text attachments.
+- **Single OpenCode API surface.** Celly talks to OpenCode through both its v1
+  and v2 SDK surfaces today (sessions and config on v1; permission, questions,
+  and global config on v2). Migrate every call to the v2 surface and remove the
+  v1 client, so the version split lives only in upstream event names rather than
+  in Celly's code.
 
 ## Related
 

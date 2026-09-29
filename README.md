@@ -337,6 +337,9 @@ The command set above is the current surface. Planned, not committed:
 - **Cloud sandboxes and hosted deployment.** Run projects in cloud sandboxes and
   deploy Celly as a hosted service, so no local host is required.
 - **Image and voice input.** Send images and voice messages as prompts.
+- **Single OpenCode API surface.** Move all OpenCode calls onto its v2 SDK surface
+  and remove the v1 client, so the v1/v2 split exists only in upstream event names
+  and not in Celly's code.
 
 The canonical roadmap is at
 [Roadmap](https://celly.agub.dev/project/roadmap).
