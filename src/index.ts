@@ -28,8 +28,7 @@ import { EventRouter } from "./events.js"
 import { Renderer, renderPayload, sanitizeThreadName } from "./render.js"
 import { resolveBaseUrl, resolveClient, resolveV2Client } from "./opencode.js"
 import { createSessionOps } from "./session-utils.js"
-import { createValueCache } from "./list-cache.js"
-import type { ValueCache } from "./list-cache.js"
+import { createProjectLists } from "./lists.js"
 import { runShell } from "./shell.js"
 import { ingestAttachments } from "./attachments.js"
 import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
@@ -543,70 +542,14 @@ async function main(): Promise<void> {
   })
   taskRunner.start()
 
-  const listSessions = async (channelId: string): Promise<{ id: string; title: string }[]> => {
-    const project = db.projects.getByChannel(channelId)
-    if (!project) return []
-    await projects.ensureReady(channelId).catch(() => {})
-    try {
-      const sdk = resolveClient(project)
-      const res: any = await sdk.session.list()
-      const data = res?.data ?? res
-      const list = Array.isArray(data) ? data : []
-      return list.map((s: any) => ({ id: String(s.id), title: String(s.title ?? s.id) }))
-    } catch { return [] }
-  }
-  const listCaches = new Map<string, ValueCache<any>>()
-  const listCacheFor = <T>(key: string, load: () => Promise<T[]>): ValueCache<T> => {
-    const existing = listCaches.get(key)
-    if (existing) return existing
-    const cache = createValueCache<T>({ ttlMs: 60_000, load, now: () => Date.now() })
-    listCaches.set(key, cache)
-    return cache
-  }
-  const loadModels = async (channelId: string): Promise<{ id: string; name: string; variants?: string[] }[]> => {
-    const project = db.projects.getByChannel(channelId)
-    if (!project) return []
-    try {
-      const sdk = resolveClient(project)
-      const res: any = await sdk.config.providers()
-      const data = res?.data ?? res
-      const providers = Array.isArray(data?.providers) ? data.providers : []
-      const out: { id: string; name: string; variants?: string[] }[] = []
-      for (const p of providers) {
-        const providerId = typeof p?.id === "string" && p.id ? p.id : undefined
-        if (!providerId) continue
-        const models = p?.models && typeof p.models === "object" ? p.models : {}
-        for (const [mid, model] of Object.entries(models)) {
-          const id = `${providerId}/${mid}`
-          const name = (model as any)?.name
-          out.push({ id, name: typeof name === "string" && name ? name : `${p?.name ?? providerId}/${mid}`, variants: modelVariants(model as any) })
-        }
-      }
-      return out
-    } catch (err) {
-      log.warn("list models failed", { channelId, error: String(err) })
-      return []
-    }
-  }
-  const loadAgents = async (channelId: string): Promise<{ id: string; name: string }[]> => {
-    const project = db.projects.getByChannel(channelId)
-    if (!project) return []
-    try {
-      const sdk = resolveClient(project)
-      const res: any = await sdk.app.agents()
-      const data = res?.data ?? res
-      const list = Array.isArray(data) ? data : []
-      return list.filter((a: any) => a?.mode !== "subagent").map((a: any) => ({ id: String(a.name), name: a.description ? `${a.name} — ${a.description}` : String(a.name) }))
-    } catch { return [] }
-  }
-  const listModels = (channelId: string): Promise<{ id: string; name: string }[]> => listCacheFor(`models:${channelId}`, () => loadModels(channelId)).get()
-  const listAgents = (channelId: string): Promise<{ id: string; name: string }[]> => listCacheFor(`agents:${channelId}`, () => loadAgents(channelId)).get()
-  const warmLists = (channelId: string): void => {
-    try {
-      listCacheFor(`models:${channelId}`, () => loadModels(channelId)).refresh()
-      listCacheFor(`agents:${channelId}`, () => loadAgents(channelId)).refresh()
-    } catch {}
-  }
+  const lists = createProjectLists({
+    projectFor: (channelId) => db.projects.getByChannel(channelId),
+    ensureReady: (channelId) => projects.ensureReady(channelId),
+    clientFor: (project) => resolveClient(project),
+    modelVariants,
+    log,
+  })
+  const { listSessions, listModels, listAgents, warmLists } = lists
   const setThreadModel = (threadId: string, model: string | null): void => { if (db.threads.get(threadId)) db.threads.setModel(threadId, model) }
   const setThreadAgent = (threadId: string, agent: string | null): void => { if (db.threads.get(threadId)) db.threads.setAgent(threadId, agent) }
   const setThreadVariant = (threadId: string, variant: string | null): void => { if (db.threads.get(threadId)) db.threads.setVariant(threadId, variant) }
