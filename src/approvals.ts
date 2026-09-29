@@ -1,4 +1,5 @@
 import { ButtonStyle, ComponentType } from "discord.js"
+import { unrefTimer } from "./helpers.js"
 import type { QuestionInfo } from "@opencode-ai/sdk/v2"
 import type { AuditDraft } from "./audit.ts"
 import type { ApprovalMode } from "./mode.ts"
@@ -198,7 +199,7 @@ export class ApprovalManager {
   }
 
   private arm(timer: ReturnType<typeof setTimeout>): void {
-    if (typeof (timer as any).unref === "function") (timer as any).unref()
+    unrefTimer(timer)
   }
   private async sendSafe(threadId: string, content: string, components: any[]): Promise<string | null> {
     try { return await this.deps.send(threadId, content, components) }

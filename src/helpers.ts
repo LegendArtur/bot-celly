@@ -46,6 +46,8 @@ export function unrefTimer(timer: unknown): void {
   t.unref?.()
 }
 
+export const DISCORD_CHUNK_LIMIT = 1900
+
 export function buildPromptText(text: string, attachmentPaths: string[]): string {
   return [text, ...attachmentPaths.map((p) => `[attachment] ${p}`)].filter((part) => part.trim().length > 0).join("\n\n")
 }

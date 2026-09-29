@@ -136,7 +136,7 @@ test("formatTokens renders plain, k, and m values", () => {
   expect(formatTokens(950)).toBe("950")
   expect(formatTokens(6000)).toBe("6k")
   expect(formatTokens(12500)).toBe("12.5k")
-  expect(formatTokens(1250000)).toBe("1.3m")
+  expect(formatTokens(1250000)).toBe("1.3M")
 })
 
 test("formatContextUsage renders a 20-cell bar and clamps a full one", () => {

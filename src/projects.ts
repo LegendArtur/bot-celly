@@ -11,7 +11,7 @@ import { applyAndAssertCellyPolicy, BOOTSTRAP_PREPARE, BOOTSTRAP_VERIFY, buildBo
 import type { OpencodeClient, OpencodeV2Client } from "./opencode.js"
 import { redact } from "./log.js"
 import { rotateIfNeeded } from "./rotate.js"
-import { getErrorMessage } from "./helpers.js"
+import { getErrorMessage, unrefTimer } from "./helpers.js"
 
 export interface CloneOptions { url: string; branch?: string }
 const CLONE_URL = /^https:\/\/[^\s"'`\\<>]+$/i
@@ -101,7 +101,7 @@ export class ProjectService {
       this.intentional.delete(child)
       this.killTimers.delete(child)
     }, this.deps.killTimeoutMs ?? 5000)
-    if (typeof (timer as any).unref === "function") (timer as any).unref()
+    unrefTimer(timer)
     this.killTimers.set(child, timer)
     child.kill()
   }

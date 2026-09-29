@@ -9,6 +9,7 @@ import type { ApprovalManager } from "./approvals.ts"
 import type { AuditDraft } from "./audit.ts"
 import { formatCost, formatDuration, formatUsageFooter, resolveBudget } from "./usage.js"
 import { decidePermission, type PermissionReplyInput } from "./policy.js"
+import { unrefTimer } from "./helpers.js"
 
 const ABORT_TIMEOUT_MS = 10_000
 
@@ -283,7 +284,7 @@ export class Runner {
     this.deps.db.threads.setRenderState(threadId, "aborting")
     this.clearAbortTimer(threadId)
     const timer = setTimeout(() => { void this.forceIdle(threadId, epoch) }, ABORT_TIMEOUT_MS)
-    if (typeof (timer as any).unref === "function") (timer as any).unref()
+    unrefTimer(timer)
     this.abortTimers.set(threadId, timer)
     try {
       await client.session.abort(withDirectory(this.deps.directoryFor?.(threadId), { path: { id: sessionId } }) as any)

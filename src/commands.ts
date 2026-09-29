@@ -7,7 +7,7 @@ import type { Db } from "./db.ts"
 import type { ProjectService } from "./projects.ts"
 import type { QueuedPrompt, Runner } from "./runner.ts"
 import { attachReply, sessionIdReply } from "./attach.js"
-import { getErrorMessage } from "./helpers.js"
+import { DISCORD_CHUNK_LIMIT, getErrorMessage } from "./helpers.js"
 import { formatContextUsage, formatDiff } from "./session-utils.js"
 import type { SessionOps } from "./session-utils.ts"
 import { chunkMessage } from "./render.js"
@@ -237,7 +237,7 @@ function selectRow(customId: string, placeholder: string, options: { label: stri
 }
 
 async function replyChunks(interaction: any, content: string): Promise<void> {
-  const chunks = chunkMessage(content, 1900)
+  const chunks = chunkMessage(content, DISCORD_CHUNK_LIMIT)
   const [first = "no changes", ...rest] = chunks
   await interaction.editReply(noMentions(first))
   for (const chunk of rest) await interaction.followUp(noMentions(chunk, { flags: 64 }))

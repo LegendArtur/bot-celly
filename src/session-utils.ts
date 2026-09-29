@@ -1,5 +1,8 @@
 import type { FileDiff } from "@opencode-ai/sdk"
 import type { OpencodeClient } from "./opencode.ts"
+import { formatTokens } from "./usage.js"
+
+export { formatTokens }
 
 export interface SessionTarget {
   sessionId: string
@@ -49,12 +52,6 @@ export async function lastUserMessageId(client: OpencodeClient, args: SessionArg
     }
   }
   return typeof last?.info?.id === "string" && last.info.id ? last.info.id : undefined
-}
-
-export function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}m`
-  if (n >= 1000) return `${Math.round(n / 100) / 10}k`
-  return String(n)
 }
 
 export function formatContextUsage(used: number, limit: number, cells = 20): string {
