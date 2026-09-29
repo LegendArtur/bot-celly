@@ -1,5 +1,5 @@
 import { expect, test } from "vitest"
-import { decidePermission, evaluatePermission, normalizeCommand } from "../src/policy.ts"
+import { decidePermission, evaluatePermission, normalizeCommand, scanShellCommands } from "../src/policy.ts"
 
 test("rejects deny-listed bash patterns", () => {
   expect(evaluatePermission({ tool: "bash", patterns: ["git push origin main"] }, ["git push*"])).toBe("reject")
@@ -148,4 +148,59 @@ test("decidePermission buttons auto-allows read-only tools, asks for mutations, 
   expect(decidePermission("buttons", { tool: "edit", patterns: ["src/a.ts"] })).toBe("ask")
   expect(decidePermission("buttons", { tool: "bash", patterns: ["git push origin main"] })).toBe("reject")
   expect(decidePermission("buttons", { tool: "totally_unknown_tool", patterns: [] })).toBe("reject")
+})
+
+test("splits every top-level command separator", () => {
+  for (const input of ["echo hi; git push", "true && npm publish", "a || b", "printf x | grep y", "a & b", "one\ntwo"]) {
+    const scan = scanShellCommands(input)
+    expect(scan.ok, input).toBe(true)
+    expect(scan.ok && scan.commands.length, input).toBe(2)
+  }
+})
+
+test("ignores separators inside quotes", () => {
+  const scan = scanShellCommands(`git commit -m "fix: a; git push" && git status`)
+  expect(scan.ok).toBe(true)
+  expect(scan.ok && scan.commands).toEqual([`git commit -m "fix: a; git push"`, "git status"])
+})
+
+test("extracts command substitutions and backticks recursively", () => {
+  const scan = scanShellCommands("echo $(echo $(printenv)) `npm publish`")
+  expect(scan.ok).toBe(true)
+  expect(scan.ok && scan.commands).toContain("printenv")
+  expect(scan.ok && scan.commands).toContain("npm publish")
+})
+
+test("single-quoted substitutions and separators are literal", () => {
+  const scan = scanShellCommands("echo '$(git push); git push'")
+  expect(scan.ok).toBe(true)
+  expect(scan.ok && scan.commands).toEqual(["echo '$(git push); git push'"])
+})
+
+test("quoted heredocs are skipped and unquoted heredocs are scanned for substitutions", () => {
+  const quoted = scanShellCommands("cat <<'EOF'\n$(printenv)\ngit push\nEOF")
+  expect(quoted.ok).toBe(true)
+  expect(quoted.ok && quoted.commands).toEqual(["cat <<'EOF'\n$(printenv)\ngit push\nEOF"])
+  const unquoted = scanShellCommands("cat <<EOF\n$(printenv)\nEOF")
+  expect(unquoted.ok).toBe(true)
+  expect(unquoted.ok && unquoted.commands).toContain("printenv")
+})
+
+test("expands shell -c payloads so hidden chains are visible", () => {
+  const chain = scanShellCommands("bash -c 'echo x; git push'")
+  expect(chain.ok).toBe(true)
+  expect(chain.ok && chain.commands).toContain("git push")
+  const quoted = scanShellCommands(`bash -c 'echo "a; git push"'`)
+  expect(quoted.ok).toBe(true)
+  expect(quoted.ok && quoted.commands).not.toContain("git push")
+  const wrapped = scanShellCommands("env -i bash -c 'npm publish'")
+  expect(wrapped.ok).toBe(true)
+  expect(wrapped.ok && wrapped.commands).toContain("npm publish")
+})
+
+test("fails closed on constructs it cannot analyze", () => {
+  for (const input of ["diff <(git status) <(git log)", "echo $(git push", "echo 'unterminated", "$(git push)"]) {
+    const scan = scanShellCommands(input)
+    expect(scan.ok, input).toBe(false)
+  }
 })
