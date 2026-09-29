@@ -176,15 +176,13 @@ test("parseGuildIds returns undefined when neither variable is set", () => {
 test("parseGuildIds rejects an all-blank plural list", () => {
   expect(() => parseGuildIds({ DISCORD_GUILD_IDS: " , " })).toThrow(/DISCORD_GUILD_IDS/)
 })
-test("loadConfig prefers DISCORD_GUILD_IDS and keeps guildId as the first id", () => {
+test("loadConfig prefers DISCORD_GUILD_IDS over the legacy singular id", () => {
   const c = loadConfig({ DISCORD_TOKEN: "t", DISCORD_GUILD_IDS: "g1,g2", DISCORD_GUILD_ID: "legacy" })
   expect(c.guildIds).toEqual(["g1", "g2"])
-  expect(c.guildId).toBe("g1")
 })
 test("loadConfig falls back to the singular guild id", () => {
   const c = loadConfig({ ...base })
   expect(c.guildIds).toEqual(["g"])
-  expect(c.guildId).toBe("g")
 })
 test("loadConfig requires a guild id in either form", () => {
   expect(() => loadConfig({ DISCORD_TOKEN: "t" })).toThrow(/DISCORD_GUILD_ID/)

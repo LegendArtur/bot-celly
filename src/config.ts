@@ -5,7 +5,7 @@ import { APPROVAL_MODES, isApprovalMode } from "./mode.js"
 import type { ApprovalMode } from "./mode.ts"
 
 export interface Config {
-  discordToken: string; guildId: string; guildIds: string[]; projectsRoot: string
+  discordToken: string; guildIds: string[]; projectsRoot: string
   accessRoleId?: string; blockRoleId?: string; ownerRoleId?: string; categoryId?: string
   sandboxTemplate: string; sandboxCpus: number; sandboxMemory: string
   portRangeStart: number; portRangeEnd: number
@@ -106,7 +106,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const sessionBudgetUsd = num(env, "SESSION_BUDGET_USD", 0)
   if (sessionBudgetUsd < 0) throw new Error(`SESSION_BUDGET_USD must be >= 0, got "${env.SESSION_BUDGET_USD}"`)
   return {
-    discordToken: str(env, "DISCORD_TOKEN")!, guildId: guildIds![0]!, guildIds: guildIds!,
+    discordToken: str(env, "DISCORD_TOKEN")!, guildIds: guildIds!,
     projectsRoot: str(env, "PROJECTS_ROOT") ?? defaultProjectsRoot(),
     accessRoleId: str(env, "ACCESS_ROLE_ID"), blockRoleId: str(env, "BLOCK_ROLE_ID"),
     ownerRoleId: str(env, "OWNER_ROLE_ID"),

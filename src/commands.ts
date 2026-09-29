@@ -168,11 +168,6 @@ export function selectCustomId(action: string, id: string): string { return `cel
 export function buttonCustomId(action: string, id: string, extra?: string): string {
   return extra === undefined ? `celly:${action}:${id}` : `celly:${action}:${id}:${extra}`
 }
-export function parseCustomId(customId: string): { action: string; id?: string } {
-  const { action, id } = parseCustomIdFull(customId)
-  return { action, id }
-}
-
 /**
  * Canonical custom-id parser (spec §3.1). Wire format is
  * `celly:<action>:<id>[:<extra>]`; malformed ids (missing the `celly` prefix or
