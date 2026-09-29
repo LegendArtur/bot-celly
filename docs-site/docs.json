@@ -55,7 +55,9 @@
     "strict": true
   },
   "fonts": {
-    "family": "Poppins"
+    "heading": {
+      "family": "Oldenburg"
+    }
   },
   "navbar": {
     "primary": {
