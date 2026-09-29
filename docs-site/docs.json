@@ -27,6 +27,7 @@
       {
         "group": "Reference",
         "pages": [
+          "reference/cli",
           "reference/commands",
           "reference/architecture",
           "reference/security",

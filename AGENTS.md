@@ -20,7 +20,14 @@ npm run docs:dev     # preview the docs site
 npm run docs:validate
 npm run docs:links
 npx changeset        # add a changeset for a behavior change
+npx changeset version # bump the version and sync the changelog
 ```
+
+Releases are tag-driven: run `npx changeset version`, commit the bump, then
+`git tag v<version> && git push origin v<version>`. The tag triggers
+`.github/workflows/release.yml`, which publishes `bot-celly` to npm with Trusted
+Publishing (OIDC). Do not run `npm publish` by hand once Trusted Publishing is
+configured.
 
 ## Definition of done
 
@@ -29,6 +36,8 @@ A change is not done until all of these hold:
 1. `npm test`, `npm run typecheck`, and `npm run build` pass.
 2. Every change to behavior, configuration, a command, an environment variable,
    or security adds a changeset (`npx changeset`). Docs-only changes do not.
+   When cutting a release, bump via changesets and push the `v*` tag instead of
+   publishing manually.
 3. The affected documentation and the README are reviewed and updated **in the
    same change** (see the table below).
 4. No secrets are committed and the argv-only invariant is preserved.
@@ -54,6 +63,7 @@ below, update the matching page(s) **and** the README in the same pull request.
 | Known upstream bug or workaround | `docs-site/reference/known-issues.mdx` and the README Known issues |
 | Roadmap or deferred feature | `docs-site/project/roadmap.mdx` and the README roadmap |
 | Host bootstrap or service setup | `docs-site/quickstart.mdx` and `docs-site/guides/deployment*.mdx` |
+| CLI command, flag, or install path | `docs-site/reference/cli.mdx`, the README quick start, and `docs-site/quickstart.mdx` |
 | Runtime, dependency, or tooling | `docs-site/project/tech-stack.mdx` |
 | Module, saga, or event flow | `docs-site/reference/architecture.mdx` |
 

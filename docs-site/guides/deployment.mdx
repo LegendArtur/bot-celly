@@ -47,23 +47,16 @@ an elevated PowerShell prompt; the rest run as the normal user.
    sbx version
    ```
 
-## 2. Build and configure the bot
+## 2. Install and configure the bot
 
-1. Install the pinned Node version (24.x) and clone the repository.
-2. Copy `.env.example` to `.env` and fill in the required values. See
-   [Configuration](/guides/configuration) for the full variable list.
-3. Install dependencies and build:
+1. Install Node 24 (see the host bootstrap in the [Quickstart](/quickstart)).
+2. Install and run Celly once in the foreground to confirm it boots:
    ```powershell
-   npm ci
-   npm run build
+   npx bot-celly@latest
    ```
-4. Run the bot once in the foreground to confirm it boots:
-   ```powershell
-   node dist/index.js
-   ```
-   On boot it performs a preflight (`sbx version`, policy check, single-instance
-   lock) and fails fast with an actionable message. Logs are written to
-   `data/bot.log`.
+   The wizard saves `~/.bot-celly/.env`. On boot Celly performs a preflight
+   (`sbx version`, policy check, single-instance lock) and fails fast with an
+   actionable message. Logs are written to `~/.bot-celly/data/bot.log`.
 
 ## 3. Task Scheduler at logon
 
@@ -74,13 +67,14 @@ password and can start the task outside the user's `sbx` session.
 ### Option A: PowerShell (recommended)
 
 Run the following in a normal (non-elevated) PowerShell prompt. It registers a
-task that starts Node with the repo as its working directory, never times out,
-and restarts on failure.
+task that starts Node with the installed CLI, never times out, and restarts on
+failure. Install globally first (`npm install -g bot-celly`) so the CLI path is
+stable.
 
 ```powershell
 $node    = (Get-Command node).Source
-$repo    = "C:\Users\<you>\projects\bot-celly"
-$action  = New-ScheduledTaskAction -Execute $node -Argument "dist\index.js" -WorkingDirectory $repo
+$cli     = "$env:APPDATA\npm\node_modules\bot-celly\dist\cli.js"
+$action  = New-ScheduledTaskAction -Execute $node -Argument "`"$cli`"" -WorkingDirectory $env:USERPROFILE
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $settings = New-ScheduledTaskSettingsSet `
   -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
@@ -91,7 +85,7 @@ Register-ScheduledTask -TaskName "Celly" -Action $action -Trigger $trigger `
 ```
 
 `-ExecutionTimeLimit ([TimeSpan]::Zero)` clears the default 72-hour limit so the
-bot is not killed. Adjust `$repo` to the clone location.
+bot is not killed.
 
 To inspect, run, or remove the task:
 
@@ -109,8 +103,9 @@ Unregister-ScheduledTask -TaskName Celly -Confirm:$false
 4. **Actions:** **Start a program** with:
    - Program/script: the full path to `node.exe` (for example
      `C:\Program Files\nodejs\node.exe`).
-   - Add arguments: `dist\index.js`.
-   - Start in: the repository root.
+   - Add arguments: the full path to the installed CLI, quoted, for example
+     `"%APPDATA%\npm\node_modules\bot-celly\dist\cli.js"`.
+   - Start in: your home directory (`%USERPROFILE%`).
 5. **Settings:** uncheck **Stop the task if it runs longer than…**, and enable
    **If the task fails, restart every** 1 minute (up to 3 times).
 
@@ -159,8 +154,8 @@ it in `.env`.
 - `node scripts/smoke.mjs C:\path\to\a\project\dir` prints `smoke OK` (full
   chain: create → bootstrap → serve → health → create session → prompt →
   abort → stop → remove, with teardown on failure).
-- After an at-logon start, `data/bot.log` shows the preflight passing and the
-  Discord client logging in.
+- After an at-logon start, `~/.bot-celly/data/bot.log` shows the preflight
+  passing and the Discord client logging in.
 
 ## 6. Troubleshooting
 

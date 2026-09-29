@@ -3,7 +3,11 @@ title: Configuration
 description: The full environment variable reference for Celly. Two values are required, everything else has a default.
 ---
 
-`.env` is the single source of truth. It is loaded automatically at startup
+`.env` is the single source of truth. When Celly is started through
+`npx bot-celly`, `.env` is read from `~/.bot-celly/.env` (Windows:
+`%USERPROFILE%\.bot-celly\.env`) instead of the current directory, and
+`DATA_DIR` defaults to `~/.bot-celly/data`. Set `CELLY_HOME` to move that
+directory. It is loaded automatically at startup
 (`process.loadEnvFile`), is gitignored, and is validated at boot. A missing or
 invalid required value fails fast with an actionable error.
 
@@ -13,6 +17,8 @@ invalid required value fails fast with an actionable error.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `CELLY_HOME` | `~/.bot-celly` | Directory holding `.env` and, by default, `DATA_DIR`. |
+| `CELLY_ASCII` | unset | Set to `1` to force ASCII output symbols even when color is on. |
 | `DISCORD_TOKEN` | **required** | Bot token. |
 | `DISCORD_GUILD_IDS` | **required** | Comma-separated guild IDs. Entries are trimmed, blanks dropped, and duplicates ignored. |
 | `DISCORD_GUILD_ID` | unset | Legacy single-guild form, used only when `DISCORD_GUILD_IDS` is unset. |
@@ -38,7 +44,7 @@ invalid required value fails fast with an actionable error.
 | `ATTACH_AUTO_THREAD` | `false` | Auto-create a Discord thread for a terminal-started session on its first event. |
 | `IDLE_STOP_MINUTES` | `0` | Stop a project after this many minutes without activity. `0` disables. |
 | `SESSION_BUDGET_USD` | `0` | Per-session cost budget in USD; `0` disables. Per-channel override with `/budget set`. |
-| `DATA_DIR` | `./data` | SQLite database, rotating log, and per-project server logs. |
+| `DATA_DIR` | `~/.bot-celly/data` when launched via the CLI, else `./data` | SQLite database, rotating log, and per-project server logs. |
 | `LOG_LEVEL` | `info` | One of `debug`, `info`, `warn`, `error`. |
 | `ADMIN_PORT` | `4560` | Loopback-only admin page; `0` disables. |
 | `LOG_MAX_BYTES` | `5000000` | Rotate a log file after this many bytes. |
