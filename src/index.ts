@@ -36,6 +36,7 @@ import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
 import { SessionRoutes } from "./routing.js"
 import { createForkThread, createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "./handlers.js"
 import { createIdleSweeper, formatIdleStopNotice } from "./idle.js"
+import { createTypingIndicators } from "./typing.js"
 import { buildPromptText, channelIdForBucket, createSubscriptionGate, describeDiscordStartupError, findCategoryId, formatStartupBanner, modelVariants, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, uniqueChannelName } from "./helpers.js"
 
 export { buildPromptText, createSubscriptionGate, findCategoryId, modelVariants, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, uniqueChannelName } from "./helpers.js"
@@ -255,26 +256,15 @@ async function main(): Promise<void> {
     })
   }
 
-  const typingTimers = new Map<string, ReturnType<typeof setInterval>>()
-  const stopTyping = (threadId: string): void => {
-    const timer = typingTimers.get(threadId)
-    if (timer) { clearInterval(timer); typingTimers.delete(threadId) }
-  }
-  const startTyping = (threadId: string): void => {
-    if (typingTimers.has(threadId)) return
-    const thread = db.threads.get(threadId)
-    const bucketChannelId = thread ? channelIdForBucket(thread) : threadId
-    const tick = async (): Promise<void> => {
-      try {
-        const channel = await client.channels.fetch(threadId)
-        if (channel && "sendTyping" in channel) await scheduleWithBucket(bucketChannelId, () => (channel as any).sendTyping())
-      } catch {}
-    }
-    void tick()
-    const timer = setInterval(() => { void tick() }, 8000)
-    if (typeof (timer as any).unref === "function") (timer as any).unref()
-    typingTimers.set(threadId, timer)
-  }
+  const typing = createTypingIndicators({
+    bucketFor: (threadId) => { const thread = db.threads.get(threadId); return thread ? channelIdForBucket(thread) : threadId },
+    sendTyping: async (threadId, bucketChannelId) => {
+      const channel = await client.channels.fetch(threadId)
+      if (channel && "sendTyping" in channel) await scheduleWithBucket(bucketChannelId, () => (channel as any).sendTyping())
+    },
+  })
+  const startTyping = typing.start
+  const stopTyping = typing.stop
 
   const threadChannel = async (threadId: string): Promise<any> => {
     const channel = await client.channels.fetch(threadId)

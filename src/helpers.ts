@@ -37,6 +37,11 @@ export function channelIdForBucket(thread: { channelId: string }): string {
   return thread.channelId
 }
 
+export function unrefTimer(timer: unknown): void {
+  const t = timer as { unref?: () => void }
+  t.unref?.()
+}
+
 export function buildPromptText(text: string, attachmentPaths: string[]): string {
   return [text, ...attachmentPaths.map((p) => `[attachment] ${p}`)].filter((part) => part.trim().length > 0).join("\n\n")
 }
