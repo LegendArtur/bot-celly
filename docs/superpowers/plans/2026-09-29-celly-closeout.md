@@ -1700,7 +1700,7 @@ Create `.changeset/context-usage-token-format.md`:
 "celly": patch
 ---
 
-Render context-usage token counts with the same `k`/`M` formatting as `/cost`.
+Render context-usage token counts with the same `k`/`M` formatting as `/cost`, and render non-Error command failures as their thrown value instead of `undefined`.
 ```
 
 - [ ] **Step 2: Run the full definition of done**
