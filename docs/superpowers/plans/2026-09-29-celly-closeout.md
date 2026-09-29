@@ -1647,7 +1647,11 @@ In `docs-site/reference/architecture.mdx`:
   - `src/discord.ts`: keep client construction and access control; drop "message router, thread lifecycle, slash-command registration" (those live in `handlers.ts`/`index.ts`/`commands.ts`).
   - `src/runner.ts`: mention the run state machine and that policy evaluation now lives in `policy.ts`.
 
-- [ ] **Step 2: Fix the lock wording**
+- [ ] **Step 2: Fix the lock wording and the removed-config-field claim**
+
+In the same file, find the sentence claiming `Config.guildId` remains available as `guildIds[0]` and remove or rewrite it: only `guildIds` exists now. (Task 1 removed the field; `DISCORD_GUILD_ID` parsing and `guildIds` stay.)
+
+Then fix the `DATA_DIR` sentence.
 
 In `docs-site/guides/configuration.mdx`, change the `DATA_DIR` sentence so it no longer claims the single-instance lock lives there. Use:
 
