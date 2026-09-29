@@ -35,12 +35,11 @@ test("parseSbxLs accepts an empty sandbox list", () => {
 test("parses sbx ports fixtures", () => {
   expect(parseSbxPorts(ports)).toEqual([{ hostIp: "127.0.0.1", hostPort: 4399, sandboxPort: 4096, protocol: "tcp4" }])
 })
-test("parsers throw SbxError on unexpected input", () => {
+test("parsers throw SbxError on unexpected input and include the received JSON shape", () => {
   expect(() => parseSbxLs({})).toThrow(SbxError)
   expect(() => parseSbxLs({ sandboxes: "nope" })).toThrow(SbxError)
   expect(() => parseSbxPorts(null)).toThrow(SbxError)
-})
-test("parse errors include the received JSON shape for diagnosis", () => {
+  expect(() => parseSbxLs({ foo: [] })).toThrow(SbxError)
   expect(() => parseSbxLs({ foo: [] })).toThrow(/got object \{"foo":\[\]\}/)
   expect(() => parseSbxPorts(null)).toThrow(/got null null/)
 })

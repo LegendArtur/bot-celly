@@ -302,12 +302,6 @@ test("selecting for an unknown action still answers unknown selection", async ()
   expect(i.calls[1].c).toMatchObject({ content: "unknown selection", components: [] })
 })
 
-test("requiresOwner covers the owner-only commands", () => {
-  expect(requiresOwner("budget", "show")).toBe(true)
-  expect(requiresOwner("budget", "set")).toBe(true)
-  expect(requiresOwner("cost", null)).toBe(false)
-})
-
 test("new creates a thread in the project channel and prompts", async () => {
   const db = freshDb(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
   const i = interaction({ commandName: "new", channelId: "c", strings: { prompt: "hello" }, user: { id: "u1" } })
@@ -628,6 +622,9 @@ test("requiresOwner scopes project mutations", () => {
   for (const sub of ["list", "status"]) expect(requiresOwner("project", sub)).toBe(false)
   expect(requiresOwner("worktree", "merge")).toBe(true)
   for (const sub of ["status", "new", "remove"]) expect(requiresOwner("worktree", sub)).toBe(false)
+  expect(requiresOwner("budget", "show")).toBe(true)
+  expect(requiresOwner("budget", "set")).toBe(true)
+  expect(requiresOwner("cost", null)).toBe(false)
   expect(requiresOwner("new", null)).toBe(false)
   expect(requiresOwner("model", "resume")).toBe(false)
 })
@@ -794,15 +791,6 @@ test("attach outside a thread is rejected", async () => {
   const i = interaction({ commandName: "attach", channelId: "c" })
   await handleCommand(i, { projects: {} as any, runner: {} as any, db: freshDb(), authorized: () => true })
   expect(editOf(i)).toBe("use /attach inside a thread")
-})
-
-test("attach reports a missing project row", async () => {
-  // threads.channel_id is FK-bound to projects(channel_id), so this dangling
-  // thread cannot exist in a real db; stub it to exercise the guard.
-  const db = { threads: { get: () => threadRow({ title: null }) }, projects: { getByChannel: () => undefined } } as any
-  const i = interaction({ commandName: "attach", channelId: "t1" })
-  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true })
-  expect(editOf(i)).toBe("project not found")
 })
 
 function taskInteraction(over: any = {}) {

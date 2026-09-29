@@ -139,12 +139,9 @@ test("formatTokens renders plain, k, and m values", () => {
   expect(formatTokens(1250000)).toBe("1.3m")
 })
 
-test("formatContextUsage renders a 20-cell bar", () => {
+test("formatContextUsage renders a 20-cell bar and clamps a full one", () => {
   expect(formatContextUsage(50000, 100000)).toBe("50k/100k (50%)\n[██████████░░░░░░░░░░]")
   expect(formatContextUsage(1550, 200000)).toBe("1.6k/200k (1%)\n[░░░░░░░░░░░░░░░░░░░░]")
-})
-
-test("formatContextUsage clamps a full bar", () => {
   expect(formatContextUsage(200000, 100000)).toBe("200k/100k (200%)\n[████████████████████]")
 })
 

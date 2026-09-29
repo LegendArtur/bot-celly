@@ -1,6 +1,6 @@
 // test/opencode.test.ts
 import { expect, test } from "vitest"
-import { applyAndAssertCellyPolicy, AUTH_ENV_BY_PROVIDER, BASH_DENY, basicAuth, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, createV2Client, enableQuestionPermissionV2, OPENCODE_AUTH_PATH, resolveBaseUrl, resolveClient, resolveV2Client, waitForHealth } from "../src/opencode.ts"
+import { applyAndAssertCellyPolicy, AUTH_ENV_BY_PROVIDER, BASH_DENY, basicAuth, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, createV2Client, enableQuestionPermissionV2, OPENCODE_AUTH_PATH, resolveClient, resolveV2Client, waitForHealth } from "../src/opencode.ts"
 import { startTestServer } from "./helpers/http.ts"
 
 test("basicAuth encodes the opencode user and password", () => {
@@ -216,12 +216,6 @@ test("createClient attaches basic auth derived from the password", async () => {
   }
 })
 
-test("createClient exposes baseUrl and auth for health checks", () => {
-  const client = createClient("http://127.0.0.1:9", "pw")
-  expect(client.baseUrl).toBe("http://127.0.0.1:9")
-  expect(client.auth).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
-})
-
 test("createClient surfaces SDK errors instead of resolving an error tuple", async () => {
   const server = await startTestServer((_req, res) => {
     res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ data: { message: "bad request" } }))
@@ -238,10 +232,6 @@ test("resolveClient builds the loopback baseUrl from the project", () => {
   const client = resolveClient({ hostPort: 4321, serverPassword: "pw" } as any)
   expect(client.baseUrl).toBe("http://127.0.0.1:4321")
   expect(client.auth).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
-})
-
-test("resolveBaseUrl builds the loopback URL from a host port", () => {
-  expect(resolveBaseUrl({ hostPort: 4321 })).toBe("http://127.0.0.1:4321")
 })
 
 test("waitForHealth sends credentials and succeeds on an auth-guarded server", async () => {

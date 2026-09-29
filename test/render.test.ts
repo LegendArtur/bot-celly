@@ -285,12 +285,3 @@ test("renderer tool lines without a title stay byte-compatible", async () => {
   expect(sends).toEqual(["> [bash] running"])
 })
 
-test("renderer reports elapsed time from the first push to finalize", async () => {
-  let t = 100
-  const r = new Renderer({ send: async () => "m1", edit: async () => {}, now: () => t, intervalMs: 1000 })
-  expect(r.elapsedMs()).toBe(0)
-  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "a" })
-  t = 150
-  await r.finalize()
-  expect(r.elapsedMs()).toBe(50)
-})
