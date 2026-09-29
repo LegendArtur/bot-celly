@@ -38,8 +38,10 @@ test("stop clears the interval and allows a restart", async () => {
 
 test("send failures are swallowed", async () => {
   vi.useFakeTimers()
-  const typing = createTypingIndicators({ bucketFor: () => "b", sendTyping: async () => { throw new Error("boom") } })
+  let calls = 0
+  const typing = createTypingIndicators({ bucketFor: () => "b", sendTyping: async () => { calls++; throw new Error("boom") } })
   typing.start("t1")
   await vi.advanceTimersByTimeAsync(8001)
+  expect(calls).toBe(2)
   typing.stop("t1")
 })

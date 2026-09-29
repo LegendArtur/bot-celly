@@ -186,6 +186,18 @@ test("quoted heredocs are skipped and unquoted heredocs are scanned for substitu
   expect(unquoted.ok && unquoted.commands).toContain("printenv")
 })
 
+test("here-strings are not treated as heredocs", () => {
+  const literal = scanShellCommands("cat <<< \"literal\"")
+  expect(literal.ok).toBe(true)
+  expect(literal.ok && literal.commands).toEqual(["cat <<< \"literal\""])
+  const chained = scanShellCommands("cat <<< \"literal\"; git push")
+  expect(chained.ok).toBe(true)
+  expect(chained.ok && chained.commands).toContain("git push")
+  const substituted = scanShellCommands("cat <<< $(git push)")
+  expect(substituted.ok).toBe(true)
+  expect(substituted.ok && substituted.commands).toContain("git push")
+})
+
 test("expands shell -c payloads so hidden chains are visible", () => {
   const chain = scanShellCommands("bash -c 'echo x; git push'")
   expect(chain.ok).toBe(true)

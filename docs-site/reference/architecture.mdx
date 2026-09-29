@@ -67,7 +67,7 @@ The runtime, libraries, and tooling are listed on
 | `src/runner.ts` | Per-thread run state machine: session create/reuse, prompt, queue, abort, dispatch to renderer; permission-policy evaluation lives in `src/policy.ts`. |
 | `src/policy.ts` | Shell command parsing and permission policy: deny-list matching, wrapper normalization, and the fail-closed indeterminate policy used by `runner.ts`. |
 | `src/session-utils.ts` | Session-level SDK calls and formatting: undo/redo (`session.revert`/`unrevert`), diff, share/unshare, compact, context usage. |
-| `src/lists.ts` | Cached session, model, and agent listing for the pickers. |
+| `src/lists.ts` | Session, model, and agent listing (models/agents cached). |
 | `src/list-cache.ts` | Generic stale-while-revalidate cache backing the model/agent pickers. |
 | `src/render.ts` | Pure event → text/chunk functions plus a throttled editor; fence-aware chunking; all output goes through one send/edit chokepoint. |
 | `src/typing.ts` | Typing-indicator interval manager for active threads. |

@@ -351,6 +351,7 @@ function collectCommands(input: string, depth: number, commands: string[]): void
       continue
     }
     if (quote === null && (ch === "<" || ch === ">") && input[i + 1] === "(") throw new ScanError("process substitution")
+    if (quote === null && ch === "<" && input[i + 1] === "<" && input[i + 2] === "<") { current += input.slice(i, i + 3); i += 3; continue }
     if (quote === null && ch === "<" && input[i + 1] === "<" && input[i + 2] !== "<") {
       const stripTabs = input[i + 2] === "-"
       let j = i + (stripTabs ? 3 : 2)

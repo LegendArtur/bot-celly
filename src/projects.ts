@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto"
-import { appendFileSync, chmodSync, mkdirSync } from "node:fs"
+import { appendFileSync, chmodSync, existsSync, mkdirSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import type { Config } from "./config.ts"
@@ -344,7 +344,7 @@ export class ProjectService {
     const child = this.deps.sbx.execStream(project.sandboxName, buildServeArgs())
     const logFile = join(this.deps.config.dataDir, "logs", `${project.sandboxName}.log`)
     try { mkdirSync(dirname(logFile), { recursive: true }) } catch (err) { this.deps.log.warn("project log dir create failed", { channelId, error: getErrorMessage(err) }) }
-    try { chmodSync(logFile, 0o600) } catch (err) { this.deps.log.warn("project log chmod failed", { channelId, error: getErrorMessage(err) }) }
+    try { chmodSync(logFile, 0o600) } catch (err) { if (existsSync(logFile)) this.deps.log.warn("project log chmod failed", { channelId, error: getErrorMessage(err) }) }
     const logSecrets = [project.serverPassword]
     let writtenSinceRotate = 0
     let logFailureReported = false
