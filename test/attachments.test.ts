@@ -1,9 +1,9 @@
-import { createServer } from "node:http"
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test, vi } from "vitest"
 import { attachmentDestination, attachmentSandboxPath, downloadAttachment, ensureSafeInbox, ingestAttachments, isTextLikeAttachment, shouldIngestAttachment, writeAttachmentFile } from "../src/attachments.ts"
+import { startTestServer } from "./helpers/http.ts"
 import { withTempDir } from "./helpers/tmp.ts"
 
 test("detects text-like attachments by content type or extension", () => {
@@ -102,9 +102,8 @@ test("writeAttachmentFile refuses to follow a symlinked destination", async () =
 })
 
 async function attachmentServer(handler: (res: import("node:http").ServerResponse) => void) {
-  const server = createServer((_, res) => handler(res))
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-  return { url: `http://127.0.0.1:${(server.address() as any).port}/file`, close: () => new Promise<void>((r) => server.close(() => r())) }
+  const server = await startTestServer((_, res) => handler(res))
+  return { url: `${server.url}/file`, close: server.close }
 }
 
 test("downloadAttachment skips a non-ok response", async () => {

@@ -1,4 +1,3 @@
-import { createServer } from "node:http"
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -7,6 +6,7 @@ import { openDb } from "../src/db.ts"
 import { BOOTSTRAP_PREPARE, BOOTSTRAP_VERIFY, cellyPolicy } from "../src/opencode.ts"
 import { ProjectService } from "../src/projects.ts"
 import { projectFixture, silentLogger } from "./helpers/fixtures.ts"
+import { startTestServer } from "./helpers/http.ts"
 import { withTempDir } from "./helpers/tmp.ts"
 
 function makeCfg(portStart: number, portEnd: number): any {
@@ -17,7 +17,7 @@ function makeCfg(portStart: number, portEnd: number): any {
 
 async function healthServer(healthy: boolean, config: any = cellyPolicy(), honorPatch = true) {
   let current = config
-  const server = createServer((req, res) => {
+  const server = await startTestServer((req, res) => {
     if ((req.url ?? "").startsWith("/config")) {
       if (req.method === "PATCH" || req.method === "POST") {
         let body = ""
@@ -31,9 +31,7 @@ async function healthServer(healthy: boolean, config: any = cellyPolicy(), honor
     if (healthy) res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true }))
     else res.writeHead(503).end()
   })
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-  const port = (server.address() as any).port
-  return { port, close: () => new Promise<void>((r) => server.close(() => r())) }
+  return { port: server.port, close: server.close }
 }
 
 function makeChild() {
@@ -414,7 +412,7 @@ test("ensureReady recycles a hung 4096 mapping and adopts the recovered server",
   // an unpublish/publish cycle the server answers. This mirrors a stale
   // sandboxd forwarder after a sandbox restart.
   let recycled = false
-  const server = createServer((req, res) => {
+  const server = await startTestServer((req, res) => {
     const url = req.url ?? ""
     if (url.startsWith("/config")) {
       res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(cellyPolicy()))
@@ -427,8 +425,7 @@ test("ensureReady recycles a hung 4096 mapping and adopts the recovered server",
     }
     res.writeHead(404).end()
   })
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-  const port = (server.address() as any).port
+  const port = server.port
   sbx.ports = async () => [{ hostIp: "127.0.0.1", hostPort: port, sandboxPort: 4096, protocol: "tcp4" }]
   const baseUnpublish = sbx.unpublish
   sbx.unpublish = async (name: string, mapping: string) => { await baseUnpublish(name, mapping); recycled = true }
@@ -445,8 +442,7 @@ test("ensureReady recycles a hung 4096 mapping and adopts the recovered server",
     expect(svc.isAdopted("chan1")).toBe(true)
     expect(db.projects.getByChannel("chan1")?.status).toBe("ready")
   } finally {
-    server.closeAllConnections?.()
-    await new Promise<void>((r) => server.close(() => r()))
+    await server.close()
   }
 })
 
@@ -460,7 +456,7 @@ test("ensureReady's failure error names the host port and the 4096 mapping", asy
     const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
     await expect(svc.ensureReady("chan1")).rejects.toThrow(new RegExp(`127\\.0\\.0\\.1:${server.port}.*${server.port}:4096`))
-  } finally { await server.closeAllConnections?.(); await server.close() }
+  } finally { await server.close() }
 })
 
 test("ensureReady waits for an in-flight create saga instead of racing it", async () => {
@@ -489,12 +485,11 @@ test("ensureReady waits for an in-flight create saga instead of racing it", asyn
 test("a crash of a replacement child still marks the project degraded", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner, children } = fakes()
   let healthy = true
-  const server = createServer((_, res) => {
+  const server = await startTestServer((_, res) => {
     if (healthy) res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true }))
     else res.writeHead(503).end()
   })
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-  const port = (server.address() as any).port
+  const port = server.port
   const baseExecStream = sbx.execStream
   sbx.execStream = () => {
     const c = baseExecStream()
@@ -513,18 +508,17 @@ test("a crash of a replacement child still marks the project degraded", async ()
     expect(children).toHaveLength(2)
     children[1].emitExit()
     expect(db.projects.getByChannel("chan-demo")?.status).toBe("degraded")
-  } finally { await new Promise<void>((r) => server.close(() => r())) }
+  } finally { await server.close() }
 })
 
 test("restartServer kills the child and boots a fresh server for the same project", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner, children } = fakes()
   let healthy = true
-  const server = createServer((_, res) => {
+  const server = await startTestServer((_, res) => {
     if (healthy) res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true }))
     else res.writeHead(503).end()
   })
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-  const port = (server.address() as any).port
+  const port = server.port
   const baseExecStream = sbx.execStream
   sbx.execStream = () => {
     const c = baseExecStream()
@@ -544,7 +538,7 @@ test("restartServer kills the child and boots a fresh server for the same projec
     expect(children).toHaveLength(2)
     expect(svc.childFor("chan-demo")).toBe(children[1])
     expect(db.projects.getByChannel("chan-demo")?.status).toBe("ready")
-  } finally { await new Promise<void>((r) => server.close(() => r())) }
+  } finally { await server.close() }
 })
 
 test("an unexpected child exit marks the project degraded", async () => {
