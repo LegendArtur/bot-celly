@@ -23,6 +23,10 @@ link here instead of restating it.
 - **Some checks are host-only.** The `sbx` spike, `sbx policy ls` semantics,
   Windows path mapping, and live Discord behavior are exercised on the host, not
   in the Linux test suite.
+- **The bash deny list is defense-in-depth, not the sandbox boundary.** Celly
+  statically analyzes shell commands and fails closed on what it cannot prove,
+  but arbitrary wrapper binaries, encoded payloads, and unmodelled shell
+  features can still reach the sandbox. The sandbox is the boundary.
 
 Deferred features and commands are listed in the
 [commands reference](/reference/commands#deferred) and the

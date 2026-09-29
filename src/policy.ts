@@ -396,7 +396,7 @@ function isIndeterminate(segment: string): boolean {
   return exe.includes("$") || exe.includes("`")
 }
 
-export function evaluatePermission(req: { tool: string; patterns: string[] }, deny: string[] = DEFAULT_DENY): "once" | "always" | "reject" {
+export function evaluatePermission(req: { tool: string; patterns: string[] }, deny: string[] = DEFAULT_DENY): "once" | "always" | "reject" | "ask" {
   if (!ALLOWED_TOOLS.has(req.tool)) return "reject"
   const matches = (pattern: string, value: string) => {
     const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")
@@ -407,18 +407,25 @@ export function evaluatePermission(req: { tool: string; patterns: string[] }, de
     return "once"
   }
   const normalizedDeny = deny === DEFAULT_DENY ? NORMALIZED_DEFAULT_DENY : deny.map(normalizeCommand)
+  let indeterminate = false
   for (const p of req.patterns) {
-    const normalized = normalizeCommand(p)
-    if (normalizedDeny.some((d) => matches(d, normalized))) return "reject"
+    const scanned = scanShellCommands(p)
+    for (const segment of scanned.commands) {
+      const normalized = normalizeCommand(segment)
+      if (normalizedDeny.some((d) => matches(d, normalized))) return "reject"
+      if (isIndeterminate(segment)) indeterminate = true
+    }
+    if (!scanned.ok) indeterminate = true
   }
-  return "once"
+  return indeterminate ? "ask" : "once"
 }
 
 export function decidePermission(mode: ApprovalMode, req: { tool: string; patterns: string[] }): "once" | "always" | "reject" | "ask" {
-  if (mode === "auto") return evaluatePermission(req)
-  if (evaluatePermission(req) === "reject") return "reject"
+  const verdict = evaluatePermission(req)
+  if (verdict === "reject") return "reject"
+  if (verdict === "ask") return mode === "buttons" ? "ask" : "reject"
   if (PLAN_READ_ONLY_TOOLS.has(req.tool)) return "once"
-  return mode === "plan" ? "reject" : "ask"
+  return mode === "plan" ? "reject" : mode === "auto" ? "once" : "ask"
 }
 
 export interface PermissionReplyInput {

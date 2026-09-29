@@ -216,3 +216,49 @@ test("parameter expansion bodies are scanned for substitutions", () => {
   expect(benign.ok && benign.commands).toEqual(["echo ${HOME}"])
   expect(scanShellCommands("echo ${x").ok).toBe(false)
 })
+
+test("deny-listed commands hidden behind separators or substitutions are rejected", () => {
+  const variants = [
+    "echo hi; git push",
+    "true && git push",
+    "echo hi || npm publish",
+    "printf x | git push",
+    "echo hi & git clean -fdx .",
+    "one\ngit push",
+    "echo $(printenv)",
+    "echo `npm publish --access public`",
+    "echo $(echo $(git push))",
+    "cat $(echo opencode.env)",
+    "bash -c 'echo x; git push'",
+  ]
+  for (const variant of variants) {
+    expect(evaluatePermission({ tool: "bash", patterns: [variant] }), variant).toBe("reject")
+  }
+})
+
+test("benign chains and quoted separators stay allowed", () => {
+  const variants = [
+    "npm test && npm run build",
+    "git status; ls",
+    `git commit -m "fix: a; git push"`,
+    "cat <<'EOF'\ngit push\n$(printenv)\nEOF",
+  ]
+  for (const variant of variants) {
+    expect(evaluatePermission({ tool: "bash", patterns: [variant] }), variant).toBe("once")
+  }
+})
+
+test("indeterminate commands fail closed", () => {
+  for (const patterns of [["diff <(git status) <(git log)"], ['eval "git push"'], ["$x push"]]) {
+    const req = { tool: "bash", patterns }
+    expect(evaluatePermission(req), patterns[0]).toBe("ask")
+    expect(decidePermission("auto", req), patterns[0]).toBe("reject")
+    expect(decidePermission("buttons", req), patterns[0]).toBe("ask")
+    expect(decidePermission("plan", req), patterns[0]).toBe("reject")
+  }
+})
+
+test("explicit deny matches stay an absolute reject in buttons mode", () => {
+  const req = { tool: "bash", patterns: ["echo hi; git push"] }
+  expect(decidePermission("buttons", req)).toBe("reject")
+})
