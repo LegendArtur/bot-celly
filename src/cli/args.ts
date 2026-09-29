@@ -10,7 +10,7 @@ export interface CliOptions {
 
 export type ParseResult = { ok: true; options: CliOptions } | { ok: false; message: string }
 
-const COMMANDS = new Set<CliCommand>(["setup", "doctor", "help", "version"])
+const COMMANDS = new Set<CliCommand>(["run", "setup", "doctor", "help", "version"])
 type ValueFlag = "token" | "guilds" | "home"
 const VALUE_FLAGS = new Map<string, ValueFlag>([
   ["--token", "token"],

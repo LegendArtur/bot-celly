@@ -6,6 +6,10 @@ test("no arguments runs the bot", () => {
   expect(result).toEqual({ ok: true, options: { command: "run", run: false } })
 })
 
+test("recognises the explicit run subcommand", () => {
+  expect(parseArgs(["run"])).toEqual({ ok: true, options: { command: "run", run: false } })
+})
+
 test("recognises subcommands", () => {
   expect(parseArgs(["setup"])).toEqual({ ok: true, options: { command: "setup", run: false } })
   expect(parseArgs(["doctor"])).toEqual({ ok: true, options: { command: "doctor", run: false } })
