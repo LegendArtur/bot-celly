@@ -2,8 +2,6 @@ import type { FileDiff } from "@opencode-ai/sdk"
 import type { OpencodeClient } from "./opencode.ts"
 import { formatTokens } from "./usage.js"
 
-export { formatTokens }
-
 export interface SessionTarget {
   sessionId: string
   directory?: string

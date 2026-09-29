@@ -1,6 +1,7 @@
 // test/session-utils.test.ts
 import { expect, test } from "vitest"
-import { createSessionOps, formatContextUsage, formatDiff, formatTokens } from "../src/session-utils.ts"
+import { createSessionOps, formatContextUsage, formatDiff } from "../src/session-utils.ts"
+import { formatTokens } from "../src/usage.ts"
 
 function fakeClient(over: any = {}) {
   return {
