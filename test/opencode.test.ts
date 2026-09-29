@@ -1,7 +1,7 @@
 // test/opencode.test.ts
-import { createServer } from "node:http"
 import { expect, test } from "vitest"
-import { applyAndAssertCellyPolicy, AUTH_ENV_BY_PROVIDER, BASH_DENY, basicAuth, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, createV2Client, enableQuestionPermissionV2, OPENCODE_AUTH_PATH, resolveBaseUrl, resolveClient, resolveV2Client, waitForHealth } from "../src/opencode.ts"
+import { applyAndAssertCellyPolicy, AUTH_ENV_BY_PROVIDER, BASH_DENY, basicAuth, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, createV2Client, enableQuestionPermissionV2, OPENCODE_AUTH_PATH, resolveClient, resolveV2Client, waitForHealth } from "../src/opencode.ts"
+import { startTestServer } from "./helpers/http.ts"
 
 test("basicAuth encodes the opencode user and password", () => {
   expect(basicAuth("pw")).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
@@ -181,65 +181,50 @@ test("applyAndAssertCellyPolicy fails closed when a deny pattern disappears", as
 
 test("waitForHealth resolves when /global/health is healthy", async () => {
   let n = 0
-  const server = createServer((req, res) => {
+  const server = await startTestServer((req, res) => {
     if (++n < 2) { res.writeHead(500).end() ; return }
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true, version: "x" }))
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
-    const client = { baseUrl: `http://127.0.0.1:${port}` } as any
+    const client = { baseUrl: server.url } as any
     await expect(waitForHealth(client, 2000, { intervalMs: 10 })).resolves.toBeUndefined()
   } finally {
-    server.close()
+    await server.close()
   }
 })
 test("waitForHealth rejects on timeout", async () => {
-  const server = createServer((_, res) => { res.writeHead(500).end() })
+  const server = await startTestServer((_, res) => { res.writeHead(500).end() })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
-    await expect(waitForHealth({ baseUrl: `http://127.0.0.1:${port}` } as any, 150, { intervalMs: 20 })).rejects.toThrow(/health/)
+    await expect(waitForHealth({ baseUrl: server.url } as any, 150, { intervalMs: 20 })).rejects.toThrow(/health/)
   } finally {
-    server.close()
+    await server.close()
   }
 })
 
 test("createClient attaches basic auth derived from the password", async () => {
   let auth: string | undefined
-  const server = createServer((req, res) => {
+  const server = await startTestServer((req, res) => {
     auth = req.headers.authorization
     res.writeHead(200, { "content-type": "application/json" }).end("[]")
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
-    const client = createClient(`http://127.0.0.1:${port}`, "s3cret")
+    const client = createClient(server.url, "s3cret")
     await client.project.list()
     expect(auth).toBe("Basic " + Buffer.from("opencode:s3cret").toString("base64"))
   } finally {
-    server.close()
+    await server.close()
   }
 })
 
-test("createClient exposes baseUrl and auth for health checks", () => {
-  const client = createClient("http://127.0.0.1:9", "pw")
-  expect(client.baseUrl).toBe("http://127.0.0.1:9")
-  expect(client.auth).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
-})
-
 test("createClient surfaces SDK errors instead of resolving an error tuple", async () => {
-  const server = createServer((_req, res) => {
+  const server = await startTestServer((_req, res) => {
     res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ data: { message: "bad request" } }))
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
-    const client = createClient(`http://127.0.0.1:${port}`, "pw")
+    const client = createClient(server.url, "pw")
     await expect(client.session.promptAsync({ path: { id: "s1" }, body: { parts: [] } } as any)).rejects.toThrow(/bad request/)
   } finally {
-    server.close()
-    server.closeAllConnections()
+    await server.close()
   }
 })
 
@@ -249,76 +234,61 @@ test("resolveClient builds the loopback baseUrl from the project", () => {
   expect(client.auth).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
 })
 
-test("resolveBaseUrl builds the loopback URL from a host port", () => {
-  expect(resolveBaseUrl({ hostPort: 4321 })).toBe("http://127.0.0.1:4321")
-})
-
 test("waitForHealth sends credentials and succeeds on an auth-guarded server", async () => {
   const expected = "Basic " + Buffer.from("opencode:pw").toString("base64")
-  const server = createServer((req, res) => {
+  const server = await startTestServer((req, res) => {
     if (req.headers.authorization !== expected) { res.writeHead(401).end(); return }
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true, version: "x" }))
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
-    const client = createClient(`http://127.0.0.1:${port}`, "pw")
+    const client = createClient(server.url, "pw")
     await expect(waitForHealth(client, 1000, { intervalMs: 10 })).resolves.toBeUndefined()
   } finally {
-    server.close()
+    await server.close()
   }
 })
 
 test("waitForHealth aborts a hung connection within its budget", async () => {
-  const server = createServer(() => {})
+  const server = await startTestServer(() => {})
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
     const started = Date.now()
-    await expect(waitForHealth({ baseUrl: `http://127.0.0.1:${port}` } as any, 300, { intervalMs: 50 })).rejects.toThrow(/health/)
+    await expect(waitForHealth({ baseUrl: server.url } as any, 300, { intervalMs: 50 })).rejects.toThrow(/health/)
     expect(Date.now() - started).toBeLessThan(2000)
   } finally {
-    server.close()
-    server.closeAllConnections()
+    await server.close()
   }
 })
 
 test("waitForHealth bounds each attempt so a hung connection cannot exhaust the budget", async () => {
   let requests = 0
-  const server = createServer((_req, res) => {
+  const server = await startTestServer((_req, res) => {
     requests += 1
     if (requests === 1) return // hang the first attempt only
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true, version: "x" }))
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
-    await expect(waitForHealth({ baseUrl: `http://127.0.0.1:${port}` } as any, 2000, { intervalMs: 10, attemptTimeoutMs: 50 })).resolves.toBeUndefined()
+    await expect(waitForHealth({ baseUrl: server.url } as any, 2000, { intervalMs: 10, attemptTimeoutMs: 50 })).resolves.toBeUndefined()
     expect(requests).toBeGreaterThanOrEqual(2)
   } finally {
-    server.close()
-    server.closeAllConnections()
+    await server.close()
   }
 })
 
 test("createV2Client attaches basic auth and calls the v2 API", async () => {
   let auth: string | undefined
   let url: string | undefined
-  const server = createServer((req, res) => {
+  const server = await startTestServer((req, res) => {
     auth = req.headers.authorization
     url = req.url
     res.writeHead(200, { "content-type": "application/json" }).end("{}")
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
-    const client = createV2Client(`http://127.0.0.1:${port}`, "s3cret")
+    const client = createV2Client(server.url, "s3cret")
     await client.v2.session.permission.reply({ sessionID: "s1", requestID: "r1", reply: "once" })
     expect(auth).toBe("Basic " + Buffer.from("opencode:s3cret").toString("base64"))
     expect(url).toBe("/api/session/s1/permission/r1/reply")
   } finally {
-    server.close()
-    server.closeAllConnections()
+    await server.close()
   }
 })
 

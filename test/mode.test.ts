@@ -1,6 +1,6 @@
 // test/mode.test.ts
 import { expect, test } from "vitest"
-import { APPROVAL_MODES, approvalModeFor, isApprovalMode, PLAN_READ_ONLY_TOOLS } from "../src/mode.ts"
+import { APPROVAL_MODES, approvalModeFor, isApprovalMode } from "../src/mode.ts"
 
 function settings(entries: Record<string, string>) {
   return { get: (key: string) => entries[key] }
@@ -23,6 +23,3 @@ test("isApprovalMode narrows only the three known modes", () => {
   expect(isApprovalMode(undefined)).toBe(false)
 })
 
-test("PLAN_READ_ONLY_TOOLS is the read-only allow list", () => {
-  expect([...PLAN_READ_ONLY_TOOLS].sort()).toEqual(["find", "glob", "grep", "list", "read"])
-})

@@ -1,10 +1,11 @@
 // test/worktrees.test.ts
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
-import { openDb } from "../src/db.ts"
 import { ensureGitignoreEntry, mergeOutcome, parseStatusPorcelain, parseWorktreeList, WorktreeService, worktreeBranch, worktreeSlug } from "../src/worktrees.ts"
+import { freshDb, threadRow } from "./helpers/fixtures.ts"
+import { withTempDir } from "./helpers/tmp.ts"
 
 test("worktreeSlug lowercases, collapses separators, and caps the length", () => {
   expect(worktreeSlug("My Feature!! / v2")).toBe("my-feature-v2")
@@ -63,11 +64,6 @@ test("mergeOutcome reports success, deduplicated conflicts, and hard failures", 
 
 const ROOT = "/sandbox/celly-demo/workspace"
 
-function threadRow(over: any = {}) {
-  return { threadId: "t1", channelId: "c", sessionId: "s1", title: null, model: null, agent: null, variant: null,
-    worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 1, ...over }
-}
-
 function makeService(over: any = {}) {
   const calls: Array<{ name: string; args: string[]; opts?: { timeoutMs?: number } }> = []
   const results = new Map<string, { code: number; stdout: string; stderr: string }>()
@@ -82,12 +78,12 @@ function makeService(over: any = {}) {
       return results.get(args.join(" ")) ?? { code: 0, stdout: "", stderr: "" }
     },
   }
-  const db = openDb(":memory:"); db.migrate()
+  const db = freshDb()
   const directory = over.directory ?? "/projects/demo"
   db.projects.insertProvisioning({ channelId: "c", guildId: "g", name: "demo", directory,
     sandboxPath: null, sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 })
   db.projects.setReady("c", ROOT)
-  db.threads.upsert(threadRow(over.thread))
+  db.threads.upsert(threadRow({ title: null, ...over.thread }))
   const service = new WorktreeService({ sbx, db, log: { info() {}, warn: (message: string, fields?: Record<string, unknown>) => warns.push({ message, fields }) } })
   return { calls, results, warns, db, service }
 }
@@ -97,9 +93,8 @@ function porcelainFor(worktreePath: string): string {
     `worktree ${worktreePath}`, "HEAD 2222222222222222222222222222222222222222", "branch refs/heads/celly/t1", ""].join("\n")
 }
 
-test("ensureGitignoreEntry appends .celly/ once and leaves existing content intact", () => {
-  const dir = mkdtempSync(join(tmpdir(), "celly-wt-"))
-  try {
+test("ensureGitignoreEntry appends .celly/ once and leaves existing content intact", async () => {
+  await withTempDir("celly-wt-", (dir) => {
     const warnings: string[] = []
     ensureGitignoreEntry(dir, (message) => warnings.push(message))
     expect(readFileSync(join(dir, ".gitignore"), "utf8")).toBe(".celly/\n")
@@ -111,9 +106,7 @@ test("ensureGitignoreEntry appends .celly/ once and leaves existing content inta
     ensureGitignoreEntry(dir, (message) => warnings.push(message))
     expect(readFileSync(file, "utf8")).toBe("node_modules\n.celly/\n")
     expect(warnings).toEqual([])
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
+  })
 })
 
 test("ensureGitignoreEntry warns instead of throwing when the directory is unwritable", () => {
@@ -124,8 +117,7 @@ test("ensureGitignoreEntry warns instead of throwing when the directory is unwri
 })
 
 test("create runs git worktree add with exact argv, appends .gitignore, and stores the path", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "celly-wt-"))
-  try {
+  await withTempDir("celly-wt-", async (dir) => {
     const { calls, db, service } = makeService({ directory: dir })
     const out = await service.create("t1", "My Feature!!")
     expect(calls).toEqual([{ name: "celly-demo",
@@ -134,22 +126,17 @@ test("create runs git worktree add with exact argv, appends .gitignore, and stor
     expect(readFileSync(join(dir, ".gitignore"), "utf8")).toBe(".celly/\n")
     expect(db.threads.get("t1")?.worktreePath).toBe(`${ROOT}/.celly/worktrees/my-feature`)
     expect(out).toBe(`created worktree ${ROOT}/.celly/worktrees/my-feature (branch celly/my-feature)`)
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
+  })
 })
 
 test("create without a name uses the short thread branch for both branch and path", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "celly-wt-"))
-  try {
+  await withTempDir("celly-wt-", async (dir) => {
     const { calls, db, service } = makeService({ directory: dir })
-    db.threads.upsert(threadRow({ threadId: "123456789012345678" }))
+    db.threads.upsert(threadRow({ threadId: "123456789012345678", title: null }))
     await service.create("123456789012345678")
     expect(calls[0].args).toEqual(["git", "-C", ROOT, "worktree", "add", "-b", "celly/12345678", ".celly/worktrees/12345678", "HEAD"])
     expect(db.threads.get("123456789012345678")?.worktreePath).toBe(`${ROOT}/.celly/worktrees/12345678`)
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
+  })
 })
 
 test("create refuses when the thread already has a worktree", async () => {

@@ -38,7 +38,7 @@ invalid required value fails fast with an actionable error.
 | `ATTACH_AUTO_THREAD` | `false` | Auto-create a Discord thread for a terminal-started session on its first event. |
 | `IDLE_STOP_MINUTES` | `0` | Stop a project after this many minutes without activity. `0` disables. |
 | `SESSION_BUDGET_USD` | `0` | Per-session cost budget in USD; `0` disables. Per-channel override with `/budget set`. |
-| `DATA_DIR` | `./data` | SQLite database, logs, and lock file. |
+| `DATA_DIR` | `./data` | SQLite database, rotating log, and per-project server logs. |
 | `LOG_LEVEL` | `info` | One of `debug`, `info`, `warn`, `error`. |
 | `ADMIN_PORT` | `4560` | Loopback-only admin page; `0` disables. |
 | `LOG_MAX_BYTES` | `5000000` | Rotate a log file after this many bytes. |
@@ -60,9 +60,6 @@ configured guild is fetched; a guild the bot cannot see (for example, it was
 never invited) is skipped with a warning. Startup fails only when **no**
 configured guild is reachable, or when the bot token itself is invalid. A
 single guild failing command deployment does not abort startup.
-
-`Config.guildId` remains available as `guildIds[0]` for code paths that still
-expect one guild.
 
 <Note>
 Access control is global: `ACCESS_ROLE_ID`, `BLOCK_ROLE_ID`, and
@@ -92,8 +89,9 @@ credentials.
 ## `DATA_DIR`
 
 `DATA_DIR` holds the SQLite database (`bot.db`), the rotating log
-(`bot.log`), per-project server logs (`logs/<sandbox>.log`), and the
-single-instance lock. It is gitignored and created on boot.
+(`bot.log`), and per-project server logs (`logs/<sandbox>.log`). The
+single-instance lock is a loopback TCP port, not a file. `DATA_DIR` is
+gitignored and created on boot.
 
 <Warning>
 Keep `DATA_DIR` outside OneDrive/Dropbox-style synced folders. Cloud-sync

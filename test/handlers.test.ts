@@ -1,21 +1,10 @@
 import { expect, test, vi } from "vitest"
-import { openDb } from "../src/db.ts"
 import { createForkThread, createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "../src/handlers.ts"
 import { describeDiscordStartupError, formatStartupBanner } from "../src/helpers.ts"
-import type { Project, Thread } from "../src/types.ts"
+import type { Project } from "../src/types.ts"
+import { freshDb, projectFixture, silentLogger, threadRow } from "./helpers/fixtures.ts"
 
-const silent = { debug() {}, info() {}, warn() {}, error() {}, child() { return this } } as any
-
-function fresh() { const db = openDb(":memory:"); db.migrate(); return db }
-
-const project = (over: Partial<Project> = {}): Project => ({
-  channelId: "c", guildId: "g", name: "demo", directory: "C:\\p", sandboxPath: null,
-  sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", status: "ready", createdAt: 1, ...over,
-})
-const thread = (over: Partial<Thread> = {}): Thread => ({
-  threadId: "t1", channelId: "c", sessionId: "s1", title: "hello", model: null, agent: null, variant: null,
-  worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 1, ...over,
-})
+const project = (over: Partial<Project> = {}) => projectFixture({ status: "ready", ...over })
 
 function fakeMessage(over: any = {}) {
   const sent: any[] = []
@@ -46,7 +35,7 @@ function fakeMessage(over: any = {}) {
 
 function baseDeps(db: any, over: any = {}) {
   return {
-    db, log: silent,
+    db, log: silentLogger,
     projects: { ensureReady: async () => {} },
     runner: { prompt: vi.fn(async () => undefined) },
     bucketFor: () => ({ schedule: (fn: any) => fn() }),
@@ -62,7 +51,7 @@ function baseDeps(db: any, over: any = {}) {
 }
 
 test("message in a project channel creates a thread and prompts", async () => {
-  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
   const deps = baseDeps(db)
   const { message } = fakeMessage({ content: "build the thing" })
   await createMessageHandler(deps)(message)
@@ -71,7 +60,7 @@ test("message in a project channel creates a thread and prompts", async () => {
 })
 
 test("a queued first message that created a thread surfaces the notice", async () => {
-  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
   const deps = baseDeps(db, { createThread: vi.fn(async () => ({ threadId: "tnew", sessionId: "snew", notice: "queued (1)" })) })
   const { message, replies } = fakeMessage({ content: "build the thing" })
   await createMessageHandler(deps)(message)
@@ -81,7 +70,7 @@ test("a queued first message that created a thread surfaces the notice", async (
 })
 
 test("a 'queue full' first message that created a thread surfaces the notice without typing", async () => {
-  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
   const deps = baseDeps(db, { createThread: vi.fn(async () => ({ threadId: "tnew", sessionId: "snew", notice: "queue full" })) })
   const { message, replies } = fakeMessage({ content: "build the thing" })
   await createMessageHandler(deps)(message)
@@ -90,7 +79,7 @@ test("a 'queue full' first message that created a thread surfaces the notice wit
 })
 
 test("a handler failure posts a plain error notice without mentions", async () => {
-  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
   const deps = baseDeps(db, { projects: { ensureReady: vi.fn(async () => { throw new Error("sandbox down") }) } })
   const { message, replies } = fakeMessage({ content: "hello" })
   await createMessageHandler(deps)(message)
@@ -100,8 +89,8 @@ test("a handler failure posts a plain error notice without mentions", async () =
 })
 
 test("message in a registered thread continues the session", async () => {
-  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
-  db.threads.upsert(thread())
+  const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  db.threads.upsert(threadRow())
   const deps = baseDeps(db)
   const { message } = fakeMessage({ channelId: "t1", parentId: "c", isThread: () => true, content: "more" })
   await createMessageHandler(deps)(message)
@@ -111,8 +100,8 @@ test("message in a registered thread continues the session", async () => {
 })
 
 test("archived thread with null parentId is routed by the DB record", async () => {
-  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
-  db.threads.upsert(thread())
+  const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  db.threads.upsert(threadRow())
   const deps = baseDeps(db)
   const { message } = fakeMessage({ channelId: "t1", parentId: null, isThread: () => true, content: "after 24h" })
   await createMessageHandler(deps)(message)
@@ -120,7 +109,7 @@ test("archived thread with null parentId is routed by the DB record", async () =
 })
 
 test("messages outside a project channel are ignored", async () => {
-  const db = fresh()
+  const db = freshDb()
   const deps = baseDeps(db)
   const { message } = fakeMessage({ channelId: "other" })
   await createMessageHandler(deps)(message)
@@ -129,7 +118,7 @@ test("messages outside a project channel are ignored", async () => {
 })
 
 test("unauthorized messages are ignored", async () => {
-  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
   const deps = baseDeps(db, { isAuthorized: () => false })
   const { message } = fakeMessage()
   await createMessageHandler(deps)(message)
@@ -137,7 +126,7 @@ test("unauthorized messages are ignored", async () => {
 })
 
 test("!shell streams the command output through the channel bucket", async () => {
-  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
   const deps = baseDeps(db, { runShell: vi.fn(async () => ["out1", "out2"]) })
   const { message, sent } = fakeMessage({ content: "!echo hi" })
   await createMessageHandler(deps)(message)
@@ -147,8 +136,8 @@ test("!shell streams the command output through the channel bucket", async () =>
 })
 
 test("attachment ingest feeds the sandbox path into the prompt", async () => {
-  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
-  db.threads.upsert(thread())
+  const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  db.threads.upsert(threadRow())
   const deps = baseDeps(db, { ingestAttachments: vi.fn(async () => [{ hostPath: "C:\\p\\.celly\\inbox\\a", sandboxPath: "/sandbox/.celly/inbox/a" }]) })
   const { message } = fakeMessage({ channelId: "t1", parentId: "c", isThread: () => true, content: "see file" })
   await createMessageHandler(deps)(message)
@@ -156,8 +145,8 @@ test("attachment ingest feeds the sandbox path into the prompt", async () => {
 })
 
 test("a run notice is replied to the message", async () => {
-  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
-  db.threads.upsert(thread())
+  const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  db.threads.upsert(threadRow())
   const deps = baseDeps(db, { runner: { prompt: vi.fn(async () => "queued (1)") } })
   const { message, replies } = fakeMessage({ channelId: "t1", parentId: "c", isThread: () => true })
   await createMessageHandler(deps)(message)
@@ -165,10 +154,10 @@ test("a run notice is replied to the message", async () => {
 })
 
 test("a message in a thread resolves its owning project across guilds", async () => {
-  const db = fresh()
+  const db = freshDb()
   db.projects.insertProvisioning(project({ channelId: "c1", guildId: "g1", name: "one", sandboxName: "celly-one", hostPort: 4300 })); db.projects.setReady("c1", "C:\\p1")
   db.projects.insertProvisioning(project({ channelId: "c2", guildId: "g2", name: "two", sandboxName: "celly-two", hostPort: 4301 })); db.projects.setReady("c2", "C:\\p2")
-  db.threads.upsert(thread({ threadId: "t2", channelId: "c2", sessionId: "s2" }))
+  db.threads.upsert(threadRow({ threadId: "t2", channelId: "c2", sessionId: "s2" }))
   const deps = baseDeps(db)
   const { message } = fakeMessage({ channelId: "t2", parentId: null, isThread: () => true, guildId: "g2", content: "hello" })
   await createMessageHandler(deps)(message)
@@ -182,7 +171,7 @@ test("project-down handler fans out to the runner and notifies the channel once"
     runner: { handleProjectDown },
     client: { channels: { cache: { get: (id: string) => (id === "c" ? { send } : undefined) } } },
     bucketFor: () => ({ schedule: (fn: any) => fn() }),
-    log: silent,
+    log: silentLogger,
   })
   handler("c")
   await new Promise((r) => setTimeout(r, 0))
@@ -200,7 +189,7 @@ test("project-missing handler notifies the channel with a recreate action", asyn
     runner: { handleProjectDown },
     client: { channels: { cache: { get: (id: string) => (id === "c" ? { send } : undefined) } } },
     bucketFor: () => ({ schedule: (fn: any) => fn() }),
-    log: silent,
+    log: silentLogger,
   })
   handler("c", "demo")
   await new Promise((r) => setTimeout(r, 0))
@@ -215,7 +204,7 @@ test("shutdown aborts subscriptions, stops projects, closes db, releases the loc
   const order: string[] = []
   const controller = new AbortController()
   const shutdown = createShutdown({
-    log: silent,
+    log: silentLogger,
     abortControllers: () => [controller],
     stopProjects: async () => { order.push("stop") },
     destroyClient: () => { order.push("destroy") },
@@ -233,7 +222,7 @@ test("shutdown aborts subscriptions, stops projects, closes db, releases the loc
 test("ready handler subscribes then reconciles", async () => {
   const order: string[] = []
   const ready = createReadyHandler({
-    log: silent,
+    log: silentLogger,
     subscribeReadyProjects: () => { order.push("subscribe") },
     reconcileThreads: async () => { order.push("reconcile") },
   })
@@ -245,7 +234,7 @@ test("ready handler subscribes then reconciles", async () => {
 test("ready handler runs subscribe and reconcile only once", async () => {
   const subscribe = vi.fn()
   const reconcile = vi.fn(async () => {})
-  const ready = createReadyHandler({ log: silent, subscribeReadyProjects: subscribe, reconcileThreads: reconcile })
+  const ready = createReadyHandler({ log: silentLogger, subscribeReadyProjects: subscribe, reconcileThreads: reconcile })
   ready()
   ready()
   await new Promise((r) => setTimeout(r, 0))
@@ -254,38 +243,38 @@ test("ready handler runs subscribe and reconcile only once", async () => {
 })
 
 test("boot reconcile recovers live runs and resets stale states", async () => {
-  const db = fresh()
+  const db = freshDb()
   db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
-  db.threads.upsert(thread({ threadId: "t-run", renderState: "running" }))
-  db.threads.upsert(thread({ threadId: "t-abort", renderState: "aborting" }))
-  db.threads.upsert(thread({ threadId: "t-err", renderState: "errored" }))
+  db.threads.upsert(threadRow({ threadId: "t-run", renderState: "running" }))
+  db.threads.upsert(threadRow({ threadId: "t-abort", renderState: "aborting" }))
+  db.threads.upsert(threadRow({ threadId: "t-err", renderState: "errored" }))
   const recovered: string[] = []
-  const reconcile = createReconcileThreads({ db, runner: { recover: async (t: any) => { recovered.push(t.threadId) } }, log: silent })
+  const reconcile = createReconcileThreads({ db, runner: { recover: async (t: any) => { recovered.push(t.threadId) } }, log: silentLogger })
   await reconcile()
   expect(recovered.sort()).toEqual(["t-abort", "t-run"])
   expect(db.threads.get("t-err")?.renderState).toBe("idle")
 })
 
 test("boot reconcile resets threads whose project is not ready", async () => {
-  const db = fresh()
+  const db = freshDb()
   db.projects.insertProvisioning(project())
   db.projects.setStatus("c", "degraded")
-  db.threads.upsert(thread({ threadId: "t1", renderState: "running" }))
+  db.threads.upsert(threadRow({ threadId: "t1", renderState: "running" }))
   const recover = vi.fn(async () => {})
-  const reconcile = createReconcileThreads({ db, runner: { recover }, log: silent })
+  const reconcile = createReconcileThreads({ db, runner: { recover }, log: silentLogger })
   await reconcile()
   expect(recover).not.toHaveBeenCalled()
   expect(db.threads.get("t1")?.renderState).toBe("idle")
 })
 
 test("concurrent reconcile calls share one pass", async () => {
-  const db = fresh()
+  const db = freshDb()
   db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
-  db.threads.upsert(thread({ threadId: "t-run", renderState: "running" }))
+  db.threads.upsert(threadRow({ threadId: "t-run", renderState: "running" }))
   let release!: () => void
   const gate = new Promise<void>((r) => { release = r })
   let calls = 0
-  const reconcile = createReconcileThreads({ db, runner: { recover: async () => { calls++; await gate } }, log: silent })
+  const reconcile = createReconcileThreads({ db, runner: { recover: async () => { calls++; await gate } }, log: silentLogger })
   const first = reconcile()
   const second = reconcile()
   release()
@@ -302,7 +291,7 @@ test("project-down handler swallows a rejected runner reset", async () => {
     runner: { handleProjectDown },
     client: { channels: { cache: { get: () => ({ send }) } } },
     bucketFor: () => ({ schedule: (fn: any) => fn() }),
-    log: silent,
+    log: silentLogger,
   })
   expect(() => handler("c")).not.toThrow()
   await new Promise((r) => setTimeout(r, 0))
@@ -310,7 +299,7 @@ test("project-down handler swallows a rejected runner reset", async () => {
 })
 
 test("an authorized message touches the project's activity clock", async () => {
-  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
   const deps = baseDeps(db)
   vi.useFakeTimers()
   try {
@@ -324,7 +313,7 @@ test("an authorized message touches the project's activity clock", async () => {
 })
 
 test("a !shell command touches the project's activity clock", async () => {
-  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
   const deps = baseDeps(db, { runShell: vi.fn(async () => ["out"]) })
   vi.useFakeTimers()
   try {
@@ -339,7 +328,7 @@ test("a !shell command touches the project's activity clock", async () => {
 })
 
 test("an unauthorized message does not touch project activity", async () => {
-  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
   const deps = baseDeps(db, { isAuthorized: () => false })
   const { message } = fakeMessage()
   await createMessageHandler(deps)(message)
@@ -397,7 +386,7 @@ test("formatStartupBanner paints the title, rule, and missing permissions only w
 })
 
 test("!shell appends an audit entry with the verbatim command", async () => {
-  const db = fresh(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
   const audits: any[] = []
   const deps = baseDeps(db, { runShell: vi.fn(async () => ["ok"]), audit: (e: any) => audits.push(e) })
   const { message } = fakeMessage({ content: "!echo hi" })
@@ -406,7 +395,7 @@ test("!shell appends an audit entry with the verbatim command", async () => {
 })
 
 test("createForkThread forks the session and copies model, agent, and worktree", async () => {
-  const db = openDb(":memory:"); db.migrate()
+  const db = freshDb()
   db.projects.insertProvisioning({ channelId: "c", guildId: "g", name: "demo", directory: "C:\\p",
     sandboxPath: null, sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 })
   db.threads.upsert({ threadId: "t1", channelId: "c", sessionId: "s1", title: "source", model: "anthropic/claude",

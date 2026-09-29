@@ -1,4 +1,3 @@
-import { createServer } from "node:http"
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -6,6 +5,9 @@ import { expect, test } from "vitest"
 import { openDb } from "../src/db.ts"
 import { BOOTSTRAP_PREPARE, BOOTSTRAP_VERIFY, cellyPolicy } from "../src/opencode.ts"
 import { ProjectService } from "../src/projects.ts"
+import { projectFixture, silentLogger } from "./helpers/fixtures.ts"
+import { startTestServer } from "./helpers/http.ts"
+import { withTempDir } from "./helpers/tmp.ts"
 
 function makeCfg(portStart: number, portEnd: number): any {
   return { projectsRoot: "C:\\projects", sandboxTemplate: "opencode", sandboxCpus: 2, sandboxMemory: "4g",
@@ -13,11 +15,9 @@ function makeCfg(portStart: number, portEnd: number): any {
     dataDir: mkdtempSync(join(tmpdir(), "celly-data-")) }
 }
 
-const logger = () => ({ info() {}, warn() {}, error() {}, debug() {}, child() { return this } }) as any
-
 async function healthServer(healthy: boolean, config: any = cellyPolicy(), honorPatch = true) {
   let current = config
-  const server = createServer((req, res) => {
+  const server = await startTestServer((req, res) => {
     if ((req.url ?? "").startsWith("/config")) {
       if (req.method === "PATCH" || req.method === "POST") {
         let body = ""
@@ -31,9 +31,7 @@ async function healthServer(healthy: boolean, config: any = cellyPolicy(), honor
     if (healthy) res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true }))
     else res.writeHead(503).end()
   })
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-  const port = (server.address() as any).port
-  return { port, close: () => new Promise<void>((r) => server.close(() => r())) }
+  return { port: server.port, close: server.close }
 }
 
 function makeChild() {
@@ -72,48 +70,42 @@ function fakes() {
 
 test("addProject rejects directories outside PROJECTS_ROOT", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
-  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: silentLogger,
     isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
   await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\Windows" })).rejects.toThrow(/PROJECTS_ROOT/)
 })
 
 test("addProject rejects a prefix-sibling directory", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
-  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: silentLogger,
     isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
   await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects-evil" })).rejects.toThrow(/PROJECTS_ROOT/)
 })
 
 test("createProjectDirectory sanitizes the name and creates it under PROJECTS_ROOT", async () => {
-  const root = mkdtempSync(join(tmpdir(), "celly-root-"))
-  try {
+  await withTempDir("celly-root-", async (root) => {
     const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
     const svc = new ProjectService({ sbx, runner: runner as any, db,
-      config: { ...makeCfg(4600, 4600), projectsRoot: root }, log: logger(), forbiddenPaths: [],
+      config: { ...makeCfg(4600, 4600), projectsRoot: root }, log: silentLogger, forbiddenPaths: [],
       isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
     const dir = await svc.createProjectDirectory("My App/../evil")
     expect(dir.startsWith(root)).toBe(true)
     expect(existsSync(dir)).toBe(true)
     expect(dir).toContain("My App-..-evil")
     await expect(svc.createProjectDirectory("..")).rejects.toThrow(/invalid/)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
+  })
 })
 
 test("createProjectDirectory rejects a sensitive path without creating it", async () => {
-  const root = mkdtempSync(join(tmpdir(), "celly-root-"))
-  try {
+  await withTempDir("celly-root-", async (root) => {
     const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
     const svc = new ProjectService({ sbx, runner: runner as any, db,
-      config: { ...makeCfg(4600, 4600), projectsRoot: root }, log: logger(),
+      config: { ...makeCfg(4600, 4600), projectsRoot: root }, log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {},
       forbiddenPaths: [join(root, "secret")] } as any)
     await expect(svc.createProjectDirectory("secret")).rejects.toThrow(/sensitive/)
     expect(existsSync(join(root, "secret"))).toBe(false)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
+  })
 })
 
 test("addProject writes and verifies the celly bootstrap before starting the serve child", async () => {
@@ -127,7 +119,7 @@ test("addProject writes and verifies the celly bootstrap before starting the ser
   sbx.execStream = () => { order.push("serve"); const c = makeChild(); children.push(c); return c }
   const server = await healthServer(true)
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
     expect(order.findIndex((o) => o === "serve")).toBeGreaterThan(order.findIndex((o) => o === "install"))
@@ -145,7 +137,7 @@ test("addProject reports staged progress around the slow steps", async () => {
   const server = await healthServer(true)
   const stages: string[] = []
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" }, (s) => { stages.push(s) })
     expect(stages).toEqual(["creating sandbox…", "installing…", "starting server…"])
@@ -156,7 +148,7 @@ test("a throwing progress callback does not fail the create saga", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
   const server = await healthServer(true)
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
     const p = await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" }, () => { throw new Error("discord down") })
     expect(p.status).toBe("ready")
@@ -171,7 +163,7 @@ test("addProject fails the saga when sandbox bootstrap fails", async () => {
     return { code: 0, stdout: "", stderr: "" }
   }
   const deleted: string[] = []
-  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: silentLogger,
     isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (_guildId: string, c: string) => { deleted.push(c) } } as any)
   await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })).rejects.toThrow(/bootstrap failed/)
   expect(db.projects.list()).toEqual([])
@@ -184,7 +176,7 @@ test("addProject fails the saga closed when the server keeps a weakened policy",
   const server = await healthServer(true, { share: "auto", permission: { "*": "allow" } }, false)
   const deleted: string[] = []
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (_guildId: string, c: string) => { deleted.push(c) } } as any)
     await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })).rejects.toThrow(/policy/)
     expect(db.projects.list()).toEqual([])
@@ -199,7 +191,7 @@ test("addProject rolls back on create failure", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls, children } = fakes()
   sbx.create = async () => { throw new Error("create boom") }
   const created: string[] = [], deleted: string[] = []
-  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: silentLogger,
     isPortFree: async () => true, createChannel: async (_guildId: string, n: string) => { created.push(n); return "chan1" },
     deleteChannel: async (_guildId: string, c: string) => { deleted.push(c) } } as any)
   await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })).rejects.toThrow(/create boom/)
@@ -215,7 +207,7 @@ test("addProject rolls back and kills the drained child when health never passes
   const server = await healthServer(false)
   const deleted: string[] = []
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (_guildId: string, c: string) => { deleted.push(c) } } as any)
     await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })).rejects.toThrow(/health/)
     expect(children).toHaveLength(1)
@@ -235,7 +227,7 @@ test("a second addProject with the same slug gets a -2 sandbox", async () => {
   try {
     const start = Math.min(s1.port, s2.port), end = Math.max(s1.port, s2.port)
     const listening = new Set([s1.port, s2.port])
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(start, end), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(start, end), log: silentLogger,
       isPortFree: async (p: number) => listening.has(p), createChannel: (_guildId: string, n: string) => Promise.resolve("chan-" + n), deleteChannel: async () => {} } as any)
     const a = await svc.addProject({ guildId: "g", name: "Demo", directory: "C:\\projects\\demo" })
     const b = await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo2" })
@@ -249,7 +241,7 @@ test("addProject with existingChannelId preserves the channel on rollback", asyn
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls } = fakes()
   sbx.create = async () => { throw new Error("create boom") }
   const created: string[] = [], deleted: string[] = []
-  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: silentLogger,
     isPortFree: async () => true, createChannel: async (_guildId: string, n: string) => { created.push(n); return "new" },
     deleteChannel: async (_guildId: string, c: string) => { deleted.push(c) } } as any)
   await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo", existingChannelId: "chan-existing" }))
@@ -267,7 +259,7 @@ test("ensureReady is single-flighted, restarts a stale child, and throws if stil
     db.projects.insertProvisioning({ channelId: "chan1", guildId: "g", name: "demo", directory: "C:\\projects\\demo",
       sandboxPath: null, sandboxName: "celly-demo", hostPort: server.port, serverPassword: "pw", createdAt: Date.now() })
     db.projects.setStatus("chan1", "ready")
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
     await expect(Promise.all([svc.ensureReady("chan1"), svc.ensureReady("chan1")])).rejects.toThrow(/not healthy/)
     expect(calls.filter((c) => c[0] === "start")).toHaveLength(1)
@@ -288,7 +280,7 @@ test("ensureReady adopts a healthy orphan instead of spawning a second server", 
     db.projects.insertProvisioning({ channelId: "chan1", guildId: "g", name: "demo", directory: "C:\\projects\\demo",
       sandboxPath: null, sandboxName: "celly-demo", hostPort: server.port, serverPassword: "pw", createdAt: Date.now() })
     db.projects.setStatus("chan1", "ready")
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
     await svc.ensureReady("chan1")
     expect(children).toHaveLength(0)
@@ -302,7 +294,7 @@ test("ensureReady rejects while the project is still provisioning", async () => 
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls } = fakes()
   db.projects.insertProvisioning({ channelId: "chan1", guildId: "g", name: "demo", directory: "C:\\projects\\demo",
     sandboxPath: null, sandboxName: "celly-demo", hostPort: 4600, serverPassword: "pw", createdAt: Date.now() })
-  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: silentLogger,
     isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
   await expect(svc.ensureReady("chan1")).rejects.toThrow(/provisioning/)
   expect(calls.filter((c) => c[0] === "start")).toHaveLength(0)
@@ -321,7 +313,7 @@ test("addProject retries the sandbox bootstrap once before succeeding", async ()
     return { code: 0, stdout: "", stderr: "" }
   }
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
     const p = await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
     expect(p.status).toBe("ready")
@@ -338,7 +330,7 @@ test("ensureReady marks a missing sandbox degraded with a recreate notice", asyn
     sandboxPath: null, sandboxName: "celly-demo", hostPort: 4600, serverPassword: "pw", createdAt: Date.now() })
   db.projects.setStatus("chan1", "ready")
   const missing: Array<[string, string]> = []
-  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: silentLogger,
     isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {},
     onProjectMissing: (channelId: string, name: string) => { missing.push([channelId, name]) } } as any)
   await expect(svc.ensureReady("chan1")).rejects.toThrow(/project start/)
@@ -354,7 +346,7 @@ test("start recreates a missing sandbox via the create path", async () => {
     sandboxPath: null, sandboxName: "celly-demo", hostPort: server.port, serverPassword: "pw", createdAt: Date.now() })
   db.projects.setStatus("chan1", "ready")
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
     await svc.start("chan1")
     expect(calls).toContainEqual(["create", "celly-demo"])
@@ -372,7 +364,7 @@ test("start wakes an existing sandbox through ensureReady", async () => {
     sandboxPath: null, sandboxName: "celly-demo", hostPort: server.port, serverPassword: "pw", createdAt: Date.now() })
   db.projects.setStatus("chan1", "ready")
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
     await svc.start("chan1")
     expect(calls.filter((c) => c[0] === "start")).toHaveLength(1)
@@ -387,7 +379,7 @@ test("ensureReady reconciles a drifted host port from sbx ports", async () => {
     sandboxPath: null, sandboxName: "celly-demo", hostPort: 4999, serverPassword: "pw", createdAt: Date.now() })
   db.projects.setStatus("chan1", "ready")
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
     await svc.ensureReady("chan1")
     expect(db.projects.getByChannel("chan1")?.hostPort).toBe(server.port)
@@ -407,7 +399,7 @@ test("ensureReady re-publishes a missing 4096 mapping under a timeout", async ()
     sandboxPath: null, sandboxName: "celly-demo", hostPort: server.port, serverPassword: "pw", createdAt: Date.now() })
   db.projects.setStatus("chan1", "ready")
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
     await svc.ensureReady("chan1")
     expect(calls).toContainEqual(["publish", "celly-demo", `${server.port}:4096`])
@@ -420,7 +412,7 @@ test("ensureReady recycles a hung 4096 mapping and adopts the recovered server",
   // an unpublish/publish cycle the server answers. This mirrors a stale
   // sandboxd forwarder after a sandbox restart.
   let recycled = false
-  const server = createServer((req, res) => {
+  const server = await startTestServer((req, res) => {
     const url = req.url ?? ""
     if (url.startsWith("/config")) {
       res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(cellyPolicy()))
@@ -433,8 +425,7 @@ test("ensureReady recycles a hung 4096 mapping and adopts the recovered server",
     }
     res.writeHead(404).end()
   })
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-  const port = (server.address() as any).port
+  const port = server.port
   sbx.ports = async () => [{ hostIp: "127.0.0.1", hostPort: port, sandboxPort: 4096, protocol: "tcp4" }]
   const baseUnpublish = sbx.unpublish
   sbx.unpublish = async (name: string, mapping: string) => { await baseUnpublish(name, mapping); recycled = true }
@@ -442,7 +433,7 @@ test("ensureReady recycles a hung 4096 mapping and adopts the recovered server",
     sandboxPath: null, sandboxName: "celly-demo", hostPort: port, serverPassword: "pw", createdAt: Date.now() })
   db.projects.setStatus("chan1", "ready")
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(port, port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(port, port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
     await svc.ensureReady("chan1")
     expect(calls).toContainEqual(["unpublish", "celly-demo", `${port}:4096`])
@@ -451,8 +442,7 @@ test("ensureReady recycles a hung 4096 mapping and adopts the recovered server",
     expect(svc.isAdopted("chan1")).toBe(true)
     expect(db.projects.getByChannel("chan1")?.status).toBe("ready")
   } finally {
-    server.closeAllConnections?.()
-    await new Promise<void>((r) => server.close(() => r()))
+    await server.close()
   }
 })
 
@@ -463,10 +453,10 @@ test("ensureReady's failure error names the host port and the 4096 mapping", asy
     db.projects.insertProvisioning({ channelId: "chan1", guildId: "g", name: "demo", directory: "C:\\projects\\demo",
       sandboxPath: null, sandboxName: "celly-demo", hostPort: server.port, serverPassword: "pw", createdAt: Date.now() })
     db.projects.setStatus("chan1", "ready")
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
     await expect(svc.ensureReady("chan1")).rejects.toThrow(new RegExp(`127\\.0\\.0\\.1:${server.port}.*${server.port}:4096`))
-  } finally { await server.closeAllConnections?.(); await server.close() }
+  } finally { await server.close() }
 })
 
 test("ensureReady waits for an in-flight create saga instead of racing it", async () => {
@@ -477,7 +467,7 @@ test("ensureReady waits for an in-flight create saga instead of racing it", asyn
   const baseCreate = sbx.create
   sbx.create = async (o: any) => { await gate; return baseCreate(o) }
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
     const add = svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
     await new Promise((r) => setTimeout(r, 0))
@@ -495,12 +485,11 @@ test("ensureReady waits for an in-flight create saga instead of racing it", asyn
 test("a crash of a replacement child still marks the project degraded", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner, children } = fakes()
   let healthy = true
-  const server = createServer((_, res) => {
+  const server = await startTestServer((_, res) => {
     if (healthy) res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true }))
     else res.writeHead(503).end()
   })
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-  const port = (server.address() as any).port
+  const port = server.port
   const baseExecStream = sbx.execStream
   sbx.execStream = () => {
     const c = baseExecStream()
@@ -510,7 +499,7 @@ test("a crash of a replacement child still marks the project degraded", async ()
     return c
   }
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(port, port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(port, port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {}, killTimeoutMs: 1000,
       applyPolicy: async () => {} } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
@@ -519,18 +508,17 @@ test("a crash of a replacement child still marks the project degraded", async ()
     expect(children).toHaveLength(2)
     children[1].emitExit()
     expect(db.projects.getByChannel("chan-demo")?.status).toBe("degraded")
-  } finally { await new Promise<void>((r) => server.close(() => r())) }
+  } finally { await server.close() }
 })
 
 test("restartServer kills the child and boots a fresh server for the same project", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner, children } = fakes()
   let healthy = true
-  const server = createServer((_, res) => {
+  const server = await startTestServer((_, res) => {
     if (healthy) res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true }))
     else res.writeHead(503).end()
   })
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-  const port = (server.address() as any).port
+  const port = server.port
   const baseExecStream = sbx.execStream
   sbx.execStream = () => {
     const c = baseExecStream()
@@ -540,7 +528,7 @@ test("restartServer kills the child and boots a fresh server for the same projec
     return c
   }
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(port, port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(port, port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {}, killTimeoutMs: 1000,
       applyPolicy: async () => {} } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
@@ -550,14 +538,14 @@ test("restartServer kills the child and boots a fresh server for the same projec
     expect(children).toHaveLength(2)
     expect(svc.childFor("chan-demo")).toBe(children[1])
     expect(db.projects.getByChannel("chan-demo")?.status).toBe("ready")
-  } finally { await new Promise<void>((r) => server.close(() => r())) }
+  } finally { await server.close() }
 })
 
 test("an unexpected child exit marks the project degraded", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner, children } = fakes()
   const server = await healthServer(true)
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
     children[0].emitExit()
@@ -571,7 +559,7 @@ test("stop kills the child but does not mark the project degraded", async () => 
   const server = await healthServer(true)
   const deleted: string[] = []
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (_guildId: string, c: string) => { deleted.push(c) } } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
     await svc.stop("chan-demo")
@@ -590,7 +578,7 @@ test("remove kills the child, deletes the sandbox, row, and channel", async () =
   const server = await healthServer(true)
   const deleted: string[] = []
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (_guildId: string, c: string) => { deleted.push(c) } } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
     expect(svc.childFor("chan-demo")).toBeDefined()
@@ -603,14 +591,13 @@ test("remove kills the child, deletes the sandbox, row, and channel", async () =
   } finally { await server.close() }
 })
 
-const proj = { channelId: "c", guildId: "g", name: "demo", directory: "C:\\p", sandboxPath: null,
-  sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 }
+const proj = projectFixture()
 
 test("remove notifies onProjectRemoved with the removed project", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
   db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
   const removed: string[] = []
-  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: silentLogger,
     isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {},
     onProjectRemoved: (p: any) => { removed.push(p.name) } } as any)
   await svc.remove("c")
@@ -624,7 +611,7 @@ test("addProject persists the actual host port read back from sbx ports", async 
   try {
     sbx.ports = async () => [{ hostIp: "127.0.0.1", hostPort: server.port, sandboxPort: 4096, protocol: "tcp4" }]
     const requested = server.port + 100
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(requested, requested), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(requested, requested), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
     const p = await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
     expect(p.hostPort).toBe(server.port)
@@ -637,7 +624,7 @@ test("addProject ignores a non-loopback port mapping and keeps the requested loo
   const server = await healthServer(true)
   try {
     sbx.ports = async () => [{ hostIp: "0.0.0.0", hostPort: server.port + 1, sandboxPort: 4096, protocol: "tcp4" }]
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
     const p = await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
     expect(p.hostPort).toBe(server.port)
@@ -647,7 +634,7 @@ test("addProject ignores a non-loopback port mapping and keeps the requested loo
 test("addProject does not reuse a host port that fails the free/bind check", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
   sbx.list = async () => []
-  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4700, 4700), log: logger(),
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4700, 4700), log: silentLogger,
     isPortFree: async (p: number) => p !== 4700, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
   await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })).rejects.toThrow(/exhausted/)
 })
@@ -655,7 +642,7 @@ test("addProject does not reuse a host port that fails the free/bind check", asy
 test("addProject rejects a directory inside a forbidden root", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
   const svc = new ProjectService({ sbx, runner: runner as any, db,
-    config: { ...makeCfg(4600, 4600), projectsRoot: "/srv/projects" }, log: logger(),
+    config: { ...makeCfg(4600, 4600), projectsRoot: "/srv/projects" }, log: silentLogger,
     isPortFree: async () => true, createChannel: async () => "c", deleteChannel: async () => {},
     forbiddenPaths: ["/srv/projects/data"] } as any)
   await expect(svc.addProject({ guildId: "g", name: "demo", directory: "/srv/projects/data/demo" })).rejects.toThrow(/sensitive/)
@@ -665,7 +652,7 @@ test("addProject persists the resolved in-sandbox workspace path", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
   const server = await healthServer(true)
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {},
       resolveSandboxPath: async (name: string) => `/sandbox/${name}/workspace` } as any)
     const p = await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
@@ -677,7 +664,7 @@ test("addProject falls back to the host directory when sandbox path resolution f
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
   const server = await healthServer(true)
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {},
       resolveSandboxPath: async () => { throw new Error("no pwd") } } as any)
     const p = await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
@@ -690,7 +677,7 @@ test("an unexpected child exit notifies the project-down callback once", async (
   const server = await healthServer(true)
   const downs: Array<[string, string]> = []
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {},
       onProjectDown: (channelId: string, name: string) => { downs.push([channelId, name]) } } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
@@ -706,7 +693,7 @@ test("concurrent addProject calls are serialized so ports do not collide", async
   try {
     const start = Math.min(s1.port, s2.port), end = Math.max(s1.port, s2.port)
     const listening = new Set([s1.port, s2.port])
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(start, end), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(start, end), log: silentLogger,
       isPortFree: async (p: number) => listening.has(p), createChannel: (_guildId: string, n: string) => Promise.resolve("chan-" + n), deleteChannel: async () => {} } as any)
     const [a, b] = await Promise.all([
       svc.addProject({ guildId: "g", name: "alpha", directory: "C:\\projects\\alpha" }),
@@ -724,7 +711,7 @@ test("addProject creates the channel in the project's guild", async () => {
   sbx.create = async () => { throw new Error("create boom") }
   const created: Array<[string, string]> = []
   const deleted: Array<[string, string]> = []
-  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: silentLogger,
     isPortFree: async () => true,
     createChannel: async (guildId: string, name: string) => { created.push([guildId, name]); return "chan1" },
     deleteChannel: async (guildId: string, channelId: string) => { deleted.push([guildId, channelId]) } } as any)
@@ -734,30 +721,30 @@ test("addProject creates the channel in the project's guild", async () => {
 })
 
 test("the supervised child's output is written to data/logs/<sandbox>.log", async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), "celly-logs-"))
-  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, children } = fakes()
-  const server = await healthServer(true)
-  try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db,
-      config: { ...makeCfg(server.port, server.port), dataDir }, log: logger(),
-      isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
-    await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
-    const password = db.projects.getByChannel("chan-demo")!.serverPassword
-    children[0].emitStdout("hello from the server")
-    children[0].emitStderr(`a warning token=${password}`)
-    const logFile = join(dataDir, "logs", "celly-demo.log")
-    expect(existsSync(logFile)).toBe(true)
-    const contents = readFileSync(logFile, "utf8")
-    expect(contents).toContain("hello from the server")
-    expect(contents).toContain("a warning")
-    expect(contents).not.toContain(password)
-    expect(contents).toContain("[redacted]")
-    // Windows reports synthesized POSIX modes; 0600 is a POSIX-host guarantee.
-    if (process.platform !== "win32") expect(statSync(logFile).mode & 0o777).toBe(0o600)
-  } finally {
-    await server.close()
-    rmSync(dataDir, { recursive: true, force: true })
-  }
+  await withTempDir("celly-logs-", async (dataDir) => {
+    const db = openDb(":memory:"); db.migrate(); const { sbx, runner, children } = fakes()
+    const server = await healthServer(true)
+    try {
+      const svc = new ProjectService({ sbx, runner: runner as any, db,
+        config: { ...makeCfg(server.port, server.port), dataDir }, log: silentLogger,
+        isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
+      await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
+      const password = db.projects.getByChannel("chan-demo")!.serverPassword
+      children[0].emitStdout("hello from the server")
+      children[0].emitStderr(`a warning token=${password}`)
+      const logFile = join(dataDir, "logs", "celly-demo.log")
+      expect(existsSync(logFile)).toBe(true)
+      const contents = readFileSync(logFile, "utf8")
+      expect(contents).toContain("hello from the server")
+      expect(contents).toContain("a warning")
+      expect(contents).not.toContain(password)
+      expect(contents).toContain("[redacted]")
+      // Windows reports synthesized POSIX modes; 0600 is a POSIX-host guarantee.
+      if (process.platform !== "win32") expect(statSync(logFile).mode & 0o777).toBe(0o600)
+    } finally {
+      await server.close()
+    }
+  })
 })
 
 test("project server logs rotate when they exceed logMaxBytes", async () => {
@@ -768,7 +755,7 @@ test("project server logs rotate when they exceed logMaxBytes", async () => {
   cfg.logMaxBytes = 200
   cfg.logMaxFiles = 1
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: cfg, log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: cfg, log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
     for (let i = 0; i < 5; i++) children[0].emitStdout("x".repeat(100))
@@ -781,7 +768,7 @@ test("project server logs rotate when they exceed logMaxBytes", async () => {
 
 test("addProject rejects a non-https clone URL before any sbx call", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls } = fakes()
-  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: silentLogger,
     isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
   for (const url of ["http://example.com/a.git", "git@github.com:a/b.git", "https://example.com/a b", "ftp://example.com/a"]) {
     await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo", clone: { url } }))
@@ -798,7 +785,7 @@ test("addProject clones an https repository after bootstrap with exact argv", as
   const baseExec = sbx.exec
   sbx.exec = async (n: string, args: string[]) => { order.push(args.join(" ")); if (args[0] === "git") cloneArgs = args; return baseExec(n, args) }
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {},
       resolveSandboxPath: async () => "/sandbox/celly-demo/workspace" } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo",
@@ -817,7 +804,7 @@ test("addProject omits --branch when only a clone URL is given", async () => {
   const baseExec = sbx.exec
   sbx.exec = async (n: string, args: string[]) => { if (args[0] === "git") cloneArgs = args; return baseExec(n, args) }
   try {
-    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: logger(),
+    const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(server.port, server.port), log: silentLogger,
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {},
       resolveSandboxPath: async () => "/sandbox/celly-demo/workspace" } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo", clone: { url: "https://example.com/a.git" } })
@@ -830,7 +817,7 @@ test("addProject rolls back when the clone fails", async () => {
   const baseExec = sbx.exec
   sbx.exec = async (n: string, args: string[]) => { if (args[0] === "git") throw new Error("clone failed"); return baseExec(n, args) }
   const deleted: string[] = []
-  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: logger(),
+  const svc = new ProjectService({ sbx, runner: runner as any, db, config: makeCfg(4600, 4600), log: silentLogger,
     isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async (_guildId: string, c: string) => { deleted.push(c) },
     resolveSandboxPath: async () => "/sandbox/celly-demo/workspace" } as any)
   await expect(svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo", clone: { url: "https://example.com/a.git" } }))

@@ -1,6 +1,7 @@
 import type { AuditDraft } from "./audit.ts"
 import type { Db } from "./db.ts"
 import type { ScheduledTask } from "./types.ts"
+import { unrefTimer } from "./helpers.js"
 
 export interface TaskRunnerDeps {
   db: Pick<Db, "tasks" | "threads">
@@ -44,7 +45,7 @@ export function createTaskRunner(deps: TaskRunnerDeps): TaskRunner {
     start() {
       if (timer !== undefined || deps.everyMs <= 0) return
       timer = setInterval(() => { void tick() }, deps.everyMs)
-      if (typeof (timer as any).unref === "function") (timer as any).unref()
+      unrefTimer(timer)
     },
     stop() {
       if (timer === undefined) return

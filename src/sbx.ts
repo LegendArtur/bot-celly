@@ -194,7 +194,6 @@ export class Sbx {
     return r
   }
   execStream(name: string, argv: string[]) { return this.runner.spawnStream(["exec", name, ...argv]) }
-  async cp(from: string, to: string) { await this.must(["cp", from, to]) }
   async stop(name: string) { await this.must(["stop", name]) }
   async start(name: string) { await this.must(["exec", name, "true"]) }
   async remove(name: string) { await this.must(["rm", "--force", name]) }

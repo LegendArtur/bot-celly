@@ -1,8 +1,9 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { homedir, tmpdir } from "node:os"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { homedir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
 import { defaultProjectsRoot, ensureDataDir, loadConfig, loadDotEnv, parseGuildIds, seedSettings } from "../src/config.ts"
+import { withTempDir } from "./helpers/tmp.ts"
 
 const base = { DISCORD_TOKEN: "t", DISCORD_GUILD_ID: "g", PROJECTS_ROOT: "C:\\projects" }
 
@@ -77,14 +78,13 @@ test("the idle auto-stop setting is documented in the env example and the config
   expect(readFileSync("docs-site/guides/configuration.mdx", "utf8")).toContain("| `IDLE_STOP_MINUTES` | `0` |")
 })
 
-test("ensureDataDir creates nested directories", () => {
-  const root = mkdtempSync(join(tmpdir(), "celly-data-"))
-  const nested = join(root, "a", "b", "c")
-  try {
+test("ensureDataDir creates nested directories", async () => {
+  await withTempDir("celly-data-", (root) => {
+    const nested = join(root, "a", "b", "c")
     expect(existsSync(nested)).toBe(false)
     ensureDataDir(nested)
     expect(existsSync(nested)).toBe(true)
-  } finally { rmSync(root, { recursive: true, force: true }) }
+  })
 })
 
 test("seedSettings writes defaults only when a key is unset", () => {
@@ -115,19 +115,19 @@ test("loadDotEnv reports success and failure without throwing", () => {
   expect(loadDotEnv(".env.test", () => { throw new Error("missing") })).toBe(false)
 })
 
-test("loadDotEnv loads a real .env into process.env", () => {
-  const root = mkdtempSync(join(tmpdir(), "celly-env-"))
-  const envPath = join(root, ".env")
-  const key = "CELLY_TEST_DOTENV_VALUE"
-  try {
-    writeFileSync(envPath, `${key}=loaded\n`)
-    delete process.env[key]
-    expect(loadDotEnv(envPath)).toBe(true)
-    expect(process.env[key]).toBe("loaded")
-  } finally {
-    delete process.env[key]
-    rmSync(root, { recursive: true, force: true })
-  }
+test("loadDotEnv loads a real .env into process.env", async () => {
+  await withTempDir("celly-env-", (root) => {
+    const envPath = join(root, ".env")
+    const key = "CELLY_TEST_DOTENV_VALUE"
+    try {
+      writeFileSync(envPath, `${key}=loaded\n`)
+      delete process.env[key]
+      expect(loadDotEnv(envPath)).toBe(true)
+      expect(process.env[key]).toBe("loaded")
+    } finally {
+      delete process.env[key]
+    }
+  })
 })
 
 test("parses log rotation settings and defaults", () => {
@@ -176,15 +176,13 @@ test("parseGuildIds returns undefined when neither variable is set", () => {
 test("parseGuildIds rejects an all-blank plural list", () => {
   expect(() => parseGuildIds({ DISCORD_GUILD_IDS: " , " })).toThrow(/DISCORD_GUILD_IDS/)
 })
-test("loadConfig prefers DISCORD_GUILD_IDS and keeps guildId as the first id", () => {
+test("loadConfig prefers DISCORD_GUILD_IDS over the legacy singular id", () => {
   const c = loadConfig({ DISCORD_TOKEN: "t", DISCORD_GUILD_IDS: "g1,g2", DISCORD_GUILD_ID: "legacy" })
   expect(c.guildIds).toEqual(["g1", "g2"])
-  expect(c.guildId).toBe("g1")
 })
 test("loadConfig falls back to the singular guild id", () => {
   const c = loadConfig({ ...base })
   expect(c.guildIds).toEqual(["g"])
-  expect(c.guildId).toBe("g")
 })
 test("loadConfig requires a guild id in either form", () => {
   expect(() => loadConfig({ DISCORD_TOKEN: "t" })).toThrow(/DISCORD_GUILD_ID/)

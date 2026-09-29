@@ -1,3 +1,4 @@
+import { unrefTimer } from "./helpers.js"
 import type { Project } from "./types.ts"
 
 export interface IdleSweeperDeps {
@@ -55,7 +56,7 @@ export function createIdleSweeper(deps: IdleSweeperDeps): IdleSweeper {
     start() {
       if (deps.idleMs <= 0 || timer !== undefined) return
       timer = setInterval(() => { void tick() }, deps.intervalMs)
-      if (typeof (timer as any).unref === "function") (timer as any).unref()
+      unrefTimer(timer)
     },
     stop() {
       if (timer === undefined) return

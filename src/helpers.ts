@@ -1,6 +1,10 @@
 import { ChannelType } from "discord.js"
 import { ANSI, colorEnabled, paint } from "./ansi.js"
 
+export function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
 export function findCategoryId(
   guild: { channels: { cache: { values(): IterableIterator<{ id: string; name: string; type: ChannelType }> } } },
   configuredId?: string,
@@ -36,6 +40,13 @@ export function projectForChannel<T extends { channelId: string }>(
 export function channelIdForBucket(thread: { channelId: string }): string {
   return thread.channelId
 }
+
+export function unrefTimer(timer: unknown): void {
+  const t = timer as { unref?: () => void }
+  t.unref?.()
+}
+
+export const DISCORD_CHUNK_LIMIT = 1900
 
 export function buildPromptText(text: string, attachmentPaths: string[]): string {
   return [text, ...attachmentPaths.map((p) => `[attachment] ${p}`)].filter((part) => part.trim().length > 0).join("\n\n")

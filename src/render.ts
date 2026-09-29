@@ -1,5 +1,6 @@
 import { MessageFlags } from "discord.js"
 import type { NormalizedEvent } from "./events.ts"
+import { DISCORD_CHUNK_LIMIT } from "./helpers.js"
 
 export interface RenderPayload {
   content: string
@@ -52,7 +53,7 @@ function fenceMarkerStarts(text: string, fenceLen: number): number[] {
   return starts
 }
 
-export function chunkMessage(text: string, max = 1900): string[] {
+export function chunkMessage(text: string, max = DISCORD_CHUNK_LIMIT): string[] {
   if (text === "") return []
   if (text.length <= max) return [text]
   const fenceLen = Math.max(3, longestBacktickRun(text) + 1)
@@ -156,7 +157,7 @@ export class Renderer {
   }
   private async runFlush(): Promise<void> {
     const revision = this.revision
-    const chunks = chunkMessage(this.body(), 1900)
+    const chunks = chunkMessage(this.body(), DISCORD_CHUNK_LIMIT)
     if (chunks.length === 0) {
       // Never send(""): an empty body is not a message. If earlier chunks
       // existed and the body shrank to nothing, drop them instead.

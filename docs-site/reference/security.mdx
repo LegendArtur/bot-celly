@@ -152,6 +152,13 @@ the full set is below.
   `opencode.env` or `~/.config/celly/` — including via the inspection utilities
   `awk`, `base64`, `cat`, `cp`, `grep`, `head`, `less`, `od`, `sed`, `strings`,
   `tail`, and `xxd`, plus catch-all patterns for both paths.
+- Celly evaluates every command in a shell line: each `;` / `&&` / `||` / `|` /
+  `&` segment, command substitutions (`$(...)`, backticks), and heredoc bodies.
+  Commands that cannot be statically analyzed (process substitution,
+  variable executables, `eval`/`source`, compound control keywords,
+  unbalanced quotes, substitutions in command position) fail closed: they
+  require approval in `buttons` mode and are rejected in `auto` and `plan`
+  mode.
 - `external_directory: deny` keeps tools inside the mounted project.
 - `question: "allow"` lets the agent ask questions; Celly decides per approval
   mode. `auto` and `plan` reject them immediately, and `buttons` surfaces them

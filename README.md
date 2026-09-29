@@ -2,10 +2,6 @@
 
 <p align="center"><strong>Drive OpenCode from Discord — one isolated microVM per project.</strong></p>
 
-<p align="center">
-  <img src="docs-site/images/demo.svg" alt="Celly streaming a coding agent's reply inside a Discord thread" width="820">
-</p>
-
 Start a coding agent from your phone, in a channel you already keep open. Celly
 turns [Discord](https://discord.com) into a control surface for
 [OpenCode](https://opencode.ai) agents: kick off work, watch it stream, approve a
@@ -346,6 +342,10 @@ The canonical roadmap is at
 - **Host-only items** (the spike, `sbx policy ls` semantics, Windows path
   mapping, live Discord behavior) are exercised on the host, not in the Linux
   test environment.
+- **The bash deny list is defense-in-depth, not the sandbox boundary.** Celly
+  statically analyzes shell commands and fails closed on what it cannot prove,
+  but arbitrary wrapper binaries, encoded payloads, and unmodelled shell
+  features can still reach the sandbox. The sandbox is the boundary.
 
 The canonical list, including what is deferred, lives in
 [Limitations](https://celly.agub.dev/reference/limitations).

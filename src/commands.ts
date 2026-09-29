@@ -7,6 +7,7 @@ import type { Db } from "./db.ts"
 import type { ProjectService } from "./projects.ts"
 import type { QueuedPrompt, Runner } from "./runner.ts"
 import { attachReply, sessionIdReply } from "./attach.js"
+import { DISCORD_CHUNK_LIMIT, getErrorMessage } from "./helpers.js"
 import { formatContextUsage, formatDiff } from "./session-utils.js"
 import type { SessionOps } from "./session-utils.ts"
 import { chunkMessage } from "./render.js"
@@ -168,11 +169,6 @@ export function selectCustomId(action: string, id: string): string { return `cel
 export function buttonCustomId(action: string, id: string, extra?: string): string {
   return extra === undefined ? `celly:${action}:${id}` : `celly:${action}:${id}:${extra}`
 }
-export function parseCustomId(customId: string): { action: string; id?: string } {
-  const { action, id } = parseCustomIdFull(customId)
-  return { action, id }
-}
-
 /**
  * Canonical custom-id parser (spec §3.1). Wire format is
  * `celly:<action>:<id>[:<extra>]`; malformed ids (missing the `celly` prefix or
@@ -195,6 +191,18 @@ export const ANSWER_MODAL_INPUT = "answer"
  */
 export function noMentions(content: string, extra: Record<string, unknown> = {}): any {
   return { content, allowedMentions: { parse: [] }, ...extra }
+}
+
+async function replyError(interaction: any, e: unknown): Promise<void> {
+  const content = `error: ${getErrorMessage(e)}`
+  if (interaction.deferred || interaction.replied) return void await interaction.editReply(noMentions(content))
+  await interaction.reply(noMentions(content, { flags: 64 }))
+}
+
+async function healthSuffix(deps: CommandDeps, channelId: string): Promise<string> {
+  let healthy: boolean | undefined
+  try { healthy = await deps.projects.health?.(channelId) } catch { healthy = false }
+  return healthy === undefined ? "" : healthy ? " healthy" : " unhealthy"
 }
 
 /**
@@ -229,7 +237,7 @@ function selectRow(customId: string, placeholder: string, options: { label: stri
 }
 
 async function replyChunks(interaction: any, content: string): Promise<void> {
-  const chunks = chunkMessage(content, 1900)
+  const chunks = chunkMessage(content, DISCORD_CHUNK_LIMIT)
   const [first = "no changes", ...rest] = chunks
   await interaction.editReply(noMentions(first))
   for (const chunk of rest) await interaction.followUp(noMentions(chunk, { flags: 64 }))
@@ -299,9 +307,7 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (sub === "list") {
         const projects = deps.db.projects.list()
         const lines = await Promise.all(projects.map(async (p) => {
-          let healthy: boolean | undefined
-          try { healthy = await deps.projects.health?.(p.channelId) } catch { healthy = false }
-          const health = healthy === undefined ? "" : healthy ? " healthy" : " unhealthy"
+          const health = await healthSuffix(deps, p.channelId)
           return `${p.name} (${p.status}${health})`
         }))
         return void await interaction.editReply(noMentions(lines.join("\n") || "no projects"))
@@ -310,9 +316,7 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         const p = deps.db.projects.getByName(name)
         if (!p) return void await interaction.editReply(noMentions("not found"))
         const sessions = deps.db.threads.byChannel(p.channelId).length
-        let healthy: boolean | undefined
-        try { healthy = await deps.projects.health?.(p.channelId) } catch { healthy = false }
-        const health = healthy === undefined ? "" : healthy ? " healthy" : " unhealthy"
+        const health = await healthSuffix(deps, p.channelId)
         return void await interaction.editReply(noMentions(`${p.name}: ${p.status}${health} on 127.0.0.1:${p.hostPort} (${sessions} session${sessions === 1 ? "" : "s"})`))
       }
       if (sub === "start") {
@@ -385,12 +389,6 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
     if (interaction.commandName === "resume") {
       const project = deps.db.projects.getByChannel(interaction.channelId)
       if (!project) return void await interaction.editReply(noMentions("this channel is not a project"))
-      const direct = interaction.options.getString("session", false)
-      if (direct) {
-        const existing = deps.db.threads.getBySession(direct)[0]
-        const thread = await deps.createThread?.({ channelId: project.channelId, title: existing?.title ?? `resume ${new Date().toISOString()}`, sessionId: direct, authorId: interaction.user?.id })
-        return void await interaction.editReply(noMentions(thread ? `resumed in <#${thread.threadId}>` : "resume unavailable"))
-      }
       const sessions = (await deps.listSessions?.(project.channelId)) ?? []
       if (!sessions.length) return void await interaction.editReply(noMentions("no sessions to resume"))
       const options = sessions.slice(0, 25).map((s) => ({ label: (s.title || s.id).slice(0, 100), value: s.id }))
@@ -403,19 +401,6 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       if (!scope) return void await interaction.editReply(noMentions("this channel is not a project"))
       // Spec §9: wake the sandbox before asking it for models/agents.
       await deps.projects.ensureReady?.(thread?.channelId ?? interaction.channelId)
-      const direct = interaction.options.getString(interaction.commandName, false)
-      if (direct) {
-        if (thread) {
-          if (interaction.commandName === "model") deps.setThreadModel?.(scope, direct)
-          else deps.setThreadAgent?.(scope, direct)
-        } else if (interaction.commandName === "model") {
-          deps.setChannelModel?.(scope, direct)
-        } else {
-          deps.setChannelAgent?.(scope, direct)
-        }
-        const label = thread ? interaction.commandName : `channel ${interaction.commandName}`
-        return void await interaction.editReply(noMentions(`${label} set to ${direct}`))
-      }
       if (interaction.commandName === "model") {
         const models = (await deps.listModels?.(thread?.channelId ?? interaction.channelId)) ?? []
         if (!models.length) return void await interaction.editReply(noMentions("no models available"))
@@ -627,9 +612,7 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
     }
     await interaction.editReply(noMentions("not implemented in this build"))
   } catch (e) {
-    const content = `error: ${(e as Error).message}`
-    if (interaction.deferred || interaction.replied) return void await interaction.editReply(noMentions(content))
-    await interaction.reply(noMentions(content, { flags: 64 }))
+    await replyError(interaction, e)
   }
 }
 
@@ -688,9 +671,7 @@ export async function handleSelect(interaction: any, deps: CommandDeps): Promise
     }
     return void await interaction.editReply({ content: "unknown selection", components: [], allowedMentions: { parse: [] } })
   } catch (e) {
-    const content = `error: ${(e as Error).message}`
-    if (interaction.deferred || interaction.replied) return void await interaction.editReply(noMentions(content))
-    await interaction.reply(noMentions(content, { flags: 64 }))
+    await replyError(interaction, e)
   }
 }
 
@@ -715,9 +696,7 @@ export async function handleQueueButton(interaction: any, deps: CommandDeps): Pr
     }
     return void await interaction.editReply({ content: "unknown button", components: [], allowedMentions: { parse: [] } })
   } catch (e) {
-    const content = `error: ${(e as Error).message}`
-    if (interaction.deferred || interaction.replied) return void await interaction.editReply(noMentions(content))
-    await interaction.reply(noMentions(content, { flags: 64 }))
+    await replyError(interaction, e)
   }
 }
 

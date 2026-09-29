@@ -1,9 +1,9 @@
 // test/events.test.ts
-import { createServer } from "node:http"
 import { readFileSync } from "node:fs"
 import { expect, test, vi } from "vitest"
 import type { QuestionInfo } from "@opencode-ai/sdk/v2"
 import { EventRouter, INITIAL_BACKOFF, MAX_BACKOFF, nextBackoff, normalizeEvent, partToEvent, trimSseBuffer } from "../src/events.ts"
+import { startTestServer } from "./helpers/http.ts"
 
 test("normalizes a text part", () => {
   expect(normalizeEvent({ type: "message.part.updated", properties: { part: { id: "p1", messageID: "m1", sessionID: "s1", type: "text", text: "hi" } } }))
@@ -101,15 +101,13 @@ test("ignores message.updated usage so step-finish stays the single source", () 
 test("dispatches the recorded usage fixtures over SSE", async () => {
   const fixture = readFileSync(new URL("./fixtures/opencode-usage-events.jsonl", import.meta.url), "utf8").trim().split("\n")
   const events: Array<{ threadId: string; e: any }> = []
-  const server = createServer((_req, res) => {
+  const server = await startTestServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
     res.flushHeaders()
     for (const line of fixture) res.write(`data: ${line}\n\n`)
     res.end()
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
     const router = new EventRouter({
       route: (sessionId) => (sessionId.startsWith("ses_u") ? "t1" : undefined),
       onEvent: (threadId, e) => events.push({ threadId, e }),
@@ -117,7 +115,7 @@ test("dispatches the recorded usage fixtures over SSE", async () => {
       knownSessions: () => [],
     })
     const ac = new AbortController()
-    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    const done = router.subscribe(server.url, "pw", ac.signal)
     await waitFor(() => events.length >= 2)
     ac.abort()
     await done
@@ -126,32 +124,28 @@ test("dispatches the recorded usage fixtures over SSE", async () => {
       { threadId: "t1", e: { kind: "usage", sessionId: "ses_u2", messageId: "msg_u2", cost: 0.0023, tokensIn: 200, tokensOut: 300, cacheRead: 0, cacheWrite: 0 } },
     ])
   } finally {
-    server.close()
-    server.closeAllConnections()
+    await server.close()
   }
 })
 
 test("the event stream sends the opencode basic auth header", async () => {
   let auth: string | undefined
-  const server = createServer((req, res) => {
+  const server = await startTestServer((req, res) => {
     auth = req.headers.authorization
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
     res.flushHeaders()
     res.end()
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
     const router = new EventRouter({ route: () => undefined, onEvent: () => {}, onResync: async () => {}, knownSessions: () => [] })
     const ac = new AbortController()
-    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    const done = router.subscribe(server.url, "pw", ac.signal)
     await waitFor(() => auth !== undefined)
     ac.abort()
     await done
     expect(auth).toBe("Basic " + Buffer.from("opencode:pw").toString("base64"))
   } finally {
-    server.close()
-    server.closeAllConnections()
+    await server.close()
   }
 })
 
@@ -159,7 +153,7 @@ test("routes SSE frames by session and resyncs known sessions on reconnect", asy
   const events: Array<{ threadId: string; e: any }> = []
   const resyncs: Array<{ threadId: string; sessionId: string }> = []
   let connections = 0
-  const server = createServer((_req, res) => {
+  const server = await startTestServer((_req, res) => {
     connections++
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
     res.flushHeaders()
@@ -172,8 +166,6 @@ test("routes SSE frames by session and resyncs known sessions on reconnect", asy
     }
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
     const router = new EventRouter({
       route: (sessionId) => (sessionId === "s1" ? "t1" : undefined),
       onEvent: (threadId, e) => events.push({ threadId, e }),
@@ -181,7 +173,7 @@ test("routes SSE frames by session and resyncs known sessions on reconnect", asy
       knownSessions: () => [{ threadId: "t1", sessionId: "s1" }],
     })
     const ac = new AbortController()
-    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    const done = router.subscribe(server.url, "pw", ac.signal)
     await waitFor(() => events.length >= 2 && resyncs.length >= 1)
     ac.abort()
     await done
@@ -192,8 +184,7 @@ test("routes SSE frames by session and resyncs known sessions on reconnect", asy
     expect(resyncs).toEqual([{ threadId: "t1", sessionId: "s1" }])
     expect(connections).toBeGreaterThanOrEqual(2)
   } finally {
-    server.close()
-    server.closeAllConnections()
+    await server.close()
   }
 })
 
@@ -202,7 +193,7 @@ test("isolates a throwing onResync and keeps the stream alive", async () => {
   const events: Array<{ threadId: string; e: any }> = []
   let connections = 0
   let resyncAttempts = 0
-  const server = createServer((_req, res) => {
+  const server = await startTestServer((_req, res) => {
     connections++
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
     res.flushHeaders()
@@ -210,8 +201,6 @@ test("isolates a throwing onResync and keeps the stream alive", async () => {
     else res.write(`data: ${JSON.stringify({ payload: { type: "session.idle", properties: { sessionID: "s1" } } })}\n\n`)
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
     const router = new EventRouter({
       route: (sessionId) => (sessionId === "s1" ? "t1" : undefined),
       onEvent: (threadId, e) => events.push({ threadId, e }),
@@ -219,7 +208,7 @@ test("isolates a throwing onResync and keeps the stream alive", async () => {
       knownSessions: () => [{ threadId: "t1", sessionId: "s1" }],
     })
     const ac = new AbortController()
-    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    const done = router.subscribe(server.url, "pw", ac.signal)
     await waitFor(() => resyncAttempts >= 1 && events.length >= 1)
     ac.abort()
     await done
@@ -227,8 +216,7 @@ test("isolates a throwing onResync and keeps the stream alive", async () => {
     expect(resyncAttempts).toBe(1)
     expect(connections).toBe(2)
   } finally {
-    server.close()
-    server.closeAllConnections()
+    await server.close()
     warn.mockRestore()
   }
 })
@@ -246,7 +234,7 @@ test("routes SSE stream warnings through the injected logger instead of the cons
   const events: Array<{ threadId: string; e: any }> = []
   let connections = 0
   let knownCalls = 0
-  const server = createServer((_req, res) => {
+  const server = await startTestServer((_req, res) => {
     connections++
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
     res.flushHeaders()
@@ -254,8 +242,6 @@ test("routes SSE stream warnings through the injected logger instead of the cons
     else res.write(`data: ${JSON.stringify({ payload: { type: "session.idle", properties: { sessionID: "s1" } } })}\n\n`)
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
     const router = new EventRouter({
       route: (sessionId) => (sessionId === "s1" ? "t1" : undefined),
       onEvent: (threadId, e) => events.push({ threadId, e }),
@@ -264,7 +250,7 @@ test("routes SSE stream warnings through the injected logger instead of the cons
       log: { warn: (msg, fields) => warnings.push({ msg, fields }) },
     })
     const ac = new AbortController()
-    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    const done = router.subscribe(server.url, "pw", ac.signal)
     await waitFor(() => knownCalls >= 1 && events.length >= 1)
     ac.abort()
     await done
@@ -272,8 +258,7 @@ test("routes SSE stream warnings through the injected logger instead of the cons
     expect(warnings[0]?.fields?.error).toContain("known boom")
     expect(consoleWarn).not.toHaveBeenCalled()
   } finally {
-    server.close()
-    server.closeAllConnections()
+    await server.close()
     consoleWarn.mockRestore()
   }
 })
@@ -283,7 +268,7 @@ test("isolates a throwing knownSessions and keeps the stream alive", async () =>
   const events: Array<{ threadId: string; e: any }> = []
   let connections = 0
   let knownCalls = 0
-  const server = createServer((_req, res) => {
+  const server = await startTestServer((_req, res) => {
     connections++
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
     res.flushHeaders()
@@ -291,8 +276,6 @@ test("isolates a throwing knownSessions and keeps the stream alive", async () =>
     else res.write(`data: ${JSON.stringify({ payload: { type: "session.idle", properties: { sessionID: "s1" } } })}\n\n`)
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
     const router = new EventRouter({
       route: (sessionId) => (sessionId === "s1" ? "t1" : undefined),
       onEvent: (threadId, e) => events.push({ threadId, e }),
@@ -300,30 +283,27 @@ test("isolates a throwing knownSessions and keeps the stream alive", async () =>
       knownSessions: () => { knownCalls++; throw new Error("known boom") },
     })
     const ac = new AbortController()
-    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    const done = router.subscribe(server.url, "pw", ac.signal)
     await waitFor(() => knownCalls >= 1 && events.length >= 1)
     ac.abort()
     await done
     expect(events).toEqual([{ threadId: "t1", e: { kind: "idle", sessionId: "s1" } }])
     expect(connections).toBe(2)
   } finally {
-    server.close()
-    server.closeAllConnections()
+    await server.close()
     warn.mockRestore()
   }
 })
 
 test("dispatches a frame that arrives right before the stream closes", async () => {
   const events: Array<{ threadId: string; e: any }> = []
-  const server = createServer((_req, res) => {
+  const server = await startTestServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
     res.flushHeaders()
     res.write(`data: ${JSON.stringify({ payload: { type: "session.idle", properties: { sessionID: "s1" } } })}\n\n`)
     res.end()
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
     const router = new EventRouter({
       route: (sessionId) => (sessionId === "s1" ? "t1" : undefined),
       onEvent: (threadId, e) => events.push({ threadId, e }),
@@ -331,27 +311,24 @@ test("dispatches a frame that arrives right before the stream closes", async () 
       knownSessions: () => [],
     })
     const ac = new AbortController()
-    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    const done = router.subscribe(server.url, "pw", ac.signal)
     await waitFor(() => events.length >= 1)
     ac.abort()
     await done
     expect(events).toEqual([{ threadId: "t1", e: { kind: "idle", sessionId: "s1" } }])
   } finally {
-    server.close()
-    server.closeAllConnections()
+    await server.close()
   }
 })
 
 test("parses CRLF-terminated frames", async () => {
   const events: Array<{ threadId: string; e: any }> = []
-  const server = createServer((_req, res) => {
+  const server = await startTestServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
     res.flushHeaders()
     res.write(`data: ${JSON.stringify({ payload: { type: "session.idle", properties: { sessionID: "s1" } } })}\r\n\r\n`)
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
     const router = new EventRouter({
       route: (sessionId) => (sessionId === "s1" ? "t1" : undefined),
       onEvent: (threadId, e) => events.push({ threadId, e }),
@@ -359,27 +336,24 @@ test("parses CRLF-terminated frames", async () => {
       knownSessions: () => [],
     })
     const ac = new AbortController()
-    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    const done = router.subscribe(server.url, "pw", ac.signal)
     await waitFor(() => events.length >= 1)
     ac.abort()
     await done
     expect(events).toEqual([{ threadId: "t1", e: { kind: "idle", sessionId: "s1" } }])
   } finally {
-    server.close()
-    server.closeAllConnections()
+    await server.close()
   }
 })
 
 test("joins multi-line data with a newline", async () => {
   const events: Array<{ threadId: string; e: any }> = []
-  const server = createServer((_req, res) => {
+  const server = await startTestServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
     res.flushHeaders()
     res.write('data: {"payload":{"type":"session.idle",\ndata: "properties":{"sessionID":"s1"}}}\n\n')
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
     const router = new EventRouter({
       route: (sessionId) => (sessionId === "s1" ? "t1" : undefined),
       onEvent: (threadId, e) => events.push({ threadId, e }),
@@ -387,14 +361,13 @@ test("joins multi-line data with a newline", async () => {
       knownSessions: () => [],
     })
     const ac = new AbortController()
-    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    const done = router.subscribe(server.url, "pw", ac.signal)
     await waitFor(() => events.length >= 1)
     ac.abort()
     await done
     expect(events).toEqual([{ threadId: "t1", e: { kind: "idle", sessionId: "s1" } }])
   } finally {
-    server.close()
-    server.closeAllConnections()
+    await server.close()
   }
 })
 
@@ -402,7 +375,7 @@ test("asks onUnknownSession for an unknown session and routes the event to the c
   const events: Array<{ threadId: string; e: any }> = []
   const looked: string[] = []
   let connections = 0
-  const server = createServer((_req, res) => {
+  const server = await startTestServer((_req, res) => {
     connections++
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
     res.flushHeaders()
@@ -412,8 +385,6 @@ test("asks onUnknownSession for an unknown session and routes the event to the c
     }
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
     const router = new EventRouter({
       route: () => undefined,
       onEvent: (threadId, e) => events.push({ threadId, e }),
@@ -422,30 +393,27 @@ test("asks onUnknownSession for an unknown session and routes the event to the c
       onUnknownSession: async (sessionId) => { looked.push(sessionId); return `auto:${sessionId}` },
     })
     const ac = new AbortController()
-    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    const done = router.subscribe(server.url, "pw", ac.signal)
     await waitFor(() => events.length >= 1)
     ac.abort()
     await done
     expect(looked).toEqual(["terminal-1"])
     expect(events).toEqual([{ threadId: "auto:terminal-1", e: { kind: "idle", sessionId: "terminal-1" } }])
   } finally {
-    server.close()
-    server.closeAllConnections()
+    await server.close()
   }
 })
 
 test("does not dispatch an event when the subscription aborts while resolving an unknown session", async () => {
   const events: Array<{ threadId: string; e: any }> = []
   const ac = new AbortController()
-  const server = createServer((_req, res) => {
+  const server = await startTestServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
     res.flushHeaders()
     res.write(`data: ${JSON.stringify({ payload: { type: "session.idle", properties: { sessionID: "terminal-1" } } })}\n\n`)
     res.end()
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
     const router = new EventRouter({
       route: () => undefined,
       onEvent: (threadId, e) => events.push({ threadId, e }),
@@ -453,26 +421,23 @@ test("does not dispatch an event when the subscription aborts while resolving an
       knownSessions: () => [],
       onUnknownSession: async (sessionId) => { ac.abort(); return `auto:${sessionId}` },
     })
-    await router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    await router.subscribe(server.url, "pw", ac.signal)
     expect(events).toEqual([])
   } finally {
-    server.close()
-    server.closeAllConnections()
+    await server.close()
   }
 })
 
 test("dispatches the recorded opencode event fixture over SSE", async () => {
   const fixture = readFileSync(new URL("./fixtures/opencode-events.jsonl", import.meta.url), "utf8").trim().split("\n")
   const events: Array<{ threadId: string; e: any }> = []
-  const server = createServer((_req, res) => {
+  const server = await startTestServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
     res.flushHeaders()
     for (const line of fixture) res.write(`data: ${line}\n\n`)
     res.end()
   })
   try {
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
-    const port = (server.address() as any).port
     const router = new EventRouter({
       route: (sessionId) => (sessionId === "ses_1" ? "t1" : undefined),
       onEvent: (threadId, e) => events.push({ threadId, e }),
@@ -480,7 +445,7 @@ test("dispatches the recorded opencode event fixture over SSE", async () => {
       knownSessions: () => [],
     })
     const ac = new AbortController()
-    const done = router.subscribe(`http://127.0.0.1:${port}`, "pw", ac.signal)
+    const done = router.subscribe(server.url, "pw", ac.signal)
     await waitFor(() => events.length >= 2)
     ac.abort()
     await done
@@ -489,8 +454,7 @@ test("dispatches the recorded opencode event fixture over SSE", async () => {
       { threadId: "t1", e: { kind: "idle", sessionId: "ses_1" } },
     ])
   } finally {
-    server.close()
-    server.closeAllConnections()
+    await server.close()
   }
 })
 

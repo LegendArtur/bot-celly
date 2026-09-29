@@ -1,6 +1,7 @@
 import { mkdirSync, readdirSync, rmSync } from "node:fs"
 import { join, resolve } from "node:path"
 import type { Db } from "./db.ts"
+import { unrefTimer } from "./helpers.js"
 
 export interface BackupSchedulerDeps {
   db: Pick<Db, "backupTo">
@@ -44,7 +45,7 @@ export function createBackupScheduler(deps: BackupSchedulerDeps): BackupSchedule
       timer = setInterval(() => {
         void tick().catch((e) => deps.warn?.("backup tick failed", { error: String(e) }))
       }, deps.intervalMs)
-      if (typeof (timer as any).unref === "function") (timer as any).unref()
+      unrefTimer(timer)
     },
     stop() {
       if (timer === undefined) return

@@ -1,23 +1,17 @@
 import { expect, test } from "vitest"
-import { openDb } from "../src/db.ts"
 import { createTaskRunner } from "../src/tasks.ts"
+import { freshDb, projectFixture, threadRow } from "./helpers/fixtures.ts"
 
 function setup() {
-  const db = openDb(":memory:"); db.migrate()
-  db.projects.insertProvisioning({ channelId: "c1", guildId: "g", name: "demo", directory: "C:\\p",
-    sandboxPath: null, sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 })
+  const db = freshDb()
+  db.projects.insertProvisioning(projectFixture({ channelId: "c1" }))
   return db
-}
-
-function threadRow(threadId: string, lastActiveAt: number) {
-  return { threadId, channelId: "c1", sessionId: `s-${threadId}`, title: null, model: null, agent: null, variant: null,
-    worktreePath: null, liveMessageId: null, renderState: "idle" as const, createdAt: 1, lastActiveAt }
 }
 
 test("tick prompts the most recent thread for each due task and advances next_run_at", async () => {
   const db = setup()
-  db.threads.upsert(threadRow("t-old", 10))
-  db.threads.upsert(threadRow("t-new", 20))
+  db.threads.upsert(threadRow({ threadId: "t-old", channelId: "c1", sessionId: "s-t-old", title: null, lastActiveAt: 10 }))
+  db.threads.upsert(threadRow({ threadId: "t-new", channelId: "c1", sessionId: "s-t-new", title: null, lastActiveAt: 20 }))
   const id = db.tasks.add({ channelId: "c1", prompt: "standup", everyMinutes: 60, nextRunAt: 1_000, createdAt: 1 })
   const prompts: Array<[string, string, string]> = []
   const now = 1_500
@@ -32,7 +26,7 @@ test("tick prompts the most recent thread for each due task and advances next_ru
 
 test("tick records a run audit entry for each due task", async () => {
   const db = setup()
-  db.threads.upsert(threadRow("t1", 10))
+  db.threads.upsert(threadRow({ threadId: "t1", channelId: "c1", sessionId: "s-t1", title: null, lastActiveAt: 10 }))
   db.tasks.add({ channelId: "c1", prompt: "standup", everyMinutes: 60, nextRunAt: 0, createdAt: 1 })
   const entries: any[] = []
   const runner = createTaskRunner({ db, now: () => 100, everyMs: 0,
@@ -45,7 +39,7 @@ test("tick records a run audit entry for each due task", async () => {
 
 test("tick truncates the audited prompt detail to 200 chars", async () => {
   const db = setup()
-  db.threads.upsert(threadRow("t1", 10))
+  db.threads.upsert(threadRow({ threadId: "t1", channelId: "c1", sessionId: "s-t1", title: null, lastActiveAt: 10 }))
   const prompt = "x".repeat(500)
   db.tasks.add({ channelId: "c1", prompt, everyMinutes: 60, nextRunAt: 0, createdAt: 1 })
   const entries: any[] = []

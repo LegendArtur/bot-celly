@@ -1,6 +1,7 @@
 // test/attach.test.ts
 import { expect, test } from "vitest"
 import { attachCommand, attachReply, createAutoThreadResolver, sessionIdReply } from "../src/attach.ts"
+import { projectFixture } from "./helpers/fixtures.ts"
 
 test("attachCommand renders the exact sbx exec opencode attach line", () => {
   expect(attachCommand({ sandboxName: "celly-demo" }, "ses_abc"))
@@ -17,10 +18,7 @@ test("attachReply wraps the exact command in a code block", () => {
     .toBe("```\nsbx exec -it celly-demo bash -lc 'set -a; . ~/.config/celly/opencode.env; set +a; exec opencode attach http://127.0.0.1:4096 -s ses_abc'\n```")
 })
 
-const autoProject = {
-  channelId: "c", guildId: "g", name: "demo", directory: "C:\\p", sandboxPath: null,
-  sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", status: "ready", createdAt: 1,
-} as const
+const autoProject = projectFixture({ status: "ready" })
 
 test("auto-thread gate drops unknown sessions when disabled", async () => {
   const created: any[] = []

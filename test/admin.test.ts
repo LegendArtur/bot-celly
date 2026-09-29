@@ -1,17 +1,14 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { expect, test } from "vitest"
 import { createAdminServer } from "../src/admin.ts"
-import { openDb } from "../src/db.ts"
+import { freshDb, projectFixture } from "./helpers/fixtures.ts"
+import { withTempDir } from "./helpers/tmp.ts"
 
-const proj = { channelId: "c1", guildId: "g", name: "demo", directory: "C:\\p",
-  sandboxPath: null, sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 }
-
-function fresh() { const db = openDb(":memory:"); db.migrate(); return db }
+const proj = projectFixture({ channelId: "c1" })
 
 async function admin(over: any = {}) {
-  const db = over.db ?? fresh()
+  const db = over.db ?? freshDb()
   if (!over.skipProject) { db.projects.insertProvisioning(proj); db.projects.setReady("c1", "C:\\p") }
   const calls: string[] = []
   const svr = await createAdminServer({
@@ -84,7 +81,7 @@ test("POST start and stop call the injected actions and 404 unknown projects", a
 })
 
 test("a failing project action returns a JSON 500", async () => {
-  const db = fresh(); db.projects.insertProvisioning(proj)
+  const db = freshDb(); db.projects.insertProvisioning(proj)
   const svr = await createAdminServer({ port: 0, db, secrets: [], logFileFor: () => undefined,
     start: async () => { throw new Error("boom") }, stop: async () => {} })
   try {
@@ -97,26 +94,26 @@ test("a failing project action returns a JSON 500", async () => {
 })
 
 test("GET /api/logs tails and redacts the project log", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "celly-admin-"))
-  const file = join(dir, "celly-demo.log")
-  writeFileSync(file, ["one", "two", "pw-secret", "four", "five"].join("\n") + "\n")
-  const { svr, base } = await admin({ secrets: ["pw-secret"], logFileFor: () => file })
-  try {
-    const res = await fetch(`${base}/api/logs/c1?lines=4`)
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.channelId).toBe("c1")
-    expect(body.file).toBe(file)
-    expect(body.lines).toHaveLength(4)
-    expect(body.lines.join("\n")).toContain("[redacted]")
-    expect(body.lines.join("\n")).not.toContain("pw-secret")
-    expect(body.lines.join("\n")).not.toContain("one")
-    const all = await (await fetch(`${base}/api/logs/c1`)).json()
-    expect(all.lines).toHaveLength(5)
-  } finally {
-    svr.close()
-    rmSync(dir, { recursive: true, force: true })
-  }
+  await withTempDir("celly-admin-", async (dir) => {
+    const file = join(dir, "celly-demo.log")
+    writeFileSync(file, ["one", "two", "pw-secret", "four", "five"].join("\n") + "\n")
+    const { svr, base } = await admin({ secrets: ["pw-secret"], logFileFor: () => file })
+    try {
+      const res = await fetch(`${base}/api/logs/c1?lines=4`)
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.channelId).toBe("c1")
+      expect(body.file).toBe(file)
+      expect(body.lines).toHaveLength(4)
+      expect(body.lines.join("\n")).toContain("[redacted]")
+      expect(body.lines.join("\n")).not.toContain("pw-secret")
+      expect(body.lines.join("\n")).not.toContain("one")
+      const all = await (await fetch(`${base}/api/logs/c1`)).json()
+      expect(all.lines).toHaveLength(5)
+    } finally {
+      svr.close()
+    }
+  })
 })
 
 test("GET /api/logs 404s when there is no log file", async () => {

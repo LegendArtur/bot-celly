@@ -38,7 +38,7 @@ with block checked first.
 | `/thinking [depth]` | authorized | Choose the current model's thinking depth (variant, for example `low`/`high`/`max`) for this thread, or the channel default in a project channel (select). `depth` sets it directly; `default` clears it. |
 | `/attach` | thread | Show the exact `sbx exec` + `opencode attach` command for this thread's session (ephemeral). |
 | `/session-id` | thread | Show this thread's session id and the attach command behind a spoiler (ephemeral). |
-| `/queue` | authorized | Show the first 10 queued prompts for this thread with Remove and Clear buttons (ephemeral). |
+| `/queue` | thread | Show the first 10 queued prompts for this thread with Remove and Clear buttons (ephemeral). |
 | `/undo` | authorized | Revert the session to its last user message. |
 | `/redo` | authorized | Restore messages reverted by the last `/undo`. |
 | `/diff` | authorized | List up to 10 changed files as `status path (+adds/-dels)` plus totals (chunked). |
