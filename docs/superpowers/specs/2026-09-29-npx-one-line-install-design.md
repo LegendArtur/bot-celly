@@ -1,6 +1,6 @@
 # Celly one-line install (`npx bot-celly`) design
 
-Status: approved 2026-09-29. Scope: publish `bot-celly` to npm and add a
+Status: proposed 2026-09-29, pending maintainer approval. Scope: publish `bot-celly` to npm and add a
 `bot-celly` CLI that performs a guided first-run setup, reports prerequisite
 health, and boots the existing bot — replacing the manual Node/clone/build/`.env`
 quickstart.
@@ -76,7 +76,9 @@ Entries:
   5. Doctor / wizard as needed, then `await main()`.
 - One env file: `src/index.ts` calls `loadDotEnv(process.env.CELLY_ENV_FILE ?? ".env")`.
   Repo/dev loads `./.env` as today; the npx path ignores a stray `.env` in the
-  user's current directory.
+  user's current directory. `CELLY_ENV_FILE` is internal CLI coordination (set by
+  `src/cli.ts`), not a documented user knob; `CELLY_HOME` is the supported
+  override.
 - Security: home created `0700`; `~/.bot-celly/.env` written `0600` on POSIX
   (no-op on Windows). The Discord token is the only secret stored; the existing
   logger already redacts it.
@@ -94,7 +96,10 @@ Entries:
   calling `loadConfig` so the wizard cannot write a config boot would reject;
   (5) write `~/.bot-celly/.env` (`0600`), merging — update only
   `DISCORD_TOKEN`/`DISCORD_GUILD_IDS` and preserve comments/optional vars;
-  (6) print the path, then continue to doctor + boot.
+  (6) refresh `process.env` with the collected values — the CLI loaded the env
+  file before it existed, so the wizard must apply `DISCORD_TOKEN`/
+  `DISCORD_GUILD_IDS` in-process for doctor and `main()` to see them — then print
+  the path, and continue to doctor + boot.
 - `setup` re-runs even when config exists and merges in place; bare `bot-celly`
   skips the wizard once config is present.
 - `wizard.ts` takes injected `input`/`output` streams and a `writeFile` function
@@ -202,9 +207,9 @@ Behavior:
 ## Workstream J — docs, changeset & release workflow
 
 - README: quick start becomes `npx bot-celly@latest`; clone/build moves under
-  "From source"; document `~/.bot-celly`, `CELLY_HOME`, and the `DATA_DIR`
-  default; add a "Releases" note (`changeset version` → commit → `git tag
-  v<version>` → push tag → CI publishes).
+  "From source"; add a short CLI section (commands, flags, `~/.bot-celly`);
+  document `CELLY_HOME` and the `DATA_DIR` default; add a "Releases" note
+  (`changeset version` → commit → `git tag v<version>` → push tag → CI publishes).
 - `AGENTS.md`: add release/tagging to **Commands**
   (`npx changeset version`, `git tag v<version>`, `git push origin v<version>`);
   add to **Definition of done** that releasing is via changesets + a pushed `v*`
