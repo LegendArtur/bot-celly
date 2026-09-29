@@ -323,10 +323,11 @@ function collectCommands(input: string, depth: number, commands: string[]): void
       continue
     }
     if (ch === "$" && input[i + 1] === "{") {
-      const end = input.indexOf("}", i + 2)
-      if (end === -1) throw new ScanError("unbalanced ${")
-      current += input.slice(i, end + 1)
-      i = end + 1
+      const parsed = extractBalanced(input, i + 1, "{", "}")
+      if (!parsed) throw new ScanError("unbalanced ${")
+      collectSubstitutions(parsed.text, depth + 1, commands)
+      current += input.slice(i, parsed.next)
+      i = parsed.next
       continue
     }
     if (ch === "$" && input[i + 1] === "(") {

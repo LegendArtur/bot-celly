@@ -204,3 +204,15 @@ test("fails closed on constructs it cannot analyze", () => {
     expect(scan.ok, input).toBe(false)
   }
 })
+
+test("parameter expansion bodies are scanned for substitutions", () => {
+  const variants = ["echo ${x:-$(git push)}", "echo \"${x:-`git push`}\"", "echo ${x:-${y:-$(git push)}}"]
+  for (const input of variants) {
+    const scan = scanShellCommands(input)
+    expect(scan.ok, input).toBe(true)
+    expect(scan.ok && scan.commands, input).toContain("git push")
+  }
+  const benign = scanShellCommands("echo ${HOME}")
+  expect(benign.ok && benign.commands).toEqual(["echo ${HOME}"])
+  expect(scanShellCommands("echo ${x").ok).toBe(false)
+})
