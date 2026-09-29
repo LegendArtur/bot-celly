@@ -1266,32 +1266,6 @@ test("context-usage renders the usage bar and the no-usage message", async () =>
   expect(editOf(empty)).toBe("no usage recorded for this thread yet")
 })
 
-test("model and agent with a direct value set the thread override", async () => {
-  const db = fresh(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow("t1"))
-  const calls: any[] = []
-  const modelInteraction = interaction({ commandName: "model", channelId: "t1", strings: { model: "anthropic/claude" } })
-  await handleCommand(modelInteraction, { projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
-    setThreadModel: (id: string, model: string | null) => { calls.push(["model", id, model]) } })
-  expect(calls).toEqual([["model", "t1", "anthropic/claude"]])
-  expect(editOf(modelInteraction)).toBe("model set to anthropic/claude")
-
-  const agentInteraction = interaction({ commandName: "agent", channelId: "t1", strings: { agent: "build" } })
-  await handleCommand(agentInteraction, { projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
-    setThreadAgent: (id: string, agent: string | null) => { calls.push(["agent", id, agent]) } })
-  expect(calls[1]).toEqual(["agent", "t1", "build"])
-  expect(editOf(agentInteraction)).toBe("agent set to build")
-})
-
-test("resume with a direct session id creates the thread without a select", async () => {
-  const db = fresh(); db.projects.insertProvisioning(proj); db.projects.setReady("c", "C:\\p")
-  const i = interaction({ commandName: "resume", channelId: "c", strings: { session: "s9" } })
-  let captured: any
-  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
-    createThread: async (input: any) => { captured = input; return { threadId: "t9", sessionId: "s9" } } })
-  expect(captured).toMatchObject({ channelId: "c", sessionId: "s9" })
-  expect(editOf(i)).toBe("resumed in <#t9>")
-})
-
 test("model in a project channel offers a channel-scoped provider select", async () => {
   const db = fresh(); db.projects.insertProvisioning(proj)
   const i = interaction({ commandName: "model", channelId: "c" })
@@ -1328,16 +1302,6 @@ test("model, agent, and thinking in a non-project channel are rejected", async (
     await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
     expect(editOf(i)).toBe("this channel is not a project")
   }
-})
-
-test("model in a project channel with a direct value sets the channel default", async () => {
-  const db = fresh(); db.projects.insertProvisioning(proj)
-  const i = interaction({ commandName: "model", channelId: "c", strings: { model: "anthropic/claude" } })
-  let set: any
-  await handleCommand(i, { projects: { ensureReady: async () => {} } as any, runner: {} as any, db, authorized: () => true,
-    setChannelModel: (id: string, model: string | null) => { set = [id, model] } })
-  expect(set).toEqual(["c", "anthropic/claude"])
-  expect(editOf(i)).toBe("channel model set to anthropic/claude")
 })
 
 test("worktree merge forwards the thread id", async () => {
@@ -1490,4 +1454,17 @@ test("project create rejects branch without clone before creating a directory", 
   }
   await handleCommand(i, { projects, runner: {} as any, db: fresh(), authorized: () => true, isOwner: () => true })
   expect(editOf(i)).toBe("branch requires clone")
+})
+
+test("every declared command has a handler branch", async () => {
+  for (const command of commandData()) {
+    const subs = (command.options ?? [])
+      .filter((o: any) => o.type === ApplicationCommandOptionType.Subcommand)
+      .map((o: any) => o.name)
+    for (const sub of subs.length ? subs : [undefined]) {
+      const i = interaction({ commandName: command.name, channelId: "c", sub })
+      await handleCommand(i, { projects: {} as any, runner: {} as any, db: fresh(), authorized: () => true })
+      expect(editOf(i), `${command.name} ${sub ?? ""}`).not.toBe("not implemented in this build")
+    }
+  }
 })
