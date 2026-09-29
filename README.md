@@ -2,15 +2,14 @@
 
 <p align="center"><strong>Drive OpenCode from Discord — one isolated microVM per project.</strong></p>
 
-Start a sandboxed coding agent from any device. Celly
-turns [Discord](https://discord.com) into a control plane for
-[OpenCode](https://opencode.ai) agents: kick off work, watch it stream, approve a
-command, and pick the session back up later.
+Celly turns [Discord](https://discord.com) into a control plane for sandboxed
+[OpenCode](https://opencode.ai) agents: start a project from any device, 
+watch it stream, approve a command, and pick the session back up any time.
 
 It is for people who want an always-on coding agent without exposing their whole
-machine: each project runs in its own disposable sandbox, and the only thing the
-agent can reach is that project's directory. For a deeper tour, see the
-[docs](https://celly.agub.dev).
+machine: each project runs in its own disposable Docker sandbox (microVM),
+and the only thing the agent can reach is that project's directory. 
+For a deeper tour, see the [docs](https://celly.agub.dev).
 
 ## Why Celly
 
