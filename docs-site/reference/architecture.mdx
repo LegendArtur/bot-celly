@@ -63,7 +63,7 @@ The runtime, libraries, and tooling are listed on
 | `src/sbx.ts` | **The only module that invokes `sbx`.** argv-only (`spawn(cmd, args, { shell: false })`), typed errors, timeouts, JSON parsers, path/name validation, port allocation, sandbox lifecycle. |
 | `src/projects.ts` | Project lifecycle orchestration: create/remove sagas with rollback, `ensureReady()`, per-project single-flight mutex, supervised serve child registry. |
 | `src/opencode.ts` | SDK client registry (basic auth), health polling, client factory. |
-| `src/events.ts` | `EventRouter`: demultiplexes one project SSE stream by `sessionID` to the owning thread, reconnect/resync, buffer caps. |
+| `src/events.ts` | `EventRouter`: demultiplexes one project SSE stream by `sessionID` to the owning thread, reconnect/resync, buffer caps. It also drops user-message parts (correlating `message.part.updated` to the preceding `message.updated` role) so only assistant output is rendered and the prompt is not echoed back. |
 | `src/runner.ts` | Per-thread run state machine: session create/reuse, prompt, queue, abort, dispatch to renderer; permission-policy evaluation lives in `src/policy.ts`. |
 | `src/policy.ts` | Shell command parsing and permission policy: deny-list matching, wrapper normalization, and the fail-closed indeterminate policy used by `runner.ts`. |
 | `src/session-utils.ts` | Session-level SDK calls and formatting: undo/redo (`session.revert`/`unrevert`), diff, share/unshare, compact, context usage. |
