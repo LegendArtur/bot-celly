@@ -1,6 +1,6 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "name": "Celly",
+  "name": "Bot Celly",
   "theme": "almond",
   "colors": {
     "primary": "#00FFCB",
@@ -69,5 +69,6 @@
   },
   "metadata": {
     "timestamp": false
-  }
+  },
+  "description": "Documentation for Bot Celly."
 }
