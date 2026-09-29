@@ -149,7 +149,11 @@ Behavior:
 - `bot-celly doctor` → checks only; never boots.
 - `bot-celly --version` / `-v` → version from `package.json`.
 - `bot-celly --help` / `-h` → usage.
-- Flags: `--token <value>`, `--guilds <a,b,c>`, `--home <dir>`.
+- Flags: `--token <value>`, `--guilds <a,b,c>`, `--home <dir>`, and `--run`
+  (valid with `setup`). `--token`/`--guilds`/`--home` are applied to
+  `process.env` (`DISCORD_TOKEN`, `DISCORD_GUILD_IDS`, `CELLY_HOME`) **before**
+  env/config resolution, so a flag wins over the env file and suppresses the
+  wizard prompt for that value.
 - Unknown flag/subcommand → error, usage, exit `2`.
 - Exit codes: `0` ok, `1` operational failure, `2` usage error.
 - `src/cli/args.ts` is pure and dependency-free, returning a discriminated
