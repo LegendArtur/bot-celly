@@ -1,6 +1,6 @@
 # Celly one-line install (`npx bot-celly`) design
 
-Status: proposed 2026-09-29, pending maintainer approval. Scope: publish `bot-celly` to npm and add a
+Status: approved 2026-09-29. Scope: publish `bot-celly` to npm and add a
 `bot-celly` CLI that performs a guided first-run setup, reports prerequisite
 health, and boots the existing bot — replacing the manual Node/clone/build/`.env`
 quickstart.
