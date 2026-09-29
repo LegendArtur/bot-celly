@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, readFileSync, writeFileSync } from "node:fs"
 import { emitKeypressEvents } from "node:readline"
 import type { Interface as ReadlineInterface } from "node:readline"
 import { createInterface } from "node:readline/promises"
@@ -27,6 +27,11 @@ export interface WizardResult {
 
 const GUILD_RE = /^\d{17,20}$/
 
+const defaultWriteFile = (path: string, data: string, options: { mode: number }): void => {
+  writeFileSync(path, data, options)
+  try { chmodSync(path, options.mode) } catch {}
+}
+
 export function mergeEnv(existing: string, updates: Record<string, string>): string {
   const lines = existing.length > 0 ? existing.split(/\r?\n/) : []
   const seen = new Set<string>()
@@ -50,7 +55,7 @@ export function mergeEnv(existing: string, updates: Record<string, string>): str
 export async function runWizard(deps: WizardDeps): Promise<WizardResult> {
   const { env, ui, prompter } = deps
   const readFile = deps.readFile ?? ((path: string) => readFileSync(path, "utf8"))
-  const writeFile = deps.writeFile ?? ((path: string, data: string, options: { mode: number }) => { writeFileSync(path, data, options) })
+  const writeFile = deps.writeFile ?? defaultWriteFile
 
   ui.heading("Welcome to Celly")
   ui.bullet("I need two things: your Discord bot token and your guild IDs.")

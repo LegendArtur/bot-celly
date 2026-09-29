@@ -1,7 +1,10 @@
 import { expect, test } from "vitest"
+import { readFileSync, statSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { mergeEnv, runWizard } from "../src/cli/wizard.ts"
 import { createUi } from "../src/cli/ui.ts"
 import type { Prompter } from "../src/cli/wizard.ts"
+import { withTempDir } from "./helpers/tmp.ts"
 
 function fakePrompter(answers: { secret: string[]; visible: string[] }): Prompter {
   return {
@@ -55,4 +58,20 @@ test("runWizard re-prompts on a bad guild id and an empty token", async () => {
     writeFile: () => {},
   })
   expect(result.guilds).toEqual(["123456789012345678"])
+})
+
+test("runWizard tightens the env file mode when rewriting an existing file", async () => {
+  await withTempDir("celly-wizard-", async (dir) => {
+    const path = join(dir, ".env")
+    writeFileSync(path, "DISCORD_TOKEN=old\nDISCORD_GUILD_IDS=111111111111111111\n", { mode: 0o644 })
+    const env: NodeJS.ProcessEnv = {}
+    await runWizard({
+      env,
+      envFile: path,
+      ui: silentUi(),
+      prompter: fakePrompter({ secret: ["new-token"], visible: ["123456789012345678"] }),
+    })
+    expect(readFileSync(path, "utf8")).toContain("DISCORD_TOKEN=new-token")
+    if (process.platform !== "win32") expect(statSync(path).mode & 0o777).toBe(0o600)
+  })
 })
