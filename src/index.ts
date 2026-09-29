@@ -52,7 +52,7 @@ export async function touchAfterWake(
   db.projects.touch(channelId, Date.now())
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   loadDotEnv(envFileFrom())
   const cfg = loadConfig(process.env)
   ensureDataDir(cfg.dataDir)

@@ -1,16 +1,36 @@
 {
-  "name": "celly",
+  "name": "bot-celly",
   "version": "0.2.0",
-  "private": true,
   "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=24 <25"
   },
+  "bin": {
+    "bot-celly": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "assets"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LegendArtur/bot-celly.git"
+  },
+  "homepage": "https://celly.agub.dev",
+  "bugs": {
+    "url": "https://github.com/LegendArtur/bot-celly/issues"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm test && npm run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",

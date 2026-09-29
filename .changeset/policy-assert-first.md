@@ -1,5 +1,5 @@
 ---
-"celly": patch
+"bot-celly": patch
 ---
 
 Verify the bot-enforced permission policy before writing it. A config `PATCH`

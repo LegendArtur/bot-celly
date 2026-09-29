@@ -1,5 +1,5 @@
 ---
-"celly": patch
+"bot-celly": patch
 ---
 
 Evaluate the whole bash command in the permission policy: deny-listed commands

@@ -1,5 +1,5 @@
 ---
-"celly": minor
+"bot-celly": minor
 ---
 
 Rebuild the loopback admin page as an ops console: live project cards, usage
