@@ -1679,9 +1679,11 @@ gitignored and created on boot.
 
 In `docs-site/reference/commands.mdx`, change `/queue` from `authorized` to `thread` (it requires being inside a thread and the README already says so).
 
-- [ ] **Step 4: Review the README tables**
+- [ ] **Step 4: Review the README tables and mirror the new limitation**
 
 Confirm every row in the README command table still matches `commands.mdx`; no command surface changed in this close-out, so only the `/queue` row needs to agree (it already says `thread`).
+
+Also mirror the new defense-in-depth bash bullet from `limitations.mdx` into the README's Limitations section (or, if the README intentionally keeps only a link to the canonical list, state that in the commit and leave it). Task 14 added the canonical bullet but did not touch the README.
 
 - [ ] **Step 5: Verify**
 
