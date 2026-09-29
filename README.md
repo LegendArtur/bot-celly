@@ -1,6 +1,6 @@
 <h1 align="center">Celly</h1>
 
-<p align="center"><strong>A Discord forge for coding agents.</strong></p>
+<p align="center"><strong>Drive OpenCode from Discord — one isolated microVM per project.</strong></p>
 
 <p align="center">
   <img src="docs-site/images/demo.svg" alt="Celly streaming a coding agent's reply inside a Discord thread" width="820">
@@ -318,12 +318,18 @@ Docs live in `docs-site/` (`npm run docs:dev`, `npm run docs:validate`,
 
 ## Status and roadmap
 
-The command set above is the current surface. Deferred:
+The command set above is the current surface. Planned, not committed:
 
-- **Input:** voice messages and image attachments.
-- **Surfaces:** OpenCode web UI, diff viewer, tunnels/screenshare, forum-channel
-  layout.
-- **Scale/deploy:** cloud sandboxes.
+- **One-line install.** A single command (for example `npx celly`) to install
+  and run Celly, without the manual Node, clone, build, and `.env` steps.
+- **Image output.** Post images the agent produces (screenshots, diagrams) into
+  the thread, alongside streamed text.
+- **Cloud sandboxes and hosted deployment.** Run projects in cloud sandboxes and
+  deploy Celly as a hosted service, so no local host is required.
+- **Image and voice input.** Send images and voice messages as prompts.
+
+The canonical roadmap is at
+[Roadmap](https://celly.agub.dev/project/roadmap).
 
 ## Limitations
 

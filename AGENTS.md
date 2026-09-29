@@ -50,7 +50,8 @@ below, update the matching page(s) **and** the README in the same pull request.
 | Environment variable, default, or seed behavior | `docs-site/guides/configuration.mdx` and the README quick start |
 | Security or permission behavior | `docs-site/reference/security.mdx` |
 | Admin page, logs, backups, rotation, restore | `docs-site/guides/operations.mdx` |
-| Limitation or deferred work | `docs-site/reference/limitations.mdx` and the README Limitations |
+| Limitation | `docs-site/reference/limitations.mdx` and the README Limitations |
+| Roadmap or deferred feature | `docs-site/project/roadmap.mdx` and the README roadmap |
 | Host bootstrap or service setup | `docs-site/quickstart.mdx` and `docs-site/guides/deployment*.mdx` |
 | Runtime, dependency, or tooling | `docs-site/project/tech-stack.mdx` |
 | Module, saga, or event flow | `docs-site/reference/architecture.mdx` |
@@ -62,6 +63,7 @@ Single sources of truth — link to them, do not copy them:
 - **Commands** (`reference/commands`) — the command surface.
 - **Operations** (`guides/operations`) — admin page, logs, backups.
 - **Limitations** (`reference/limitations`) — the canonical limitations.
+- **Roadmap** (`project/roadmap`) — planned and deferred features.
 - **Tech stack** (`project/tech-stack`) — runtime, tooling, credits.
 
 Reusable docs blocks live in `docs-site/snippets/` and are included with
