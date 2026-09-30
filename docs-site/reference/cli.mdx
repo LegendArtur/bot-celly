@@ -27,13 +27,16 @@ npx bot-celly@latest
 | --- | --- |
 | `--token <value>` | Discord bot token, for headless setup. |
 | `--guilds <a,b,c>` | Comma-separated guild IDs, for headless setup. |
+| `--github-token <value>` | Optional GitHub token copied into every sandbox (see [GitHub token](/guides/configuration#github-token)). |
 | `--home <dir>` | Config and data directory; same as `CELLY_HOME`. |
 | `--run` | With `setup`, start the bot after setup. |
 
 ## Configuration and data
 
 The wizard writes `~/.bot-celly/.env` (Windows:
-`%USERPROFILE%\.bot-celly\.env`) with mode `600`. `DATA_DIR` defaults to
+`%USERPROFILE%\.bot-celly\.env`) with mode `600`. On an interactive run it also
+asks whether to add a GitHub token for the sandboxes (stored as
+`GITHUB_TOKEN`; skip it with `n` or pass `--github-token`). `DATA_DIR` defaults to
 `~/.bot-celly/data`; `PROJECTS_ROOT` still defaults to `~/Celly/projects`. Set
 `CELLY_HOME` to move the directory, and `CELLY_ASCII=1` to force ASCII output
 symbols even when color is on. See

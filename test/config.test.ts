@@ -14,6 +14,12 @@ test("parses defaults", () => {
   expect(c.maxConcurrentRuns).toBe(4)
   expect(c.editIntervalMs).toBe(1200)
 })
+test("github token is optional, GITHUB_TOKEN wins over GH_TOKEN", () => {
+  expect(loadConfig(base).githubToken).toBeUndefined()
+  expect(loadConfig({ ...base, GITHUB_TOKEN: " ghp_a " }).githubToken).toBe("ghp_a")
+  expect(loadConfig({ ...base, GH_TOKEN: "ghp_b" }).githubToken).toBe("ghp_b")
+  expect(loadConfig({ ...base, GITHUB_TOKEN: "ghp_a", GH_TOKEN: "ghp_b" }).githubToken).toBe("ghp_a")
+})
 test("only token and guild are required; PROJECTS_ROOT defaults under the home dir", () => {
   const c = loadConfig({ DISCORD_TOKEN: "t", DISCORD_GUILD_ID: "g" })
   expect(c.projectsRoot).toBe(join(homedir(), "Celly", "projects"))

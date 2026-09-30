@@ -25,10 +25,11 @@ Commands:
   --help      Show this help
 
 Flags:
-  --token <value>    Discord bot token (headless)
-  --guilds <a,b,c>   Comma-separated guild IDs (headless)
-  --home <dir>       Config and data directory (default ~/.bot-celly)
-  --run              With setup, start the bot after setup`
+  --token <value>         Discord bot token (headless)
+  --guilds <a,b,c>        Comma-separated guild IDs (headless)
+  --github-token <value>  GitHub token for the sandboxes (optional, headless)
+  --home <dir>            Config and data directory (default ~/.bot-celly)
+  --run                   With setup, start the bot after setup`
 
 function version(): string {
   const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }
@@ -71,6 +72,7 @@ export async function runCli(deps: RunCliDeps): Promise<number> {
 
   if (options.token !== undefined) env.DISCORD_TOKEN = options.token
   if (options.guilds !== undefined) env.DISCORD_GUILD_IDS = options.guilds
+  if (options.githubToken !== undefined) env.GITHUB_TOKEN = options.githubToken
   if (options.home !== undefined) env.CELLY_HOME = options.home
 
   const applied = appliedHome({ env })

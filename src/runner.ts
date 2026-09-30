@@ -54,6 +54,8 @@ export interface RunnerDeps {
   notify?(channelId: string, text: string): Promise<void> | void
   onThreadIdle?(threadId: string): void
   approvalModeFor?(channelId: string): ApprovalMode
+  /** Host-side bash deny patterns; mirrors the sandbox policy (e.g. drops `git push` when a GitHub token is set). */
+  denyPatterns?: string[]
   respondPermission?(input: PermissionReplyInput): Promise<void>
   approvals?: Pick<ApprovalManager, "requestPermission" | "askQuestion" | "cancel" | "cancelThread">
   audit?(entry: AuditDraft): void
@@ -266,7 +268,7 @@ export class Runner {
     else if (e.kind === "permission") {
       const thread = db.threads.get(threadId)
       const mode = this.deps.approvalModeFor?.(thread?.channelId ?? threadId) ?? "auto"
-      const decision = decidePermission(mode, { tool: e.tool, patterns: e.patterns })
+      const decision = decidePermission(mode, { tool: e.tool, patterns: e.patterns }, this.deps.denyPatterns)
       if (decision === "ask") {
         if (this.deps.approvals) {
           await this.deps.approvals.requestPermission({

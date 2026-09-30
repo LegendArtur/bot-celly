@@ -1,6 +1,6 @@
 // test/opencode.test.ts
 import { expect, test } from "vitest"
-import { applyAndAssertCellyPolicy, AUTH_ENV_BY_PROVIDER, BASH_DENY, basicAuth, buildCellyConfigJson, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, createV2Client, enableQuestionPermissionV2, OPENCODE_AUTH_PATH, resolveClient, resolveV2Client, waitForHealth } from "../src/opencode.ts"
+import { applyAndAssertCellyPolicy, AUTH_ENV_BY_PROVIDER, BASH_DENY, bashDenyPatterns, basicAuth, buildBootstrapInstallScript, buildCellyConfigJson, buildGitCredentialScript, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, createV2Client, enableQuestionPermissionV2, GIT_PUSH_DENY, OPENCODE_AUTH_PATH, resolveClient, resolveV2Client, waitForHealth } from "../src/opencode.ts"
 import { startTestServer } from "./helpers/http.ts"
 
 test("basicAuth encodes the opencode user and password", () => {
@@ -54,6 +54,32 @@ test("the sandbox env pins the password, config path, and inline content", () =>
   expect(JSON.parse(match![1]!).permission).toEqual(cellyPolicy().permission)
 })
 
+test("a configured github token turns git push into an approval prompt", () => {
+  expect(cellyPolicy().permission.bash[GIT_PUSH_DENY]).toBe("deny")
+  expect(cellyPolicy({ githubToken: "ghp_test" }).permission.bash[GIT_PUSH_DENY]).toBe("ask")
+  expect(bashDenyPatterns()).toContain(GIT_PUSH_DENY)
+  expect(bashDenyPatterns({ githubToken: "ghp_test" })).not.toContain(GIT_PUSH_DENY)
+})
+
+test("the sandbox env and bootstrap carry the github token", () => {
+  const env = buildOpencodeEnv("pw", { githubToken: "ghp_secret" })
+  expect(env).toContain("GITHUB_TOKEN=ghp_secret")
+  expect(buildOpencodeEnv("pw")).not.toContain("GITHUB_TOKEN")
+  const bootstrap = buildBootstrapInstallScript("pw", { githubToken: "ghp_secret" })
+  expect(bootstrap).toContain("GITHUB_TOKEN=ghp_secret")
+  expect(buildBootstrapInstallScript("pw")).not.toContain("GITHUB_TOKEN")
+})
+
+test("the git credential script writes a 0600 store and removes it without a token", () => {
+  const withToken = buildGitCredentialScript({ githubToken: "ghp_secret" })
+  expect(withToken).toContain("https://x-access-token:ghp_secret@github.com")
+  expect(withToken).toContain("credential.https://github.com.helper")
+  expect(withToken).toContain('chmod 600 "$HOME/.git-credentials"')
+  const without = buildGitCredentialScript()
+  expect(without).toContain('rm -f "$HOME/.git-credentials"')
+  expect(without).toContain("--unset-all")
+})
+
 test("applyAndAssertCellyPolicy verifies first and patches only when the server lacks the policy", async () => {
   const calls: any[] = []
   let stored: any = null
@@ -90,6 +116,7 @@ const SERVER_NORMALIZED_PERMISSION = {
     env: "deny",
     "catopencode.env": "deny",
     "cat/.config/celly/": "deny",
+    "git-credentials": "deny",
     "awkopencode.env": "deny",
     "awk/.config/celly/": "deny",
     "base64opencode.env": "deny",
@@ -187,6 +214,17 @@ test("applyAndAssertCellyPolicy fails closed when a deny pattern is weakened to 
     get: async () => ({ data: { share: "disabled", permission } }),
   } }
   await expect(applyAndAssertCellyPolicy(client as any)).rejects.toThrow(/git push/)
+})
+
+test("applyAndAssertCellyPolicy keeps git push at ask when a token is set", async () => {
+  const build = (value: string) => {
+    const permission = structuredClone(SERVER_NORMALIZED_PERMISSION) as any
+    permission.bash["gitpush"] = value
+    return { config: { update: async () => ({}), get: async () => ({ data: { share: "disabled", permission } }) } }
+  }
+  await expect(applyAndAssertCellyPolicy(build("ask") as any, undefined, { githubToken: "ghp_x" })).resolves.toBeUndefined()
+  await expect(applyAndAssertCellyPolicy(build("allow") as any, undefined, { githubToken: "ghp_x" })).rejects.toThrow(/git push/)
+  await expect(applyAndAssertCellyPolicy(build("deny") as any, undefined, { githubToken: "ghp_x" })).rejects.toThrow(/git push/)
 })
 
 test("applyAndAssertCellyPolicy fails closed when a deny pattern disappears", async () => {

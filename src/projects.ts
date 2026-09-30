@@ -7,7 +7,8 @@ import type { Db } from "./db.ts"
 import type { Project } from "./types.ts"
 import { allocatePort, buildSandboxName, defaultForbiddenPaths, isPathInside, isSensitivePath, sanitizeProjectDirName, Sbx, SbxRunner } from "./sbx.js"
 import type { ChildProcess } from "./sbx.js"
-import { applyAndAssertCellyPolicy, BOOTSTRAP_PREPARE, BOOTSTRAP_VERIFY, buildBootstrapInstallScript, buildServeArgs, createClient, createV2Client, waitForHealth } from "./opencode.js"
+import { applyAndAssertCellyPolicy, BOOTSTRAP_PREPARE, BOOTSTRAP_VERIFY, buildBootstrapInstallScript, buildGitCredentialScript, buildServeArgs, createClient, createV2Client, waitForHealth } from "./opencode.js"
+import type { GithubOptions } from "./opencode.js"
 import type { OpencodeClient, OpencodeV2Client } from "./opencode.js"
 import { redact } from "./log.js"
 import { rotateIfNeeded } from "./rotate.js"
@@ -76,8 +77,17 @@ export class ProjectService {
     return directory
   }
 
+  private githubOptions(): GithubOptions {
+    return { githubToken: this.deps.config.githubToken }
+  }
+
   private applyPolicy(client: OpencodeClient, v2: OpencodeV2Client): Promise<void> {
-    return (this.deps.applyPolicy ?? (applyAndAssertCellyPolicy as (c: OpencodeClient, v: OpencodeV2Client) => Promise<void>))(client, v2)
+    return (this.deps.applyPolicy ?? ((c: OpencodeClient, v: OpencodeV2Client) => applyAndAssertCellyPolicy(c, v, this.githubOptions())))(client, v2)
+  }
+
+  /** Write/remove the sandbox git credentials for github.com (token on stdin). */
+  private async applyGitCredentials(sandboxName: string): Promise<void> {
+    await this.deps.sbx.execWithInput(sandboxName, ["bash", "-s"], buildGitCredentialScript(this.githubOptions()))
   }
 
   private async isPortFree(port: number): Promise<boolean> {
@@ -116,7 +126,8 @@ export class ProjectService {
     // The sandbox user writes its own config/env (content on stdin, 0600 via
     // umask). No host temp files, no sandbox /tmp, no root-owned `sbx cp`.
     await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_PREPARE])
-    await this.deps.sbx.execWithInput(sandboxName, ["bash", "-s"], buildBootstrapInstallScript(serverPassword))
+    await this.deps.sbx.execWithInput(sandboxName, ["bash", "-s"], buildBootstrapInstallScript(serverPassword, this.githubOptions()))
+    await this.applyGitCredentials(sandboxName)
     await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_VERIFY])
   }
 
@@ -449,6 +460,9 @@ export class ProjectService {
         return
       }
       this.killChild(channelId)
+      // Re-assert git credentials on every (re)start so token rotation and
+      // sandboxes created before a token was configured are covered.
+      await this.applyGitCredentials(p.sandboxName)
       this.bootServer(channelId)
       try {
         await waitForHealth(client, this.deps.config.healthTimeoutMs)

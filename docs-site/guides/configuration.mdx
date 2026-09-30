@@ -23,6 +23,7 @@ invalid required value fails fast with an actionable error.
 | `DISCORD_GUILD_IDS` | **required** | Comma-separated guild IDs. Entries are trimmed, blanks dropped, and duplicates ignored. |
 | `DISCORD_GUILD_ID` | unset | Legacy single-guild form, used only when `DISCORD_GUILD_IDS` is unset. |
 | `PROJECTS_ROOT` | `~/Celly/projects` | Allowed project root; created on boot. |
+| `GITHUB_TOKEN` | unset | Optional shared GitHub token copied into every sandbox (see [GitHub token](#github-token)). `GH_TOKEN` is the fallback. |
 | `ACCESS_ROLE_ID` | unset | Role **ID** allowed to use the bot. |
 | `BLOCK_ROLE_ID` | unset | Role **ID** denied access (checked first). |
 | `OWNER_ROLE_ID` | unset | Role **ID** allowed to run owner-only `/project` mutations. The guild owner is always allowed. |
@@ -58,6 +59,22 @@ invalid required value fails fast with an actionable error.
 seeded into the `settings` table on the first boot only. Once a value exists
 there, it is authoritative and re-reading `.env` will not overwrite it.
 </Note>
+
+## GitHub token
+
+`GITHUB_TOKEN` is optional. When set, Celly copies it into every sandbox — over
+stdin, mode `0600`, never on a command line — into `opencode.env` and a
+`github.com` git credential store, so the agent can `git clone`, `fetch`, and
+`push` private repositories. `GH_TOKEN` is accepted as a fallback. When a token
+is configured, `git push` moves from the hard deny list to the normal approval
+flow (runs in `auto`, asks in `buttons`, rejected in `plan`); without one it
+stays blocked. The token is shared by every project, is never stored by Celly,
+and is not readable by the agent (the deny list blocks `~/.git-credentials`).
+
+Easiest way to set it: run `bot-celly setup` and answer the
+"Add a GitHub token…?" prompt. For headless setups pass `--github-token`, or set
+`GITHUB_TOKEN` in `.env` directly. Changing the token takes effect for a project
+the next time its sandbox (re)starts.
 
 ## Multiple guilds
 

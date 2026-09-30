@@ -62,17 +62,28 @@ export interface CellyPolicy {
   share: "disabled"
   permission: {
     "*": "allow"
-    bash: Record<string, "allow" | "deny">
+    bash: Record<string, "allow" | "deny" | "ask">
     external_directory: "deny"
     question: "allow"
   }
 }
 
+/**
+ * A single shared GitHub token configured on the host. When present the token
+ * is delivered into the sandbox and `git push` moves from a hard deny to `ask`,
+ * so it flows through the normal approval flow instead of being blocked.
+ */
+export interface GithubOptions {
+  githubToken?: string
+}
+
+export const GIT_PUSH_DENY = "git push*"
+
 export const ENV_INSPECT_UTILITIES = ["awk", "base64", "cat", "cp", "grep", "head", "less", "od", "sed", "strings", "tail", "xxd"] as const
 
 export const BASH_DENY: Record<string, "allow" | "deny"> = {
   "*": "allow",
-  "git push*": "deny",
+  [GIT_PUSH_DENY]: "deny",
   "git clean -fdx*": "deny",
   "npm publish*": "deny",
   "pnpm publish*": "deny",
@@ -88,36 +99,49 @@ for (const utility of ENV_INSPECT_UTILITIES) {
 }
 BASH_DENY["*opencode.env*"] = "deny"
 BASH_DENY["*/.config/celly/*"] = "deny"
+// The GitHub token lands in a git credential store inside the sandbox; keep the
+// model from reading it back out.
+BASH_DENY["*git-credentials*"] = "deny"
 
-/** The same deny patterns that are baked into the sandbox config, normalized. */
-export function bashDenyPatterns(): string[] {
-  return Object.entries(BASH_DENY).filter(([key, value]) => key !== "*" && value === "deny").map(([key]) => key)
+/** The bash rules baked into the sandbox config and mirrored by the host policy. */
+export function cellyBashPolicy(options: GithubOptions = {}): Record<string, "allow" | "deny" | "ask"> {
+  const bash: Record<string, "allow" | "deny" | "ask"> = { ...BASH_DENY }
+  if (options.githubToken) bash[GIT_PUSH_DENY] = "ask"
+  return bash
 }
 
-export function cellyPolicy(): CellyPolicy {
+/** The same deny patterns that are baked into the sandbox config, normalized. */
+export function bashDenyPatterns(options: GithubOptions = {}): string[] {
+  return Object.entries(cellyBashPolicy(options))
+    .filter(([key, value]) => key !== "*" && value === "deny")
+    .map(([key]) => key)
+}
+
+export function cellyPolicy(options: GithubOptions = {}): CellyPolicy {
   return {
     $schema: "https://opencode.ai/config.json",
     share: "disabled",
     permission: {
       "*": "allow",
-      bash: { ...BASH_DENY },
+      bash: cellyBashPolicy(options),
       external_directory: "deny",
       question: "allow",
     },
   }
 }
 
-export function buildCellyConfigJson(): string {
-  return JSON.stringify(cellyPolicy(), null, 2) + "\n"
+export function buildCellyConfigJson(options: GithubOptions = {}): string {
+  return JSON.stringify(cellyPolicy(options), null, 2) + "\n"
 }
 
-export function buildOpencodeEnv(password: string): string {
+export function buildOpencodeEnv(password: string, options: GithubOptions = {}): string {
   // OPENCODE_CONFIG_CONTENT is preferred when the pinned opencode supports it so
   // an untrusted project opencode.json/.opencode cannot loosen the policy. It is
   // single-quoted for safe `set -a; . opencode.env` sourcing; the celly policy
   // contains no single quotes. The API-layer PATCH+assert below is the backstop.
-  const content = JSON.stringify(cellyPolicy())
-  return `OPENCODE_SERVER_PASSWORD=${password}\nOPENCODE_CONFIG=${CELLY_CONFIG_PATH}\nOPENCODE_CONFIG_CONTENT='${content}'\n`
+  const content = JSON.stringify(cellyPolicy(options))
+  const token = options.githubToken ? `GITHUB_TOKEN=${options.githubToken}\n` : ""
+  return `OPENCODE_SERVER_PASSWORD=${password}\nOPENCODE_CONFIG=${CELLY_CONFIG_PATH}\nOPENCODE_CONFIG_CONTENT='${content}'\n${token}`
 }
 
 export interface PolicyClient {
@@ -151,7 +175,7 @@ export function normalizePermissionPattern(pattern: string): string {
  * asserted because the v1 config surface reports it as deny regardless of the
  * PATCH.
  */
-export function assertCellyPermissionPolicy(permission: any): void {
+export function assertCellyPermissionPolicy(permission: any, options: GithubOptions = {}): void {
   if (permission?.external_directory !== "deny") {
     throw new Error(`celly permission policy was not enforced by the server: external_directory=${JSON.stringify(permission?.external_directory)}`)
   }
@@ -161,10 +185,18 @@ export function assertCellyPermissionPolicy(permission: any): void {
   }
   const rules = new Map<string, string>()
   for (const [key, value] of Object.entries(bash)) rules.set(normalizePermissionPattern(key), String(value))
-  for (const pattern of bashDenyPatterns()) {
+  for (const pattern of bashDenyPatterns(options)) {
     const actual = rules.get(normalizePermissionPattern(pattern))
     if (actual !== "deny") {
       throw new Error(`celly permission policy was not enforced by the server: "${pattern}" is ${actual ?? "missing"}`)
+    }
+  }
+  // With a GitHub token the push rule must stay an approval prompt, never a
+  // silent allow (the deny check above only proves deny patterns survive).
+  if (options.githubToken) {
+    const push = rules.get(normalizePermissionPattern(GIT_PUSH_DENY))
+    if (push !== "ask") {
+      throw new Error(`celly permission policy was not enforced by the server: "${GIT_PUSH_DENY}" is ${push ?? "missing"} (expected ask)`)
     }
   }
 }
@@ -173,9 +205,9 @@ export function assertCellyPermissionPolicy(permission: any): void {
  * True when the running server already reports the celly policy. `external_directory`
  * stays denied, every bash deny pattern survives, and `share` stays disabled.
  */
-export function isCellyPolicyEnforced(current: any): boolean {
+export function isCellyPolicyEnforced(current: any, options: GithubOptions = {}): boolean {
   try {
-    assertCellyPermissionPolicy(current?.permission)
+    assertCellyPermissionPolicy(current?.permission, options)
   } catch {
     return false
   }
@@ -211,19 +243,19 @@ export async function enableQuestionPermissionV2(v2: OpencodeV2Client): Promise<
  * server or a weakening project `opencode.json` fails the read assertion and is
  * repaired) without aborting concurrent threads on every prompt.
  */
-export async function applyAndAssertCellyPolicy(client: PolicyClient, v2?: OpencodeV2Client): Promise<void> {
-  const policy = cellyPolicy()
+export async function applyAndAssertCellyPolicy(client: PolicyClient, v2?: OpencodeV2Client, options: GithubOptions = {}): Promise<void> {
+  const policy = cellyPolicy(options)
   let current: any
   try {
     current = unwrapConfigResponse(await client.config.get())
   } catch {
     current = undefined
   }
-  if (!isCellyPolicyEnforced(current)) {
+  if (!isCellyPolicyEnforced(current, options)) {
     await client.config.update({ body: policy } as any)
     current = unwrapConfigResponse(await client.config.get())
   }
-  assertCellyPermissionPolicy(current?.permission)
+  assertCellyPermissionPolicy(current?.permission, options)
   if (current?.share !== "disabled") {
     throw new Error(`celly share policy was not enforced by the server: got ${JSON.stringify(current?.share)}`)
   }
@@ -240,16 +272,40 @@ export const BOOTSTRAP_VERIFY = `test -s ${CELLY_CONFIG_PATH} && test -s ${CELLY
  * denied (EPERM). `umask 077` makes both files 0600, and the password never
  * touches a host command line.
  */
-export function buildBootstrapInstallScript(password: string): string {
+export function buildBootstrapInstallScript(password: string, options: GithubOptions = {}): string {
   return [
     "set -e",
     "umask 077",
     `cat > "$HOME/.config/celly/opencode.json" <<'CELLY_CONFIG'`,
-    buildCellyConfigJson().replace(/\n$/, ""),
+    buildCellyConfigJson(options).replace(/\n$/, ""),
     "CELLY_CONFIG",
     `cat > "$HOME/.config/celly/opencode.env" <<'CELLY_ENV'`,
-    buildOpencodeEnv(password).replace(/\n$/, ""),
+    buildOpencodeEnv(password, options).replace(/\n$/, ""),
     "CELLY_ENV",
+  ].join("\n") + "\n"
+}
+
+/**
+ * Installs (or removes) the sandbox's git credentials for github.com. Content
+ * travels on stdin, never argv, so the token never appears on a host command
+ * line. With no token the credential store and helper are removed so revoking
+ * the host env actually revokes access.
+ */
+export function buildGitCredentialScript(options: GithubOptions = {}): string {
+  if (!options.githubToken) {
+    return [
+      "umask 077",
+      `rm -f "$HOME/.git-credentials"`,
+      `git config --global --unset-all 'credential.https://github.com.helper' >/dev/null 2>&1 || true`,
+    ].join("\n") + "\n"
+  }
+  return [
+    "umask 077",
+    `cat > "$HOME/.git-credentials" <<'CELLY_GITCRED'`,
+    `https://x-access-token:${options.githubToken}@github.com`,
+    "CELLY_GITCRED",
+    `chmod 600 "$HOME/.git-credentials"`,
+    `git config --global --replace-all 'credential.https://github.com.helper' store`,
   ].join("\n") + "\n"
 }
 

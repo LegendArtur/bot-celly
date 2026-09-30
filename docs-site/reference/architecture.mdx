@@ -61,8 +61,8 @@ The runtime, libraries, and tooling are listed on
 | `src/ansi.ts` | Zero-dependency ANSI colors and TTY/`NO_COLOR`/`FORCE_COLOR` detection shared by logs and the startup banner. |
 | `src/db.ts` | SQLite schema, `PRAGMA user_version` migrations, `foreign_keys=ON`, typed queries. No business logic. |
 | `src/sbx.ts` | **The only module that invokes `sbx`.** argv-only (`spawn(cmd, args, { shell: false })`), typed errors, timeouts, JSON parsers, path/name validation, port allocation, sandbox lifecycle. |
-| `src/projects.ts` | Project lifecycle orchestration: create/remove sagas with rollback, `ensureReady()`, per-project single-flight mutex, supervised serve child registry. |
-| `src/opencode.ts` | SDK client registry (basic auth), health polling, client factory. |
+| `src/projects.ts` | Project lifecycle orchestration: create/remove sagas with rollback, `ensureReady()`, per-project single-flight mutex, supervised serve child registry. It also (re)applies the optional shared GitHub credentials to the sandbox on bootstrap and start. |
+| `src/opencode.ts` | SDK client registry (basic auth), health polling, client factory. Also builds the sandbox config/env/policy and the git-credential install script, gating `git push` on the presence of a GitHub token. |
 | `src/events.ts` | `EventRouter`: demultiplexes one project SSE stream by `sessionID` to the owning thread, reconnect/resync, buffer caps. It also drops user-message parts (correlating `message.part.updated` to the preceding `message.updated` role) so only assistant output is rendered and the prompt is not echoed back. |
 | `src/runner.ts` | Per-thread run state machine: session create/reuse, prompt, queue, abort, dispatch to renderer; permission-policy evaluation lives in `src/policy.ts`. |
 | `src/policy.ts` | Shell command parsing and permission policy: deny-list matching, wrapper normalization, and the fail-closed indeterminate policy used by `runner.ts`. |
@@ -99,7 +99,8 @@ compensation at every step (`ProjectService.addProject` in `src/projects.ts`):
 5. **Bootstrap.** Write the celly-managed OpenCode config and env file inside the
    sandbox over stdin (mode `0600`), so the server password never touches a host
    command line and a project-level `opencode.json` cannot clobber global
-   config.
+   config. When `GITHUB_TOKEN` is set, the token and a `github.com` git
+   credential store are written the same way before any clone step.
 6. **Start and wait.** Start the supervised serve child, read the actual port
    mapping back from `sbx ports --json`, and wait for health within the boot
    timeout.

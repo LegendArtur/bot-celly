@@ -17,6 +17,10 @@ link here instead of restating it.
   skipped at startup with a warning.
 - **Provider secrets are host-only.** Managing `sbx secret` from Discord is
   deferred; register credentials on the host.
+- **GitHub access is one shared host token.** The optional `GITHUB_TOKEN`
+  (`GH_TOKEN` fallback) applies to every project and sandbox; per-user or
+  per-project GitHub identities are not supported, and connecting GitHub from
+  Discord is deferred.
 - **Not yet implemented:** per-user command rate limiting, sandbox disk-usage
   warnings, and `DATA_DIR` cloud-sync detection. Keep `DATA_DIR` out of synced
   folders yourself.

@@ -32,7 +32,7 @@ const VALUE_OPTS = new Set([
 ])
 const MULTIWORD_TOOLS = new Set(["git", "npm", "pnpm", "yarn", "bun"])
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
-const SENSITIVE_PATH = /(^|[\\/])\.config[\\/]celly([\\/]|$)|opencode\.env/i
+const SENSITIVE_PATH = /(^|[\\/])\.config[\\/]celly([\\/]|$)|opencode\.env|git-credentials/i
 // Must stay below every const that normalizeCommand closes over: calling it earlier throws a TDZ ReferenceError.
 const NORMALIZED_DEFAULT_DENY = DEFAULT_DENY.map(normalizeCommand)
 
@@ -421,8 +421,8 @@ export function evaluatePermission(req: { tool: string; patterns: string[] }, de
   return indeterminate ? "ask" : "once"
 }
 
-export function decidePermission(mode: ApprovalMode, req: { tool: string; patterns: string[] }): "once" | "always" | "reject" | "ask" {
-  const verdict = evaluatePermission(req)
+export function decidePermission(mode: ApprovalMode, req: { tool: string; patterns: string[] }, deny?: string[]): "once" | "always" | "reject" | "ask" {
+  const verdict = evaluatePermission(req, deny)
   if (verdict === "reject") return "reject"
   if (verdict === "ask") return mode === "buttons" ? "ask" : "reject"
   if (PLAN_READ_ONLY_TOOLS.has(req.tool)) return "once"
