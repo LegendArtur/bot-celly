@@ -88,13 +88,28 @@ longer active"; pending requests are not persisted across restarts.
 
 ## Worktrees and forks
 
+New sessions can start in a per-session git worktree instead of the project
+root. This is **off by default**; enable it globally with `WORKTREE_DEFAULT=true`
+or per project with `/worktree default state:on`. The global value is seeded
+into `settings.worktree_default` on first boot, and `/worktree default` writes a
+per-project `worktree_default:<channelId>` override (`inherit` clears it and
+falls back to the global value). When a new session opts in, Celly runs
+`git worktree add -b celly/<slug> .celly/worktrees/<slug> HEAD` before the
+OpenCode session is created and points the session at that directory. Non-git
+projects, an unresolved sandbox path, or a failed `git worktree add` fall back
+to the project root and log a warning to the console — session creation never
+fails because of the worktree. Sessions resumed with `/resume` keep their
+existing directory, and `/fork` copies the source worktree unless `new_worktree`
+is set.
+
 | Command | Access | Behavior |
 | --- | --- | --- |
 | `/worktree status` | authorized | Show this thread's worktree path, branch, and clean/dirty state. |
 | `/worktree new [name]` | authorized | Create `<project>/.celly/worktrees/<slug>` on branch `celly/<slug>`; appends `.celly/` to the project's `.gitignore` on first use. |
 | `/worktree merge` | owner | Refuse when the worktree or the project root is dirty, then `git merge --no-ff` the worktree branch into the project root. Conflicts are listed by file. |
 | `/worktree remove [force]` | authorized | `git worktree remove` this thread's worktree; `force` discards uncommitted changes. |
-| `/fork [prompt]` | authorized | Fork this thread's session into a new thread, copying model, agent, and worktree. |
+| `/worktree default <inherit\|on\|off>` | owner | Set whether new sessions in this project start in a worktree. `inherit` falls back to `WORKTREE_DEFAULT`. |
+| `/fork [prompt] [new_worktree]` | authorized | Fork this thread's session into a new thread, copying model, agent, and worktree. `new_worktree:true` creates a fresh worktree for the fork instead of inheriting. |
 | `/btw <prompt>` | authorized | `/fork` with a `btw · ` title prefix. |
 | `/last-sessions [count]` | authorized | Ephemeral list of recent threads in this channel (default 5, max 10). |
 

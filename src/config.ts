@@ -14,6 +14,7 @@ export interface Config {
   bootTimeoutMs: number; healthTimeoutMs: number; editIntervalMs: number
   attachmentMaxBytes: number; maxQueue: number; maxConcurrentRuns: number; sessionBudgetUsd: number
   attachAutoThread: boolean
+  worktreeDefault: boolean
   idleStopMinutes: number
   dataDir: string; logLevel: "debug" | "info" | "warn" | "error"
   logMaxBytes: number; logMaxFiles: number
@@ -48,11 +49,12 @@ export function envFileFrom(env: NodeJS.ProcessEnv = process.env): string {
  */
 export function seedSettings(
   db: { settings: { get(key: string): string | undefined; set(key: string, value: string): void } },
-  cfg: { defaultModel?: string; defaultAgent?: string; approvalMode?: string },
+  cfg: { defaultModel?: string; defaultAgent?: string; approvalMode?: string; worktreeDefault?: boolean },
 ): void {
   if (cfg.defaultModel && db.settings.get("default_model") === undefined) db.settings.set("default_model", cfg.defaultModel)
   if (cfg.defaultAgent && db.settings.get("default_agent") === undefined) db.settings.set("default_agent", cfg.defaultAgent)
   if (cfg.approvalMode && db.settings.get("approval_mode") === undefined) db.settings.set("approval_mode", cfg.approvalMode)
+  if (cfg.worktreeDefault !== undefined && db.settings.get("worktree_default") === undefined) db.settings.set("worktree_default", cfg.worktreeDefault ? "true" : "false")
 }
 
 const str = (e: NodeJS.ProcessEnv, k: string) => e[k]?.trim() || undefined
@@ -129,6 +131,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     attachmentMaxBytes: int(env, "ATTACHMENT_MAX_BYTES", 102400, 1),
     maxQueue: int(env, "MAX_QUEUE", 20, 1), maxConcurrentRuns: int(env, "MAX_CONCURRENT_RUNS", 4, 1),
     attachAutoThread: bool(env, "ATTACH_AUTO_THREAD", false),
+    worktreeDefault: bool(env, "WORKTREE_DEFAULT", false),
     idleStopMinutes: int(env, "IDLE_STOP_MINUTES", 0, 0),
     sessionBudgetUsd,
     dataDir: str(env, "DATA_DIR") ?? "./data",

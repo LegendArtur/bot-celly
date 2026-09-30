@@ -153,6 +153,13 @@ test("seedThreadDefaults ignores an emptied channel variant and falls back to th
   expect(seedThreadDefaults((key) => settings[key], "c1").variant).toBe("global-high")
 })
 
+test("index resolves the worktree default and ensures a worktree before creating the session", () => {
+  const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8")
+  expect(source).toContain("worktreeDefaultFor((key) => db.settings.get(key), project.channelId)")
+  expect(source).toContain("await worktrees.ensure(ready, thread.id)")
+  expect(source).toContain("registerThread(project, thread.id, title, sessionId, worktreePath)")
+})
+
 test("index wires project create, remove, and restart into the admin server", () => {
   const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8")
   expect(source).toContain("guildIds: cfg.guildIds")

@@ -197,8 +197,13 @@ mounted project directory and the same per-project microVM as the project root.
 They add no new host paths: the `PROJECTS_ROOT` containment and sensitivity
 checks still apply, `.celly/` is appended to the project's `.gitignore` on first
 use, and every git invocation runs in the sandbox through argv-only `sbx exec`.
-`/worktree merge` refuses dirty worktrees and dirty project roots before it
-touches the main branch.
+This holds when worktrees are on by default (`WORKTREE_DEFAULT=true` or
+`/worktree default`): the only difference is that a worktree is created when a
+session is born rather than on demand. If the project is not a git repository —
+or `git worktree add` fails — the session silently falls back to the project
+root and a warning is written to the console; the bot never runs a fallible
+git operation through a shell. `/worktree merge` refuses dirty worktrees and
+dirty project roots before it touches the main branch.
 
 ## Secrets
 

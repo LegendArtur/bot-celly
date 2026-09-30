@@ -74,7 +74,7 @@ The runtime, libraries, and tooling are listed on
 | `src/discord.ts` | discord.js client construction, intents/partials, access control. |
 | `src/commands.ts` | Slash-command definitions and handlers; delegates to `projects`/`runner`/`sbx`. |
 | `src/shell.ts` | `!cmd` handling: calls `sbx.exec()`, owns output chunking only. |
-| `src/worktrees.ts` | Per-thread worktrees: slug/branch/porcelain/merge parsing, `.gitignore` maintenance, and argv-only `sbx exec git …` add/list/status/merge/remove operations. |
+| `src/worktrees.ts` | Per-thread worktrees: slug/branch/porcelain/merge parsing, `.gitignore` maintenance, and argv-only `sbx exec git …` add/list/status/merge/remove operations. Also resolves the `WORKTREE_DEFAULT` / per-project default and best-effort-creates the session worktree before the OpenCode session, falling back to the project root on non-git or failed adds. |
 | `src/index.ts` | Bootstrap: config → db → sbx preflight → single-instance lock → Discord login → command registration → graceful shutdown hooks. |
 
 Invariant: only `src/sbx.ts` spawns processes. `src/shell.ts` and

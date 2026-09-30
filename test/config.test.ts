@@ -100,6 +100,18 @@ test("seedSettings writes defaults only when a key is unset", () => {
   expect(store.get("approval_mode")).toBe("plan")
   seedSettings(db, { approvalMode: "auto" })
   expect(store.get("approval_mode")).toBe("plan")
+  seedSettings(db, { worktreeDefault: true })
+  expect(store.get("worktree_default")).toBe("true")
+  seedSettings(db, { worktreeDefault: false })
+  expect(store.get("worktree_default")).toBe("true")
+})
+
+test("WORKTREE_DEFAULT defaults to false and parses booleans", () => {
+  expect(loadConfig(base).worktreeDefault).toBe(false)
+  expect(loadConfig({ ...base, WORKTREE_DEFAULT: "true" }).worktreeDefault).toBe(true)
+  expect(loadConfig({ ...base, WORKTREE_DEFAULT: "1" }).worktreeDefault).toBe(true)
+  expect(loadConfig({ ...base, WORKTREE_DEFAULT: "false" }).worktreeDefault).toBe(false)
+  expect(() => loadConfig({ ...base, WORKTREE_DEFAULT: "maybe" })).toThrow(/WORKTREE_DEFAULT/)
 })
 
 test("APPROVAL_MODE defaults to buttons and rejects unknown modes", () => {

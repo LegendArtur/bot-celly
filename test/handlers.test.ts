@@ -426,3 +426,52 @@ test("createForkThread forks the session and copies model, agent, and worktree",
   expect(result).toEqual({ threadId: "t9", sessionId: "s9", notice: undefined })
   expect(prompted).toEqual(["t9"])
 })
+
+test("createForkThread with worktree:true forks into a fresh worktree", async () => {
+  const db = freshDb()
+  db.projects.insertProvisioning({ channelId: "c", guildId: "g", name: "demo", directory: "C:\\p",
+    sandboxPath: null, sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 })
+  db.threads.upsert({ threadId: "t1", channelId: "c", sessionId: "s1", title: "source", model: null,
+    agent: null, variant: null, worktreePath: "/sandbox/celly-demo/workspace/.celly/worktrees/t1",
+    liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 1 })
+  const forkCalls: any[] = []
+  const ensured: string[] = []
+  const fork = createForkThread({
+    db,
+    client: { channels: { fetch: async () => ({ threads: { create: async () => ({ id: "t9", members: { add: async () => {} } }) } }) } },
+    runner: { prompt: async () => undefined },
+    ensureReady: async () => {},
+    resolveClient: () => ({ session: { fork: async (a: any) => { forkCalls.push(a); return { data: { id: "s9" } } } } }),
+    registerSession: () => {},
+    startTyping: () => {},
+    worktree: { ensure: async (_project, threadId) => { ensured.push(threadId); return "/sandbox/celly-demo/workspace/.celly/worktrees/t9" } },
+    log: { info() {}, warn() {}, error() {}, debug() {} } as any,
+  })
+  await fork({ sourceThreadId: "t1", title: "fork", worktree: true })
+  expect(ensured).toEqual(["t9"])
+  expect(forkCalls).toEqual([{ path: { id: "s1" }, query: { directory: "/sandbox/celly-demo/workspace/.celly/worktrees/t9" } }])
+  expect(db.threads.get("t9")?.worktreePath).toBe("/sandbox/celly-demo/workspace/.celly/worktrees/t9")
+})
+
+test("createForkThread with worktree:true falls back to the source root when ensure returns null", async () => {
+  const db = freshDb()
+  db.projects.insertProvisioning({ channelId: "c", guildId: "g", name: "demo", directory: "C:\\p",
+    sandboxPath: null, sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 })
+  db.threads.upsert({ threadId: "t1", channelId: "c", sessionId: "s1", title: "source", model: null,
+    agent: null, variant: null, worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 1 })
+  const forkCalls: any[] = []
+  const fork = createForkThread({
+    db,
+    client: { channels: { fetch: async () => ({ threads: { create: async () => ({ id: "t9", members: { add: async () => {} } }) } }) } },
+    runner: { prompt: async () => undefined },
+    ensureReady: async () => {},
+    resolveClient: () => ({ session: { fork: async (a: any) => { forkCalls.push(a); return { data: { id: "s9" } } } } }),
+    registerSession: () => {},
+    startTyping: () => {},
+    worktree: { ensure: async () => null },
+    log: { info() {}, warn() {}, error() {}, debug() {} } as any,
+  })
+  await fork({ sourceThreadId: "t1", title: "fork", worktree: true })
+  expect(forkCalls).toEqual([{ path: { id: "s1" } }])
+  expect(db.threads.get("t9")?.worktreePath).toBeNull()
+})

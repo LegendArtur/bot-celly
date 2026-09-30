@@ -215,12 +215,15 @@ export interface ForkThreadDeps {
   resolveClient(project: Project): any
   registerSession(threadId: string, sessionId: string): void
   startTyping(threadId: string): void
+  worktree?: { ensure(project: Project, threadId: string, name?: string): Promise<string | null> }
   log: Logger
 }
 
 /**
  * `/fork` and `/btw`: fork the source session with `session.fork`, then open a
- * new Discord thread that copies the source model, agent, and worktree.
+ * new Discord thread that copies the source model, agent, and worktree. When
+ * `input.worktree` is set the fork gets its own worktree instead of inheriting
+ * the source's.
  */
 export function createForkThread(deps: ForkThreadDeps): (input: ForkThreadInput) => Promise<ForkedThread> {
   return async function forkThread(input: ForkThreadInput): Promise<ForkedThread> {
@@ -229,17 +232,20 @@ export function createForkThread(deps: ForkThreadDeps): (input: ForkThreadInput)
     const project = deps.db.projects.getByChannel(source.channelId)
     if (!project) throw new Error(`unknown project for thread ${input.sourceThreadId}`)
     await deps.ensureReady(project.channelId)
-    const sdk = deps.resolveClient(project)
-    const forked = await sdk.session.fork(withDirectory(source.worktreePath, { path: { id: source.sessionId } }) as any)
-    const sessionId = sessionIdFrom(forked)
-    if (!sessionId) throw new Error("opencode session.fork returned no id")
     const channel = await deps.client.channels.fetch(project.channelId)
     if (!channel || !("threads" in channel)) throw new Error("project channel unavailable")
     const title = sanitizeThreadName(input.title)
     const thread = await channel.threads.create({ name: title })
     if (input.authorId) await thread.members.add(input.authorId).catch(() => {})
+    const worktreePath = input.worktree && deps.worktree
+      ? await deps.worktree.ensure(project, thread.id)
+      : source.worktreePath
+    const sdk = deps.resolveClient(project)
+    const forked = await sdk.session.fork(withDirectory(worktreePath, { path: { id: source.sessionId } }) as any)
+    const sessionId = sessionIdFrom(forked)
+    if (!sessionId) throw new Error("opencode session.fork returned no id")
     deps.db.threads.upsert({ threadId: thread.id, channelId: project.channelId, sessionId, title,
-      model: source.model, agent: source.agent, variant: source.variant, worktreePath: source.worktreePath,
+      model: source.model, agent: source.agent, variant: source.variant, worktreePath: worktreePath ?? null,
       liveMessageId: null, renderState: "idle", createdAt: Date.now(), lastActiveAt: Date.now() })
     deps.registerSession(thread.id, sessionId)
     let notice: string | undefined

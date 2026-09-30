@@ -69,6 +69,17 @@ test("project has the expected subcommands", () => {
   const subs = project.options.map((o: any) => o.name).sort()
   expect(subs).toEqual(["add", "create", "list", "remove", "restart", "start", "status", "stop"])
 })
+test("worktree has the expected subcommands including default", () => {
+  const worktree = commandData().find((c) => c.name === "worktree")!
+  const subs = worktree.options.map((o: any) => o.name).sort()
+  expect(subs).toEqual(["default", "merge", "new", "remove", "status"])
+})
+test("fork exposes an optional new_worktree flag", () => {
+  const fork = commandData().find((c) => c.name === "fork")!
+  const option = fork.options.find((o: any) => o.name === "new_worktree")!
+  expect(option.type).toBe(ApplicationCommandOptionType.Boolean)
+  expect(option.required).toBe(false)
+})
 test("command data and select rows use named Discord type constants", () => {
   const source = readFileSync(new URL("../src/commands.ts", import.meta.url), "utf8")
   expect(source).not.toMatch(/type:\s*[13]\b/)
@@ -621,6 +632,7 @@ test("requiresOwner scopes project mutations", () => {
   for (const sub of ["add", "create", "start", "stop", "restart", "remove"]) expect(requiresOwner("project", sub)).toBe(true)
   for (const sub of ["list", "status"]) expect(requiresOwner("project", sub)).toBe(false)
   expect(requiresOwner("worktree", "merge")).toBe(true)
+  expect(requiresOwner("worktree", "default")).toBe(true)
   for (const sub of ["status", "new", "remove"]) expect(requiresOwner("worktree", sub)).toBe(false)
   expect(requiresOwner("budget", "show")).toBe(true)
   expect(requiresOwner("budget", "set")).toBe(true)
@@ -1070,6 +1082,44 @@ test("worktree merge is owner-only", async () => {
   expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only.", flags: 64 } })
 })
 
+test("worktree default is owner-only", async () => {
+  const i = interaction({ commandName: "worktree", sub: "default", channelId: "c", strings: { state: "on" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: freshDb(), authorized: () => true, isOwner: () => false })
+  expect(i.calls).toHaveLength(1)
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only.", flags: 64 } })
+})
+
+test("worktree default on stores a per-project override and reports it", async () => {
+  const db = freshDb(); db.projects.insertProvisioning(proj); db.settings.set("worktree_default", "false")
+  const i = interaction({ commandName: "worktree", sub: "default", channelId: "c", strings: { state: "on" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true })
+  expect(db.settings.get("worktree_default:c")).toBe("true")
+  expect(editOf(i)).toBe("worktree default for this project: on")
+})
+
+test("worktree default off overrides an on global default", async () => {
+  const db = freshDb(); db.projects.insertProvisioning(proj); db.settings.set("worktree_default", "true")
+  const i = interaction({ commandName: "worktree", sub: "default", channelId: "c", strings: { state: "off" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true })
+  expect(db.settings.get("worktree_default:c")).toBe("false")
+  expect(editOf(i)).toBe("worktree default for this project: off")
+})
+
+test("worktree default inherit clears the override and falls back to the global default", async () => {
+  const db = freshDb(); db.projects.insertProvisioning(proj); db.settings.set("worktree_default", "true")
+  db.settings.set("worktree_default:c", "false")
+  const i = interaction({ commandName: "worktree", sub: "default", channelId: "c", strings: { state: "inherit" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true, isOwner: () => true })
+  expect(db.settings.get("worktree_default:c")).toBe("")
+  expect(editOf(i)).toBe("worktree default for this project: on (inheriting the global default)")
+})
+
+test("worktree default outside a project channel is rejected", async () => {
+  const i = interaction({ commandName: "worktree", sub: "default", channelId: "other", strings: { state: "on" } })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: freshDb(), authorized: () => true, isOwner: () => true })
+  expect(editOf(i)).toBe("this channel is not a project")
+})
+
 test("queue lists queued prompts with remove and clear buttons", async () => {
   const db = freshDb(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow({ title: null }))
   const entries = [
@@ -1319,8 +1369,17 @@ test("fork forwards the source thread, title, and prompt", async () => {
   let captured: any
   await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
     forkThread: async (input: any) => { captured = input; return { threadId: "t9", sessionId: "s9" } } })
-  expect(captured).toEqual({ sourceThreadId: "t1", title: "try this", prompt: "try this", authorId: "u1" })
+  expect(captured).toEqual({ sourceThreadId: "t1", title: "try this", prompt: "try this", authorId: "u1", worktree: false })
   expect(editOf(i)).toBe("forked into <#t9>")
+})
+
+test("fork with new_worktree forwards the request for a fresh worktree", async () => {
+  const db = freshDb(); db.projects.insertProvisioning(proj); db.threads.upsert(threadRow({ title: "source" }))
+  const i = interaction({ commandName: "fork", channelId: "t1", strings: { prompt: "try this" }, booleans: { new_worktree: true } })
+  let captured: any
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db, authorized: () => true,
+    forkThread: async (input: any) => { captured = input; return { threadId: "t9", sessionId: "s9" } } })
+  expect(captured).toMatchObject({ sourceThreadId: "t1", worktree: true })
 })
 
 test("fork without a prompt titles the new thread after the source", async () => {

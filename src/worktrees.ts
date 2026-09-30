@@ -17,6 +17,19 @@ export function worktreeBranch(threadId: string): string {
   return `celly/${cleaned.slice(-8) || "work"}`
 }
 
+/**
+ * Resolve whether a new session in `channelId` should start in its own
+ * worktree. A per-channel `worktree_default:<channelId>` of "true"/"false"
+ * overrides the global `worktree_default` setting; an empty or missing
+ * per-channel value inherits the global default.
+ */
+export function worktreeDefaultFor(get: (key: string) => string | undefined, channelId?: string): boolean {
+  const channel = channelId ? get(`worktree_default:${channelId}`) : undefined
+  if (channel === "true") return true
+  if (channel === "false") return false
+  return get("worktree_default") === "true"
+}
+
 export interface WorktreeEntry { path: string; branch?: string }
 
 export function parseWorktreeList(stdout: string): WorktreeEntry[] {
@@ -83,19 +96,63 @@ export class WorktreeService {
     return { thread, project }
   }
 
+  private relativeFor(threadId: string, name?: string): { branch: string; relative: string } {
+    const branch = name ? `celly/${worktreeSlug(name)}` : worktreeBranch(threadId)
+    const slug = branch.slice("celly/".length)
+    return { branch, relative: `.celly/worktrees/${slug}` }
+  }
+
   async create(threadId: string, name?: string): Promise<string> {
     const { thread, project } = this.lookup(threadId)
     if (thread.worktreePath) throw new Error(`this thread already has a worktree at ${thread.worktreePath}`)
     if (!project.sandboxPath) throw new Error("project sandbox path is not resolved; run /project start")
-    const branch = name ? `celly/${worktreeSlug(name)}` : worktreeBranch(threadId)
-    const slug = branch.slice("celly/".length)
-    const relative = `.celly/worktrees/${slug}`
+    const { branch, relative } = this.relativeFor(threadId, name)
     ensureGitignoreEntry(project.directory, (message, fields) => this.deps.log.warn(message, fields))
     await this.deps.sbx.exec(project.sandboxName, ["git", "-C", project.sandboxPath, "worktree", "add", "-b", branch, relative, "HEAD"], { timeoutMs: 120_000 })
     const worktreePath = joinPathLike(project.sandboxPath, relative)
     this.deps.db.threads.setWorktree(threadId, worktreePath)
     this.deps.log.info("worktree created", { threadId, worktreePath, branch })
     return `created worktree ${worktreePath} (branch ${branch})`
+  }
+
+  /**
+   * Best-effort worktree creation for a session that opted into the worktree
+   * default. Never throws: a missing sandbox path, a non-git project, or a
+   * failed `git worktree add` all fall back to the project root with a console
+   * warning so the new session still starts.
+   */
+  async ensure(project: Project, threadId: string, name?: string): Promise<string | null> {
+    const existing = this.deps.db.threads.get(threadId)?.worktreePath
+    if (existing) return existing
+    if (!project.sandboxPath) {
+      this.deps.log.warn("worktree default is on but the project sandbox path is not resolved; running this session at the project root", { threadId, project: project.name })
+      return null
+    }
+    const inside = await this.deps.sbx.execResult(project.sandboxName, ["git", "-C", project.sandboxPath, "rev-parse", "--is-inside-work-tree"], { timeoutMs: 30_000 }).catch((e) => {
+      this.deps.log.warn("worktree default is on but git is unavailable in the sandbox; running this session at the project root", { threadId, error: String(e) })
+      return undefined
+    })
+    if (!inside) return null
+    if (inside.code !== 0 || inside.stdout.trim() !== "true") {
+      this.deps.log.warn("worktree default is on but the project is not a git repository; running this session at the project root", { threadId, project: project.name })
+      return null
+    }
+    const { branch, relative } = this.relativeFor(threadId, name)
+    ensureGitignoreEntry(project.directory, (message, fields) => this.deps.log.warn(message, fields))
+    const result = await this.deps.sbx.execResult(project.sandboxName, ["git", "-C", project.sandboxPath, "worktree", "add", "-b", branch, relative, "HEAD"], { timeoutMs: 120_000 }).catch((e) => {
+      this.deps.log.warn("could not create a worktree for this session; running at the project root", { threadId, error: String(e) })
+      return undefined
+    })
+    if (!result) return null
+    if (result.code !== 0) {
+      const detail = (result.stderr || result.stdout).trim().split("\n")[0] ?? `exit ${result.code}`
+      this.deps.log.warn("could not create a worktree for this session; running at the project root", { threadId, error: detail })
+      return null
+    }
+    const worktreePath = joinPathLike(project.sandboxPath, relative)
+    this.deps.db.threads.setWorktree(threadId, worktreePath)
+    this.deps.log.info("worktree created", { threadId, worktreePath, branch })
+    return worktreePath
   }
 
   async status(threadId: string): Promise<string> {
