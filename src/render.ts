@@ -17,79 +17,101 @@ export function renderPayload(content: string): RenderPayload {
   return { content, allowedMentions: { parse: [] }, flags: MessageFlags.SuppressEmbeds }
 }
 
-function longestBacktickRun(text: string): number {
-  let max = 0
-  const re = /`+/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) if (m[0].length > max) max = m[0].length
-  return max
+const FENCE_LINE = /^( {0,3})(`{3,})(.*)$/
+
+/**
+ * Discord only parses code fences made of exactly three backticks, so collapse
+ * any 3+ backtick marker at the start of a line down to three. A longer fence
+ * (e.g. an agent's ```` to nest ```) renders as literal text otherwise.
+ */
+function normalizeFenceMarker(line: string): string {
+  const m = FENCE_LINE.exec(line)
+  if (!m) return line
+  return `${m[1] ?? ""}\`\`\`${m[3] ?? ""}`
 }
 
-function normalizeFences(text: string, fenceLen: number): string {
-  const fence = "`".repeat(fenceLen)
-  const lines = text.split("\n")
-  const out: string[] = []
-  let openRun = 0
-  for (const line of lines) {
-    const m = /^( {0,3})(`{3,})(.*)$/.exec(line)
-    if (!m) { out.push(line); continue }
-    const [, lead = "", ticks = "", info = ""] = m
-    const run = ticks.length
-    if (openRun === 0) { openRun = run; out.push(lead + fence + info) }
-    else if (run >= openRun && info.trim() === "") { openRun = 0; out.push(lead + fence) }
-    else out.push(line)
+/** Split plain (non-code) text into pieces no longer than `max`, preferring newlines. */
+function splitPlain(text: string, max: number): string[] {
+  const pieces: string[] = []
+  let pos = 0
+  while (pos < text.length) {
+    let end = Math.min(pos + max, text.length)
+    if (end < text.length) {
+      const nl = text.lastIndexOf("\n", end - 1)
+      if (nl >= pos + Math.floor((end - pos) * 0.5)) end = nl + 1
+    }
+    if (end <= pos) end = Math.min(pos + 1, text.length)
+    pieces.push(text.slice(pos, end))
+    pos = end
   }
-  return out.join("\n")
+  return pieces
 }
 
-function fenceMarkerStarts(text: string, fenceLen: number): number[] {
-  const re = new RegExp("^ {0,3}`{" + fenceLen + ",}")
-  const starts: number[] = []
-  let offset = 0
+type Block = { kind: "text"; text: string } | { kind: "fence"; info: string; body: string }
+
+/** Split normalized text into alternating plain-text and fenced-code blocks. */
+function segment(text: string): Block[] {
+  const blocks: Block[] = []
+  const textBuf: string[] = []
+  let bodyBuf: string[] = []
+  let openInfo: string | null = null
   for (const line of text.split("\n")) {
-    if (re.test(line)) starts.push(offset)
-    offset += line.length + 1
+    const m = FENCE_LINE.exec(line)
+    if (openInfo === null) {
+      if (m) {
+        if (textBuf.length > 0) { blocks.push({ kind: "text", text: textBuf.join("\n") }); textBuf.length = 0 }
+        openInfo = (m[3] ?? "").trim()
+        bodyBuf = []
+      } else {
+        textBuf.push(line)
+      }
+    } else if (m && (m[3] ?? "").trim() === "") {
+      blocks.push({ kind: "fence", info: openInfo, body: bodyBuf.join("\n") })
+      openInfo = null
+      bodyBuf = []
+    } else {
+      bodyBuf.push(line)
+    }
   }
-  return starts
+  if (openInfo !== null) blocks.push({ kind: "fence", info: openInfo, body: bodyBuf.join("\n") })
+  else if (textBuf.length > 0) blocks.push({ kind: "text", text: textBuf.join("\n") })
+  return blocks
+}
+
+/**
+ * Emit a fenced code block as one or more self-contained chunks, each reopened
+ * with the original language and closed with exactly three backticks so every
+ * Discord message renders as valid code.
+ */
+function splitFenced(body: string, info: string, max: number): string[] {
+  const header = "```" + info + "\n"
+  const footer = "\n```"
+  const room = max - header.length - footer.length
+  if (room <= 0) return [header + body + footer]
+  return splitPlain(body, room).map((piece) => header + piece + footer)
+}
+
+/** Coalesce adjacent chunks when the joined message still fits. */
+function mergeChunks(chunks: string[], max: number): string[] {
+  const merged: string[] = []
+  for (const chunk of chunks) {
+    const last = merged[merged.length - 1]
+    if (last !== undefined && last.length + 1 + chunk.length <= max) merged[merged.length - 1] = `${last}\n${chunk}`
+    else merged.push(chunk)
+  }
+  return merged
 }
 
 export function chunkMessage(text: string, max = DISCORD_CHUNK_LIMIT): string[] {
   if (text === "") return []
-  if (text.length <= max) return [text]
-  const fenceLen = Math.max(3, longestBacktickRun(text) + 1)
-  const fence = "`".repeat(fenceLen)
-  const useFences = 4 * fence.length <= max
-  const normalized = useFences ? normalizeFences(text, fenceLen) : text
-  const markerStarts = useFences ? fenceMarkerStarts(normalized, fenceLen) : []
-  const isInside = (offset: number): boolean => {
-    let count = 0
-    for (const start of markerStarts) { if (start < offset) count++; else break }
-    return count % 2 === 1
-  }
-  const endClose = isInside(normalized.length) ? fence.length + 1 : 0
+  const normalized = text.split("\n").map(normalizeFenceMarker).join("\n")
+  if (normalized.length <= max) return [normalized]
   const chunks: string[] = []
-  let pos = 0
-  let pending = ""
-  while (normalized.length - pos + pending.length + endClose > max) {
-    let limit = pos + max - pending.length
-    if (limit <= pos) limit = pos + 1
-    let cut = normalized.lastIndexOf("\n", limit)
-    if (cut < pos + Math.floor((limit - pos) * 0.5)) cut = limit
-    let inside = isInside(cut)
-    if (inside) {
-      const maxCut = pos + max - pending.length - fence.length - 1
-      if (cut > maxCut) { cut = Math.max(pos + 1, maxCut); inside = isInside(cut) }
-    }
-    if (cut <= pos) cut = Math.min(pos + 1, normalized.length)
-    const head = pending + normalized.slice(pos, cut) + (inside ? "\n" + fence : "")
-    chunks.push(head)
-    pending = inside ? fence + "\n" : ""
-    pos = cut
-    if (normalized[pos] === "\n") pos++
+  for (const block of segment(normalized)) {
+    if (block.kind === "text") chunks.push(...splitPlain(block.text, max))
+    else chunks.push(...splitFenced(block.body, block.info, max))
   }
-  const tail = pending + normalized.slice(pos) + (isInside(normalized.length) ? "\n" + fence : "")
-  if (tail !== "") chunks.push(tail)
-  return chunks
+  return mergeChunks(chunks, max)
 }
 export function sanitizeThreadName(prompt: string): string {
   const cleaned = prompt.replace(/[\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim()

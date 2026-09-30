@@ -25,6 +25,17 @@ test("configuration docs and .env.example list ATTACH_AUTO_THREAD", () => {
   expect(read("../.env.example")).toContain("ATTACH_AUTO_THREAD")
 })
 
+test("configuration docs and .env.example list WORKTREE_DEFAULT", () => {
+  expect(read("../docs-site/guides/configuration.mdx")).toContain("WORKTREE_DEFAULT")
+  expect(read("../.env.example")).toContain("WORKTREE_DEFAULT")
+})
+
+test("commands reference documents the worktree default and fork worktree flag", () => {
+  const commands = read("../docs-site/reference/commands.mdx")
+  expect(commands).toContain("/worktree default")
+  expect(commands).toContain("new_worktree")
+})
+
 test("the terminal attach guide states the web UI is not published", () => {
   expect(read("../docs-site/guides/terminal-attach.mdx")).toContain("intentionally not published")
 })

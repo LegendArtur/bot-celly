@@ -12,6 +12,7 @@ import { formatContextUsage, formatDiff } from "./session-utils.js"
 import type { SessionOps } from "./session-utils.ts"
 import { chunkMessage } from "./render.js"
 import { formatCost, formatUsageSummary, resolveBudget } from "./usage.js"
+import { worktreeDefaultFor } from "./worktrees.js"
 
 export function commandData(): any[] {
   const project = { name: "project", description: "Manage Celly projects", options: [
@@ -64,9 +65,13 @@ export function commandData(): any[] {
       { type: ApplicationCommandOptionType.Subcommand, name: "merge", description: "Merge the worktree branch into the project (owner-only)" },
       { type: ApplicationCommandOptionType.Subcommand, name: "remove", description: "Remove this thread's worktree", options: [
         { type: ApplicationCommandOptionType.Boolean, name: "force", description: "Discard uncommitted changes", required: false } ] },
+      { type: ApplicationCommandOptionType.Subcommand, name: "default", description: "Set whether new sessions in this project start in a worktree (owner-only)", options: [
+        { type: ApplicationCommandOptionType.String, name: "state", description: "Override for this project", required: true,
+          choices: [{ name: "inherit", value: "inherit" }, { name: "on", value: "on" }, { name: "off", value: "off" }] } ] },
     ] },
     { name: "fork", description: "Fork this thread's session into a new thread", options: [
-      { type: ApplicationCommandOptionType.String, name: "prompt", description: "Initial prompt for the fork" } ] },
+      { type: ApplicationCommandOptionType.String, name: "prompt", description: "Initial prompt for the fork" },
+      { type: ApplicationCommandOptionType.Boolean, name: "new_worktree", description: "Fork into a fresh git worktree instead of inheriting the source", required: false } ] },
     { name: "btw", description: "Fork this thread with a quick side-question", options: [
       { type: ApplicationCommandOptionType.String, name: "prompt", description: "The side-question", required: true } ] },
     { name: "last-sessions", description: "List recent threads in this channel (ephemeral)", options: [
@@ -119,7 +124,7 @@ export interface CreateThreadInput {
 }
 
 export interface ForkThreadInput {
-  sourceThreadId: string; title: string; prompt?: string; authorId?: string
+  sourceThreadId: string; title: string; prompt?: string; authorId?: string; worktree?: boolean
 }
 export interface ForkedThread { threadId: string; sessionId: string; notice?: string }
 
@@ -267,7 +272,7 @@ function queueMessage(threadId: string, entries: QueuedPrompt[]): any {
 
 const OWNER_ONLY_PROJECT_SUBS = new Set(["add", "create", "start", "stop", "restart", "remove"])
 const OWNER_ONLY_TASK_SUBS = new Set(["add", "remove"])
-const OWNER_ONLY_WORKTREE_SUBS = new Set(["merge"])
+const OWNER_ONLY_WORKTREE_SUBS = new Set(["merge", "default"])
 export function requiresOwner(commandName: string, sub: string | null | undefined): boolean {
   if (commandName === "mode") return true
   if (commandName === "project") return !!sub && OWNER_ONLY_PROJECT_SUBS.has(sub)
@@ -474,7 +479,8 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       const prompt = interaction.options.getString("prompt", false) ?? undefined
       if (interaction.commandName === "btw" && !prompt) return void await interaction.editReply(noMentions("usage: /btw <prompt>"))
       const title = interaction.commandName === "btw" ? `btw · ${prompt}` : (prompt ?? `fork of ${source.title ?? source.threadId}`)
-      const forked = await deps.forkThread({ sourceThreadId: source.threadId, title, prompt, authorId: interaction.user?.id })
+      const newWorktree = interaction.options.getBoolean("new_worktree", false) ?? false
+      const forked = await deps.forkThread({ sourceThreadId: source.threadId, title, prompt, authorId: interaction.user?.id, worktree: newWorktree })
       const note = forked.notice ? ` (${forked.notice})` : ""
       return void await interaction.editReply(noMentions(`forked into <#${forked.threadId}>${note}`))
     }
@@ -572,6 +578,18 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
       return void await interaction.editReply(noMentions(lines.join("\n")))
     }
     if (interaction.commandName === "worktree") {
+      if (sub === "default") {
+        const channelId = commandProjectChannel(interaction, deps.db)
+        if (!channelId) return void await interaction.editReply(noMentions("this channel is not a project"))
+        const state = interaction.options.getString("state", false)
+        if (state !== "on" && state !== "off" && state !== "inherit") {
+          return void await interaction.editReply(noMentions("usage: /worktree default state:<inherit|on|off>"))
+        }
+        deps.db.settings.set(`worktree_default:${channelId}`, state === "on" ? "true" : state === "off" ? "false" : "")
+        const effective = worktreeDefaultFor((key) => deps.db.settings.get(key), channelId)
+        const scope = state === "inherit" ? " (inheriting the global default)" : ""
+        return void await interaction.editReply(noMentions(`worktree default for this project: ${effective ? "on" : "off"}${scope}`))
+      }
       const thread = deps.db.threads.get(interaction.channelId)
       if (!thread) return void await interaction.editReply(noMentions("use /worktree inside a thread"))
       if (!deps.worktree) return void await interaction.editReply(noMentions("worktree support unavailable"))

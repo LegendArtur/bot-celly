@@ -15,7 +15,7 @@ import { createLogger } from "./log.js"
 import { openDb } from "./db.js"
 import { Sbx, SbxRunner } from "./sbx.js"
 import { ProjectService } from "./projects.js"
-import { WorktreeService } from "./worktrees.js"
+import { WorktreeService, worktreeDefaultFor } from "./worktrees.js"
 import { createDiscordClient, fetchConfiguredGuilds, isAuthorized, isOwner, rolesOf } from "./discord.js"
 import { commandData, deployCommandsToGuilds, handleButton, handleCommand, handleModalSubmit, handleSelect } from "./commands.js"
 import type { CommandDeps, CreateThreadInput } from "./commands.js"
@@ -26,6 +26,7 @@ import { acquireLock } from "./lock.js"
 import { Runner, withDirectory } from "./runner.js"
 import { EventRouter } from "./events.js"
 import { Renderer, renderPayload, sanitizeThreadName } from "./render.js"
+import { cardPayload, noticeCard } from "./cards.js"
 import { resolveBaseUrl, resolveClient, resolveV2Client } from "./opencode.js"
 import { createSessionOps } from "./session-utils.js"
 import { createProjectLists } from "./lists.js"
@@ -231,13 +232,13 @@ export async function main(): Promise<void> {
     if (!sessionId) throw new Error("opencode session.create returned no id")
     return sessionId
   }
-  const registerThread = (project: Project, threadId: string, title: string, sessionId: string): Thread => {
+  const registerThread = (project: Project, threadId: string, title: string, sessionId: string, worktreePath: string | null = null): Thread => {
     const now = Date.now()
     const defaults = seedThreadDefaults((key) => db.settings.get(key), project.channelId)
     const record: Thread = {
       threadId, channelId: project.channelId, sessionId, title,
       model: defaults.model, agent: defaults.agent, variant: defaults.variant,
-      worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: now, lastActiveAt: now,
+      worktreePath, liveMessageId: null, renderState: "idle", createdAt: now, lastActiveAt: now,
     }
     db.threads.upsert(record)
     registerSession(threadId, sessionId)
@@ -401,6 +402,7 @@ export async function main(): Promise<void> {
     resolveClient,
     registerSession,
     startTyping,
+    worktree: worktrees,
     log,
   })
 
@@ -528,8 +530,12 @@ export async function main(): Promise<void> {
     const title = sanitizeThreadName(input.title)
     const thread = await (channel as any).threads.create({ name: title })
     if (input.authorId) await thread.members.add(input.authorId).catch(() => {})
-    const sessionId = input.sessionId ?? (await createSessionFor(project, title))
-    registerThread(project, thread.id, title, sessionId)
+    const ready = db.projects.getByChannel(input.channelId) ?? project
+    const worktreePath = !input.sessionId && worktreeDefaultFor((key) => db.settings.get(key), project.channelId)
+      ? await worktrees.ensure(ready, thread.id)
+      : null
+    const sessionId = input.sessionId ?? (await createSessionFor(project, title, worktreePath))
+    registerThread(project, thread.id, title, sessionId, worktreePath)
     let notice: string | undefined
     if (input.prompt) {
       notice = await runnerSvc.prompt(thread.id, input.prompt, input.authorId ?? "n/a")
@@ -604,7 +610,7 @@ export async function main(): Promise<void> {
     postConnected: async (channelId, projectName) => {
       const channel = await client.channels.fetch(channelId).catch(() => null)
       if (channel && "send" in channel) {
-        await scheduleWithBucket(channelId, () => (channel as any).send(renderPayload(`**${projectName}** is connected.`))).catch(() => {})
+        await scheduleWithBucket(channelId, () => (channel as any).send(cardPayload(noticeCard("ok", `${projectName} connected`)))).catch(() => {})
       }
     },
   }
@@ -705,7 +711,7 @@ export async function main(): Promise<void> {
       notify: async (channelId, minutes) => {
         const channel = await client.channels.fetch(channelId).catch(() => null)
         if (channel && "send" in channel) {
-          await scheduleWithBucket(channelId, () => (channel as any).send(renderPayload(formatIdleStopNotice(minutes)))).catch(() => {})
+          await scheduleWithBucket(channelId, () => (channel as any).send(cardPayload(noticeCard("info", "Idle timeout", formatIdleStopNotice(minutes))))).catch(() => {})
         }
       },
       idleMs: cfg.idleStopMinutes * 60_000,

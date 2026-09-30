@@ -1,3 +1,4 @@
+import { MessageFlags } from "discord.js"
 import { expect, test, vi } from "vitest"
 import { createForkThread, createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "../src/handlers.ts"
 import { describeDiscordStartupError, formatStartupBanner } from "../src/helpers.ts"
@@ -78,13 +79,14 @@ test("a 'queue full' first message that created a thread surfaces the notice wit
   expect(deps.startTyping).not.toHaveBeenCalled()
 })
 
-test("a handler failure posts a plain error notice without mentions", async () => {
+test("a handler failure posts an error card without mentions", async () => {
   const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
   const deps = baseDeps(db, { projects: { ensureReady: vi.fn(async () => { throw new Error("sandbox down") }) } })
   const { message, replies } = fakeMessage({ content: "hello" })
   await createMessageHandler(deps)(message)
   expect(replies.length).toBe(1)
-  expect(replies[0].content).toMatch(/went wrong/i)
+  expect(replies[0].flags & MessageFlags.IsComponentsV2).toBe(MessageFlags.IsComponentsV2)
+  expect(JSON.stringify(replies[0].components[0].toJSON())).toMatch(/went wrong/i)
   expect(replies[0].allowedMentions).toEqual({ parse: [] })
 })
 
@@ -178,7 +180,8 @@ test("project-down handler fans out to the runner and notifies the channel once"
   expect(handleProjectDown).toHaveBeenCalledWith("c")
   expect(send).toHaveBeenCalledTimes(1)
   const payload = send.mock.calls[0][0]
-  expect(payload.content).toMatch(/stopped unexpectedly/)
+  expect(payload.flags & MessageFlags.IsComponentsV2).toBe(MessageFlags.IsComponentsV2)
+  expect(JSON.stringify(payload.components[0].toJSON())).toMatch(/stopped unexpectedly|Project server stopped/)
   expect(payload.allowedMentions).toEqual({ parse: [] })
 })
 
@@ -195,8 +198,9 @@ test("project-missing handler notifies the channel with a recreate action", asyn
   await new Promise((r) => setTimeout(r, 0))
   expect(handleProjectDown).toHaveBeenCalledWith("c")
   const payload = send.mock.calls[0][0]
-  expect(payload.content).toMatch(/demo/)
-  expect(payload.content).toMatch(/\/project start/)
+  const card = JSON.stringify(payload.components[0].toJSON())
+  expect(card).toMatch(/demo/)
+  expect(card).toMatch(/\/project start/)
   expect(payload.allowedMentions).toEqual({ parse: [] })
 })
 
@@ -421,4 +425,53 @@ test("createForkThread forks the session and copies model, agent, and worktree",
     worktreePath: "/sandbox/celly-demo/workspace/.celly/worktrees/t1", channelId: "c" })
   expect(result).toEqual({ threadId: "t9", sessionId: "s9", notice: undefined })
   expect(prompted).toEqual(["t9"])
+})
+
+test("createForkThread with worktree:true forks into a fresh worktree", async () => {
+  const db = freshDb()
+  db.projects.insertProvisioning({ channelId: "c", guildId: "g", name: "demo", directory: "C:\\p",
+    sandboxPath: null, sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 })
+  db.threads.upsert({ threadId: "t1", channelId: "c", sessionId: "s1", title: "source", model: null,
+    agent: null, variant: null, worktreePath: "/sandbox/celly-demo/workspace/.celly/worktrees/t1",
+    liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 1 })
+  const forkCalls: any[] = []
+  const ensured: string[] = []
+  const fork = createForkThread({
+    db,
+    client: { channels: { fetch: async () => ({ threads: { create: async () => ({ id: "t9", members: { add: async () => {} } }) } }) } },
+    runner: { prompt: async () => undefined },
+    ensureReady: async () => {},
+    resolveClient: () => ({ session: { fork: async (a: any) => { forkCalls.push(a); return { data: { id: "s9" } } } } }),
+    registerSession: () => {},
+    startTyping: () => {},
+    worktree: { ensure: async (_project, threadId) => { ensured.push(threadId); return "/sandbox/celly-demo/workspace/.celly/worktrees/t9" } },
+    log: { info() {}, warn() {}, error() {}, debug() {} } as any,
+  })
+  await fork({ sourceThreadId: "t1", title: "fork", worktree: true })
+  expect(ensured).toEqual(["t9"])
+  expect(forkCalls).toEqual([{ path: { id: "s1" }, query: { directory: "/sandbox/celly-demo/workspace/.celly/worktrees/t9" } }])
+  expect(db.threads.get("t9")?.worktreePath).toBe("/sandbox/celly-demo/workspace/.celly/worktrees/t9")
+})
+
+test("createForkThread with worktree:true falls back to the source root when ensure returns null", async () => {
+  const db = freshDb()
+  db.projects.insertProvisioning({ channelId: "c", guildId: "g", name: "demo", directory: "C:\\p",
+    sandboxPath: null, sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 })
+  db.threads.upsert({ threadId: "t1", channelId: "c", sessionId: "s1", title: "source", model: null,
+    agent: null, variant: null, worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 1 })
+  const forkCalls: any[] = []
+  const fork = createForkThread({
+    db,
+    client: { channels: { fetch: async () => ({ threads: { create: async () => ({ id: "t9", members: { add: async () => {} } }) } }) } },
+    runner: { prompt: async () => undefined },
+    ensureReady: async () => {},
+    resolveClient: () => ({ session: { fork: async (a: any) => { forkCalls.push(a); return { data: { id: "s9" } } } } }),
+    registerSession: () => {},
+    startTyping: () => {},
+    worktree: { ensure: async () => null },
+    log: { info() {}, warn() {}, error() {}, debug() {} } as any,
+  })
+  await fork({ sourceThreadId: "t1", title: "fork", worktree: true })
+  expect(forkCalls).toEqual([{ path: { id: "s1" } }])
+  expect(db.threads.get("t9")?.worktreePath).toBeNull()
 })

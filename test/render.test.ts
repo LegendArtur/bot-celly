@@ -43,7 +43,30 @@ test("renderer deletes messages when the body shrinks to empty", async () => {
 test("keeps code fences balanced across chunks", () => {
   const text = "```ts\n" + "x\n".repeat(2000) + "```"
   const chunks = chunkMessage(text, 1900)
-  for (const c of chunks) expect((c.match(/```/g) ?? []).length % 2).toBe(0)
+  for (const c of chunks) {
+    expect((c.match(/```/g) ?? []).length % 2).toBe(0)
+    expect(/`{4,}/.test(c)).toBe(false)
+  }
+})
+test("never emits a fence longer than three backticks", () => {
+  const text = "```ts\n" + "const x = 1\n".repeat(400) + "```"
+  const chunks = chunkMessage(text, 1900)
+  for (const c of chunks) {
+    expect(c.length).toBeLessThanOrEqual(1900)
+    expect(/`{4,}/.test(c)).toBe(false)
+  }
+})
+test("reopens a split code block with its language", () => {
+  const text = "```bash\n" + "echo hi\n".repeat(400) + "```"
+  const chunks = chunkMessage(text, 1900)
+  expect(chunks.length).toBeGreaterThan(1)
+  expect(chunks[1]!.startsWith("```bash\n")).toBe(true)
+})
+test("preserves every code line across chunk boundaries", () => {
+  const body = Array.from({ length: 400 }, (_, i) => `line ${i}`).join("\n")
+  const chunks = chunkMessage("```ts\n" + body + "\n```", 1900)
+  const joined = chunks.join("\n")
+  for (let i = 0; i < 400; i++) expect(joined).toContain(`line ${i}`)
 })
 test("sanitizes thread names", () => {
   expect(sanitizeThreadName("  Hello\n\nWorld  ")).toBe("Hello World")
@@ -61,10 +84,10 @@ test("renderer batches edits within the interval", async () => {
   await r.tick(); expect(calls.length).toBe(1)
   t = 1100; await r.tick(); expect(calls.length).toBe(2)
 })
-test("chunks longer fences without corruption", () => {
+test("normalizes longer fences and preserves the body", () => {
   const text = "````\n" + "a\n".repeat(1200) + "```\n" + "b\n".repeat(1200) + "````"
   const chunks = chunkMessage(text, 1900)
-  for (const c of chunks) expect((c.match(/`{5}/g) ?? []).length % 2).toBe(0)
+  for (const c of chunks) expect(/`{4,}/.test(c)).toBe(false)
   const strip = (s: string) => s.replace(/`+/g, "").replace(/\s+/g, "")
   expect(strip(chunks.join(""))).toBe(strip(text))
 })

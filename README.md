@@ -61,8 +61,10 @@ The whole model fits in three lines:
   throttled into a single live message.
 - **Session resume.** `/resume` reopens a past OpenCode session in a new thread.
 - **Per-thread worktrees.** `/worktree` creates, merges, and removes git
-  worktrees under `<project>/.celly/worktrees`, and `/fork` (or `/btw`) forks a
-  session with its worktree.
+  worktrees under `<project>/.celly/worktrees`. Set `WORKTREE_DEFAULT=true` (or
+  `/worktree default state:on`) to start every new session in its own worktree;
+  non-git projects fall back to the project root. `/fork` inherits the source
+  worktree unless you pass `new_worktree:true`.
 - **Model, agent, and thinking depth.** `/model`, `/agent`, and `/thinking` pick
   per-thread settings.
 - **Abort.** `/abort` stops the current run, or every active run in the channel.
@@ -220,7 +222,8 @@ The everyday handful:
 | `/compact` | thread | Summarize the session with the thread's model. |
 | `/context-usage` | thread | Token use against the model's context limit. |
 | `/worktree status\|new\|merge\|remove` | thread | Manage this thread's git worktree. |
-| `/fork [prompt]` / `/btw <prompt>` | thread | Fork this session into a new thread. |
+| `/worktree default <inherit\|on\|off>` | project channel (owner) | Set whether new sessions start in a worktree. |
+| `/fork [prompt] [new_worktree]` / `/btw <prompt>` | thread | Fork this session into a new thread; `new_worktree` gives the fork its own worktree. |
 | `/last-sessions [count]` | channel or thread | List recent threads (ephemeral, max 10). |
 | `/cost` | thread or channel | Show accumulated cost, tokens, and the session budget. |
 | `/budget show\|set <usd>` | channel (owner) | Show or set the per-channel session budget. |

@@ -3,7 +3,7 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
-import { ensureGitignoreEntry, mergeOutcome, parseStatusPorcelain, parseWorktreeList, WorktreeService, worktreeBranch, worktreeSlug } from "../src/worktrees.ts"
+import { ensureGitignoreEntry, mergeOutcome, parseStatusPorcelain, parseWorktreeList, WorktreeService, worktreeBranch, worktreeDefaultFor, worktreeSlug } from "../src/worktrees.ts"
 import { freshDb, threadRow } from "./helpers/fixtures.ts"
 import { withTempDir } from "./helpers/tmp.ts"
 
@@ -18,6 +18,17 @@ test("worktreeBranch uses the trailing eight alphanumerics of the thread id", ()
   expect(worktreeBranch("!!thread-42!!")).toBe("celly/thread42")
   expect(worktreeBranch("123456789012345678")).toBe("celly/12345678")
   expect(worktreeBranch("")).toBe("celly/work")
+})
+
+test("worktreeDefaultFor resolves per-channel override, global, and default off", () => {
+  const get = (map: Record<string, string>) => (k: string) => map[k]
+  expect(worktreeDefaultFor(get({ worktree_default: "true" }), "c")).toBe(true)
+  expect(worktreeDefaultFor(get({ worktree_default: "true" }), "other")).toBe(true)
+  expect(worktreeDefaultFor(get({ worktree_default: "true", "worktree_default:c": "false" }), "c")).toBe(false)
+  expect(worktreeDefaultFor(get({ worktree_default: "false", "worktree_default:c": "true" }), "c")).toBe(true)
+  expect(worktreeDefaultFor(get({ worktree_default: "true", "worktree_default:c": "" }), "c")).toBe(true)
+  expect(worktreeDefaultFor(get({}), "c")).toBe(false)
+  expect(worktreeDefaultFor(get({ worktree_default: "true" }))).toBe(true)
 })
 
 test("parseWorktreeList reads porcelain records and strips refs/heads", () => {
@@ -150,6 +161,51 @@ test("create still runs git and logs when .gitignore is unwritable", async () =>
   expect(calls).toHaveLength(1)
   expect(warns).toHaveLength(1)
   expect(db.threads.get("t1")?.worktreePath).toBe(`${ROOT}/.celly/worktrees/feature`)
+})
+
+const REV_PARSE = ["git", "-C", ROOT, "rev-parse", "--is-inside-work-tree"].join(" ")
+
+test("ensure returns the existing worktree without touching git", async () => {
+  const { calls, db, service } = makeService({ thread: { worktreePath: `${ROOT}/.celly/worktrees/t1` } })
+  const out = await service.ensure(db.projects.getByChannel("c")!, "t1")
+  expect(out).toBe(`${ROOT}/.celly/worktrees/t1`)
+  expect(calls).toEqual([])
+})
+
+test("ensure falls back to the project root when the project is not a git repository", async () => {
+  const { calls, warns, db, service } = makeService()
+  const out = await service.ensure(db.projects.getByChannel("c")!, "t1", "feature")
+  expect(out).toBeNull()
+  expect(calls.map((c) => c.args)).toEqual([["git", "-C", ROOT, "rev-parse", "--is-inside-work-tree"]])
+  expect(warns.some((w) => /not a git repository/.test(w.message))).toBe(true)
+  expect(db.threads.get("t1")?.worktreePath).toBeNull()
+})
+
+test("ensure creates a worktree in a git repository and stores the path", async () => {
+  await withTempDir("celly-wt-", async (dir) => {
+    const { calls, results, db, service } = makeService({ directory: dir })
+    results.set(REV_PARSE, { code: 0, stdout: "true\n", stderr: "" })
+    const out = await service.ensure(db.projects.getByChannel("c")!, "t1", "feature")
+    expect(out).toBe(`${ROOT}/.celly/worktrees/feature`)
+    expect(calls.map((c) => c.args)).toEqual([
+      ["git", "-C", ROOT, "rev-parse", "--is-inside-work-tree"],
+      ["git", "-C", ROOT, "worktree", "add", "-b", "celly/feature", ".celly/worktrees/feature", "HEAD"],
+    ])
+    expect(db.threads.get("t1")?.worktreePath).toBe(`${ROOT}/.celly/worktrees/feature`)
+  })
+})
+
+test("ensure falls back when git worktree add fails", async () => {
+  await withTempDir("celly-wt-", async (dir) => {
+    const { results, warns, db, service } = makeService({ directory: dir })
+    results.set(REV_PARSE, { code: 0, stdout: "true\n", stderr: "" })
+    results.set(["git", "-C", ROOT, "worktree", "add", "-b", "celly/feature", ".celly/worktrees/feature", "HEAD"].join(" "),
+      { code: 128, stdout: "", stderr: "fatal: not a valid object name: 'HEAD'" })
+    const out = await service.ensure(db.projects.getByChannel("c")!, "t1", "feature")
+    expect(out).toBeNull()
+    expect(warns.some((w) => /could not create a worktree/.test(w.message))).toBe(true)
+    expect(db.threads.get("t1")?.worktreePath).toBeNull()
+  })
 })
 
 test("status reports the path, branch, and clean state", async () => {
