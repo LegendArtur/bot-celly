@@ -71,5 +71,10 @@
   "metadata": {
     "timestamp": false
   },
-  "description": "Documentation for Bot Celly."
+  "description": "Documentation for Bot Celly.",
+  "integrations": {
+    "ga4": {
+      "measurementId": "G-FPFTQZH6NE"
+    }
+  }
 }
