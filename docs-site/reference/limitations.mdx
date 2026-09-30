@@ -30,6 +30,10 @@ link here instead of restating it.
   statically analyzes shell commands and fails closed on what it cannot prove,
   but arbitrary wrapper binaries, encoded payloads, and unmodelled shell
   features can still reach the sandbox. The sandbox is the boundary.
+- **Discord only renders code fences made of exactly three backticks.** Celly
+  normalizes agent output so long replies never emit a longer fence, but it
+  cannot represent a nested fence — a code block whose body itself contains a
+  fence — the way a plain Markdown file can.
 
 Deferred features and commands are on the [roadmap](/project/roadmap) and in
 the [changelog](/changelog). Confirmed bugs and their workarounds are on

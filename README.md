@@ -371,6 +371,9 @@ The canonical roadmap is at
   statically analyzes shell commands and fails closed on what it cannot prove,
   but arbitrary wrapper binaries, encoded payloads, and unmodelled shell
   features can still reach the sandbox. The sandbox is the boundary.
+- **Discord only renders code fences made of exactly three backticks.** Celly
+  normalizes agent output so long replies never emit a longer fence, but it
+  cannot represent a nested fence the way a plain Markdown file can.
 
 The canonical list, including what is deferred, lives in
 [Limitations](https://celly.agub.dev/reference/limitations).
