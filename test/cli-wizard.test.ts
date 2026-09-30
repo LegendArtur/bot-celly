@@ -83,6 +83,20 @@ class FakeTtyInput extends PassThrough {
   setRawMode(value: boolean): this { this.isRaw = value; return this }
 }
 
+function ttyOutput() {
+  let text = ""
+  const stream = {
+    isTTY: true,
+    columns: 80,
+    write: (chunk: string) => { text += chunk; return true },
+    on() { return stream },
+    once() { return stream },
+    removeListener() { return stream },
+    getColorDepth: () => 1,
+  }
+  return { stream: stream as unknown as NodeJS.WritableStream, get: () => text }
+}
+
 test("createPrompter keeps line input working after a hidden prompt", async () => {
   const input = new FakeTtyInput()
   const output = { write: () => true } as unknown as NodeJS.WritableStream
@@ -102,14 +116,13 @@ test("createPrompter keeps line input working after a hidden prompt", async () =
 
 test("createPrompter never writes the hidden token to the output", async () => {
   const input = new FakeTtyInput()
-  let out = ""
-  const output = { write: (chunk: string) => { out += chunk; return true } } as unknown as NodeJS.WritableStream
-  const prompter = createPrompter(input, output)
+  const output = ttyOutput()
+  const prompter = createPrompter(input, output.stream)
 
   const secret = prompter.askSecret("Token: ")
   for (const ch of "hunter2") input.emit("keypress", ch, { name: ch })
   input.emit("keypress", "\r", { name: "return" })
   expect(await secret).toBe("hunter2")
-  expect(out).not.toContain("hunter2")
+  expect(output.get()).not.toContain("hunter2")
   prompter.close()
 })
