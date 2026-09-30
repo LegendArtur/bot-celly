@@ -62,7 +62,7 @@ const editOf = (i: any) => {
 
 test("declares the providers and cost command set", () => {
   const names = commandData().map((c) => c.name).sort()
-  expect(names).toEqual(["abort", "agent", "attach", "btw", "budget", "compact", "context-usage", "cost", "diff", "fork", "last-sessions", "mode", "model", "new", "project", "queue", "redo", "resume", "session-id", "share", "task", "thinking", "undo", "unshare", "worktree"])
+  expect(names).toEqual(["abort", "agent", "attach", "btw", "budget", "compact", "context-usage", "cost", "dashboard", "diff", "fork", "last-sessions", "mode", "model", "new", "project", "queue", "redo", "resume", "session-id", "share", "task", "thinking", "undo", "unshare", "worktree"])
 })
 test("project has the expected subcommands", () => {
   const project = commandData().find((c) => c.name === "project")!
@@ -293,6 +293,24 @@ test("/budget is owner-only", async () => {
   const i = interaction({ commandName: "budget", sub: "show", channelId: "c" })
   await handleCommand(i, { projects: {} as any, runner: {} as any, db: freshDb(), authorized: () => true, isOwner: () => false })
   expect(i.calls).toHaveLength(1)
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only.", flags: 64, allowedMentions: { parse: [] } } })
+})
+
+test("/dashboard posts the admin console link when it is enabled", async () => {
+  const i = interaction({ commandName: "dashboard", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: freshDb(), authorized: () => true, isOwner: () => true, adminUrl: "http://127.0.0.1:4560" })
+  expect(editOf(i)).toBe("admin console (loopback only, open on the Celly host): http://127.0.0.1:4560")
+})
+
+test("/dashboard reports when the admin console is disabled", async () => {
+  const i = interaction({ commandName: "dashboard", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: freshDb(), authorized: () => true, isOwner: () => true })
+  expect(editOf(i)).toBe("admin console is disabled; set ADMIN_PORT to enable it")
+})
+
+test("/dashboard is owner-only", async () => {
+  const i = interaction({ commandName: "dashboard", channelId: "c" })
+  await handleCommand(i, { projects: {} as any, runner: {} as any, db: freshDb(), authorized: () => true, isOwner: () => false })
   expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "This command is owner-only.", flags: 64, allowedMentions: { parse: [] } } })
 })
 
@@ -625,6 +643,7 @@ test("requiresOwner scopes project mutations", () => {
   expect(requiresOwner("budget", "show")).toBe(true)
   expect(requiresOwner("budget", "set")).toBe(true)
   expect(requiresOwner("cost", null)).toBe(false)
+  expect(requiresOwner("dashboard", null)).toBe(true)
   expect(requiresOwner("new", null)).toBe(false)
   expect(requiresOwner("model", "resume")).toBe(false)
 })

@@ -138,6 +138,7 @@ export interface StartupBanner {
   projects: number
   dataDir: string
   model?: string
+  adminUrl?: string
 }
 const LABEL_WIDTH = 10
 export function formatStartupBanner(info: StartupBanner, opts: { color?: boolean } = {}): string {
@@ -146,6 +147,7 @@ export function formatStartupBanner(info: StartupBanner, opts: { color?: boolean
     { label: "Projects", value: String(info.projects) },
     { label: "Data", value: info.dataDir },
     { label: "Model", value: info.model ?? "(OpenCode default)" },
+    { label: "Console", value: info.adminUrl ?? "disabled" },
   ]
   for (const g of info.guilds) {
     rows.push({ label: "Guild", value: `${g.name} (${g.id})` })
