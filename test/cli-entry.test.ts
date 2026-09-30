@@ -18,9 +18,11 @@ function fakeUi(): { ui: Ui; lines: string[] } {
   const lines: string[] = []
   const ui: Ui = {
     heading: (text) => { lines.push(`heading: ${text}`) },
+    rule: () => { lines.push("rule") },
     bullet: (text) => { lines.push(`bullet: ${text}`) },
     hint: (text) => { lines.push(`hint: ${text}`) },
     status: (kind, label, detail) => { lines.push(detail ? `${kind}: ${label}: ${detail}` : `${kind}: ${label}`) },
+    rows: (items) => { for (const item of items) lines.push(`${item.kind}: ${item.label}${item.detail ? `: ${item.detail}` : ""}`) },
   }
   return { ui, lines }
 }

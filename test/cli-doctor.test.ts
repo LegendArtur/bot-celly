@@ -52,5 +52,6 @@ test("reportDoctor prints pass and fail lines", async () => {
   const results = await runDoctor({ env: {}, home: "/h", dataDir: "/h/data", nodeVersion: "22.0.0", runSbx: okSbx, mkdir: () => {} })
   reportDoctor(results, ui)
   expect(text).toContain("Celly doctor")
-  expect(text).toContain("[x] Node")
+  expect(text).toContain("x  Node")
+  expect(text).toContain("→ Install Node 24")
 })

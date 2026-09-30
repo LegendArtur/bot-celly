@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs"
 import { loadConfig } from "../config.js"
 import type { RunResult } from "../sbx.js"
-import type { Ui } from "./ui.js"
+import type { StatusKind, Ui, UiRow } from "./ui.js"
 
 export type CheckKind = "hard" | "advisory"
 
@@ -80,11 +80,14 @@ export function hasHardFailure(results: CheckResult[]): boolean {
 
 export function reportDoctor(results: CheckResult[], ui: Ui): void {
   ui.heading("Celly doctor")
-  for (const result of results) {
-    const kind = !result.ok
+  ui.rule()
+  ui.rows(results.map((result): UiRow => {
+    const kind: StatusKind = !result.ok
       ? (result.kind === "advisory" ? "warn" : "fail")
       : (result.kind === "advisory" ? "info" : "ok")
-    ui.status(kind, result.detail ? `${result.name} — ${result.detail}` : result.name)
-    if (!result.ok && result.fix) ui.hint(result.fix)
-  }
+    const row: UiRow = { kind, label: result.name }
+    if (result.detail) row.detail = result.detail
+    if (result.fix) row.fix = result.fix
+    return row
+  }))
 }

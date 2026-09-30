@@ -12,8 +12,8 @@ export interface Symbols {
 
 export function symbols(ascii: boolean): Symbols {
   return ascii
-    ? { ok: "[ok]", fail: "[x]", warn: "[!]", info: "[i]", pointer: ">" }
-    : { ok: "✓", fail: "✗", warn: "!", info: "i", pointer: "›" }
+    ? { ok: "+", fail: "x", warn: "!", info: "i", pointer: ">" }
+    : { ok: "✓", fail: "✗", warn: "!", info: "·", pointer: "›" }
 }
 
 const STYLE: Record<StatusKind, { tone: string; symbol: keyof Symbols }> = {
@@ -23,11 +23,20 @@ const STYLE: Record<StatusKind, { tone: string; symbol: keyof Symbols }> = {
   info: { tone: ANSI.cyan, symbol: "info" },
 }
 
+export interface UiRow {
+  kind: StatusKind
+  label: string
+  detail?: string
+  fix?: string
+}
+
 export interface Ui {
   heading(text: string): void
+  rule(width?: number): void
   bullet(text: string): void
   hint(text: string): void
   status(kind: StatusKind, label: string, detail?: string): void
+  rows(items: UiRow[]): void
 }
 
 export interface UiOptions {
@@ -37,6 +46,9 @@ export interface UiOptions {
   env?: NodeJS.ProcessEnv
 }
 
+const INDENT = "  "
+const GAP = 2
+
 export function createUi(options: UiOptions = {}): Ui {
   const out = options.out ?? process.stdout
   const env = options.env ?? process.env
@@ -44,14 +56,27 @@ export function createUi(options: UiOptions = {}): Ui {
   const ascii = options.ascii ?? (env.CELLY_ASCII === "1" || !color)
   const marks = symbols(ascii)
   const write = (line: string): void => { out.write(`${line}\n`) }
+
+  const rows = (items: UiRow[]): void => {
+    if (items.length === 0) return
+    const width = Math.max(...items.map((item) => item.label.length))
+    const detailColumn = INDENT.length + 1 + GAP + width + GAP
+    for (const item of items) {
+      const style = STYLE[item.kind]
+      const symbol = paint(style.tone, marks[style.symbol], color)
+      const label = paint(ANSI.bold, item.label.padEnd(width), color)
+      const detail = item.detail ? `${" ".repeat(GAP)}${paint(ANSI.dim, item.detail, color)}` : ""
+      write(`${INDENT}${symbol}${" ".repeat(GAP)}${label}${detail}`)
+      if (item.fix) write(`${" ".repeat(detailColumn)}${paint(ANSI.dim, `→ ${item.fix}`, color)}`)
+    }
+  }
+
   return {
-    heading: (text) => write(paint(`${ANSI.bold}${ANSI.cyan}`, text, color)),
-    bullet: (text) => write(`${paint(ANSI.dim, marks.pointer, color)} ${text}`),
-    hint: (text) => write(paint(ANSI.dim, `  ${text}`, color)),
-    status: (kind, label, detail) => {
-      const style = STYLE[kind]
-      const head = paint(style.tone, `${marks[style.symbol]} ${label}`, color)
-      write(detail ? `${head}\n${paint(ANSI.dim, `    ${detail}`, color)}` : head)
-    },
+    heading: (text) => write(`${INDENT}${paint(`${ANSI.bold}${ANSI.cyan}`, text, color)}`),
+    rule: (width = 44) => write(`${INDENT}${paint(ANSI.dim, "─".repeat(width), color)}`),
+    bullet: (text) => write(`${INDENT}${paint(ANSI.dim, marks.pointer, color)} ${text}`),
+    hint: (text) => write(paint(ANSI.dim, `${INDENT}${text}`, color)),
+    status: (kind, label, detail) => rows([detail ? { kind, label, detail } : { kind, label }]),
+    rows,
   }
 }

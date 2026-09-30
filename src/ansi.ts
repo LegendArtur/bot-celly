@@ -11,13 +11,15 @@ export const ANSI = {
 
 /**
  * Color the console only when a human is watching: an explicit FORCE_COLOR wins,
- * a non-empty NO_COLOR (https://no-color.org) forces plain text, otherwise the
- * stream must be a TTY so piped/CI output stays plain.
+ * a non-empty NO_COLOR (https://no-color.org) forces plain text, TERM=dumb
+ * forces plain text, otherwise the stream must be a TTY so piped/CI output stays
+ * plain.
  */
 export function colorEnabled(env: NodeJS.ProcessEnv = process.env, isTTY: boolean = Boolean(process.stdout.isTTY)): boolean {
   const force = env.FORCE_COLOR
   if (force !== undefined && force !== "") return force !== "0" && force !== "false"
   if (env.NO_COLOR !== undefined && env.NO_COLOR !== "") return false
+  if (env.TERM === "dumb") return false
   return isTTY
 }
 

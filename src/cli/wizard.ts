@@ -56,10 +56,10 @@ export async function runWizard(deps: WizardDeps): Promise<WizardResult> {
   const readFile = deps.readFile ?? ((path: string) => readFileSync(path, "utf8"))
   const writeFile = deps.writeFile ?? defaultWriteFile
 
-  ui.heading("Welcome to Celly")
-  ui.bullet("I need two things: your Discord bot token and your guild IDs.")
-  ui.hint(`I will save them to ${deps.envFile} and set the file mode to 600.`)
-  ui.hint("Everything else has a sensible default.")
+  ui.heading("Celly setup")
+  ui.rule()
+  ui.bullet(`Saves your Discord token and guild IDs to ${deps.envFile} (mode 600).`)
+  ui.bullet("Everything else has a sensible default.")
 
   let token = ""
   while (token.length === 0) {
