@@ -2,8 +2,8 @@
 
 <p align="center"><strong>Drive OpenCode from Discord — one isolated microVM per project.</strong></p>
 
-Celly turns [Discord](https://discord.com) into a control plane for sandboxed
-[OpenCode](https://opencode.ai) agents: start a project from any device, 
+Celly is a [Discord](https://discord.com) Bot acting as the control plane for
+sandboxed [OpenCode](https://opencode.ai) sessions : start a project from any device, 
 watch it stream, approve a command, and pick the session back up any time.
 
 It is for people who want an always-on coding agent without exposing their whole
