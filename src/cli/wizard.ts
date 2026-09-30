@@ -1,6 +1,5 @@
 import { chmodSync, readFileSync, writeFileSync } from "node:fs"
 import { emitKeypressEvents } from "node:readline"
-import type { Interface as ReadlineInterface } from "node:readline"
 import { createInterface } from "node:readline/promises"
 import { loadConfig, parseGuildIds } from "../config.js"
 import type { Ui } from "./ui.js"
@@ -102,16 +101,17 @@ export function createPrompter(input: NodeJS.ReadableStream, output: NodeJS.Writ
         return rl.question(question)
       }
       return new Promise<string>((resolve) => {
+        rl.pause()
         output.write(question)
         let value = ""
         const wasRaw = Boolean(stdin.isRaw)
-        emitKeypressEvents(stdin as NodeJS.ReadStream, rl as unknown as ReadlineInterface)
+        emitKeypressEvents(stdin)
         stdin.setRawMode(true)
         stdin.resume()
         const cleanup = (): void => {
           stdin.removeListener("keypress", onKeypress)
           stdin.setRawMode(wasRaw)
-          stdin.pause()
+          rl.resume()
         }
         const onKeypress = (str: string, key: { name?: string; ctrl?: boolean }): void => {
           if (key.name === "return" || key.name === "enter") { cleanup(); output.write("\n"); resolve(value) }

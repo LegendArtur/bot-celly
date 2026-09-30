@@ -1,7 +1,8 @@
 import { expect, test } from "vitest"
 import { readFileSync, statSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { mergeEnv, runWizard } from "../src/cli/wizard.ts"
+import { PassThrough } from "node:stream"
+import { createPrompter, mergeEnv, runWizard } from "../src/cli/wizard.ts"
 import { createUi } from "../src/cli/ui.ts"
 import type { Prompter } from "../src/cli/wizard.ts"
 import { withTempDir } from "./helpers/tmp.ts"
@@ -74,4 +75,27 @@ test("runWizard tightens the env file mode when rewriting an existing file", asy
     expect(readFileSync(path, "utf8")).toContain("DISCORD_TOKEN=new-token")
     if (process.platform !== "win32") expect(statSync(path).mode & 0o777).toBe(0o600)
   })
+})
+
+class FakeTtyInput extends PassThrough {
+  isTTY = true
+  isRaw = false
+  setRawMode(value: boolean): this { this.isRaw = value; return this }
+}
+
+test("createPrompter keeps line input working after a hidden prompt", async () => {
+  const input = new FakeTtyInput()
+  const output = { write: () => true } as unknown as NodeJS.WritableStream
+  const prompter = createPrompter(input, output)
+
+  const secret = prompter.askSecret("Token: ")
+  input.emit("keypress", "t", { name: "t" })
+  input.emit("keypress", "\r", { name: "return" })
+  expect(await secret).toBe("t")
+  expect(input.isRaw).toBe(false)
+
+  const ask = prompter.ask("Guilds: ")
+  setImmediate(() => input.write("123456789012345678\n"))
+  expect(await ask).toBe("123456789012345678")
+  prompter.close()
 })
