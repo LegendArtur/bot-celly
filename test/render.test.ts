@@ -344,6 +344,57 @@ test("renderer ignores a blank prompt", async () => {
   expect(sends).toEqual(["only"])
 })
 
+test("renderer renders an agent question inline with its controls on the message", async () => {
+  const sends: Array<{ content: string; components: any[] }> = []
+  const edits: Array<{ id: string; content: string; components: any[] }> = []
+  const r = new Renderer({
+    send: async (c, components) => { sends.push({ content: c, components: components ?? [] }); return "m1" },
+    edit: async (id, c, components) => { edits.push({ id, content: c, components: components ?? [] }) },
+    now: () => 0, intervalMs: 1000,
+  })
+  const controls = [{ type: 1, components: [{ type: 2, custom_id: "celly:answer:q1:0" }] }]
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "Approaches: A." })
+  r.upsertQuestion("q1", "**❓ The agent asked**\nWhich DB?", controls)
+  await r.finalize()
+  expect(sends).toHaveLength(1)
+  expect(sends[0]!.content).toBe("Approaches: A.\n\n**❓ The agent asked**\nWhich DB?")
+  expect(sends[0]!.components).toEqual(controls)
+})
+
+test("renderer clears question controls once answered without dropping the block", async () => {
+  const sends: Array<{ content: string; components: any[] }> = []
+  const edits: Array<{ id: string; content: string; components: any[] }> = []
+  const r = new Renderer({
+    send: async (c, components) => { sends.push({ content: c, components: components ?? [] }); return `m${sends.length}` },
+    edit: async (id, c, components) => { edits.push({ id, content: c, components: components ?? [] }) },
+    now: () => 0, intervalMs: 1000,
+  })
+  r.upsertQuestion("q1", "**❓ The agent asked**\nWhich DB?", [{ type: 1 }])
+  await r.finalize()
+  r.upsertQuestion("q1", "**❓ The agent asked**\nWhich DB?\n**Answer:** sqlite", null)
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "B. Extract it." })
+  await r.flush()
+  const last = edits.at(-1)!
+  expect(last.content).toContain("**Answer:** sqlite")
+  expect(last.content).toContain("B. Extract it.")
+  expect(last.components).toEqual([])
+})
+
+test("renderer attaches question controls to the last chunk of a long body", async () => {
+  const sends: Array<{ content: string; components: any[] }> = []
+  const r = new Renderer({
+    send: async (c, components) => { sends.push({ content: c, components: components ?? [] }); return `m${sends.length}` },
+    edit: async () => {},
+    now: () => 0, intervalMs: 1000,
+  })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "a".repeat(2600) })
+  r.upsertQuestion("q1", "Q", [{ type: 1 }])
+  await r.finalize()
+  expect(sends.length).toBeGreaterThan(1)
+  expect(sends.slice(0, -1).every((s) => s.components.length === 0)).toBe(true)
+  expect(sends.at(-1)!.components).toEqual([{ type: 1 }])
+})
+
 test("renderer renders notices with a tone glyph", async () => {
   const sends: string[] = []
   const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},

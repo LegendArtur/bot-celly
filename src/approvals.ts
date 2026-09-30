@@ -28,6 +28,19 @@ export interface QuestionAsk {
   source: ApprovalSource
   questions: QuestionInfo[]
 }
+/**
+ * A question is rendered inline in the thread's streamed reply rather than as a
+ * standalone message, so the agent's answer is not split around it. The manager
+ * emits this state and the caller paints it into the renderer; `components` is
+ * null once the request can no longer be answered.
+ */
+export interface QuestionStateUpdate {
+  threadId: string
+  requestId: string
+  questions: QuestionInfo[]
+  text: string
+  components: any[] | null
+}
 export interface ReplyPermissionInput {
   threadId: string
   sessionId: string
@@ -63,6 +76,12 @@ export interface QuestionDeliveryFailure {
 export interface ApprovalManagerDeps {
   send(threadId: string, content: string, components: any[]): Promise<string>
   edit(threadId: string, messageId: string, content: string, components: any[]): Promise<void>
+  /**
+   * Paint an inline question into the thread's streamed reply. Called for the
+   * initial ask, partial answers, and the terminal state (answered, rejected,
+   * timed out, inactive).
+   */
+  onQuestionState?(update: QuestionStateUpdate): void
   replyPermission(input: ReplyPermissionInput): Promise<void>
   replyQuestion(input: ReplyQuestionInput): Promise<void>
   rejectQuestion(input: RejectQuestionInput): Promise<void>
@@ -103,9 +122,25 @@ function decisionText(decision: ApprovalDecision, actorId: string): string {
 function describeQuestions(questions: QuestionInfo[]): string {
   return questions.map((q) => q.question).join(" | ").slice(0, 500)
 }
+function optionLines(question: QuestionInfo): string {
+  const options = (question.options ?? []).filter((option) => typeof option?.label === "string" && option.label)
+  if (!options.length) return ""
+  return options.map((option) => `  - **${option.label}**${option.description ? ` — ${option.description}` : ""}`).join("\n")
+}
+function questionBlock(question: QuestionInfo, index: number, answer?: string): string {
+  const header = question.header || `Question ${index + 1}`
+  const lines = [`**${index + 1}. ${header}**`, question.question]
+  const options = optionLines(question)
+  if (options) lines.push(options)
+  if (answer !== undefined) lines.push(answer)
+  return lines.join("\n")
+}
+const QUESTION_HEADING = "**❓ The agent asked**"
 function renderQuestions(questions: QuestionInfo[]): string {
-  const blocks = questions.map((q, i) => `**${q.header || `Question ${i + 1}`}**\n${q.question}`)
-  return `The agent asked:\n\n${blocks.join("\n\n")}`
+  return clampContent(`${QUESTION_HEADING}\n\n${questions.map((q, i) => questionBlock(q, i)).join("\n\n")}`)
+}
+function renderQuestionStatus(questions: QuestionInfo[], status: string): string {
+  return clampContent(`${QUESTION_HEADING}\n\n${questions.map((q, i) => questionBlock(q, i)).join("\n\n")}\n\n${status}`)
 }
 const QUESTION_MESSAGE_MAX = 2000
 const QUESTION_ANSWER_MAX = 200
@@ -119,13 +154,10 @@ function answerLine(answers: string[] | undefined): string {
   return labels.length ? `**Answer:** ${labels.join(", ")}` : "**Answer:** _(skipped)_"
 }
 function renderQuestionProgress(questions: QuestionInfo[], answers: (string[] | undefined)[], actorId?: string): string {
-  const blocks = questions.map((q, i) => {
-    const header = q.header || `Question ${i + 1}`
-    return `**${header}**\n${q.question}\n${answerLine(answers[i])}`
-  })
+  const blocks = questions.map((q, i) => questionBlock(q, i, answerLine(answers[i])))
   const complete = answers.length > 0 && answers.every((answer) => answer !== undefined)
   const footer = complete && actorId ? `\n\nQuestions **answered** by <@${actorId}>.` : ""
-  return clampContent(`The agent asked:\n\n${blocks.join("\n\n")}${footer}`)
+  return clampContent(`${QUESTION_HEADING}\n\n${blocks.join("\n\n")}${footer}`)
 }
 function questionSelectOptions(question: QuestionInfo): any[] {
   const seen = new Set<string>()
@@ -183,7 +215,6 @@ interface PendingPermission {
 }
 interface PendingQuestion {
   input: QuestionAsk
-  message: Promise<string | null>
   answers: (string[] | undefined)[]
   resolve(answers: string[][] | null): void
   timer: ReturnType<typeof setTimeout>
@@ -219,6 +250,9 @@ export class ApprovalManager {
     if (!messageId) return
     try { await this.deps.edit(threadId, messageId, content, components) }
     catch (err) { this.deps.log("approval message edit failed", { threadId, messageId, error: String(err) }) }
+  }
+  private emitQuestion(input: QuestionAsk, text: string, components: any[] | null): void {
+    this.deps.onQuestionState?.({ threadId: input.threadId, requestId: input.requestId, questions: input.questions, text, components })
   }
   private async replyPermissionSafe(input: PermissionAsk, reply: ApprovalDecision): Promise<void> {
     try {
@@ -288,7 +322,7 @@ export class ApprovalManager {
     this.drop("question", "timeout", { threadId: pending.input.threadId, sessionId: pending.input.sessionId, requestId })
     this.deps.audit?.({ kind: "question", threadId: pending.input.threadId, actorId: "timeout", detail: describeQuestions(pending.input.questions), decision: "reject" })
     await this.rejectQuestionSafe(pending.input)
-    await this.editSafe(pending.input.threadId, pending.message, "Questions **timed out**; rejected.")
+    this.emitQuestion(pending.input, renderQuestionStatus(pending.input.questions, "Questions **timed out**; rejected."), null)
     pending.resolve(null)
   }
 
@@ -302,8 +336,8 @@ export class ApprovalManager {
     const asked = new Promise<string[][] | null>((resolve) => {
       const timer = setTimeout(() => { void this.timeoutQuestion(input.requestId) }, this.deps.timeoutMs)
       this.arm(timer)
-      const message = this.sendSafe(input.threadId, renderQuestions(input.questions), questionComponents(input.requestId, input.questions))
-      this.questions.set(input.requestId, { input, message, answers, resolve, timer })
+      this.questions.set(input.requestId, { input, answers, resolve, timer })
+      this.emitQuestion(input, renderQuestions(input.questions), questionComponents(input.requestId, input.questions))
     })
     return asked
   }
@@ -327,8 +361,8 @@ export class ApprovalManager {
     } else {
       // Keep the remaining controls so the other questions can still be
       // answered, and show what has been picked so far.
-      void this.editSafe(
-        pending.input.threadId, pending.message,
+      this.emitQuestion(
+        pending.input,
         renderQuestionProgress(pending.input.questions, pending.answers),
         questionComponents(pending.input.requestId, pending.input.questions),
       )
@@ -353,7 +387,7 @@ export class ApprovalManager {
     clearTimeout(pending.timer)
     this.deps.audit?.({ kind: "question", threadId: pending.input.threadId, actorId, detail: describeQuestions(pending.input.questions), decision: "reject" })
     void this.rejectQuestionSafe(pending.input)
-    void this.editSafe(pending.input.threadId, pending.message, `Questions **rejected** by <@${actorId}>.`)
+    this.emitQuestion(pending.input, renderQuestionStatus(pending.input.questions, `Questions **rejected** by <@${actorId}>.`), null)
     pending.resolve(null)
     return true
   }
@@ -373,7 +407,7 @@ export class ApprovalManager {
       this.questions.delete(requestId)
       clearTimeout(question.timer)
       this.drop("question", cause, { threadId: question.input.threadId, sessionId, requestId })
-      void this.editSafe(question.input.threadId, question.message, "This request is no longer active.")
+      this.emitQuestion(question.input, renderQuestionStatus(question.input.questions, "This request is no longer active."), null)
       question.resolve(null)
     }
   }
@@ -397,7 +431,7 @@ export class ApprovalManager {
       this.questions.delete(requestId)
       clearTimeout(question.timer)
       this.drop("question", "run-ended", { threadId, sessionId: question.input.sessionId, requestId })
-      void this.editSafe(question.input.threadId, question.message, "This request is no longer active.")
+      this.emitQuestion(question.input, renderQuestionStatus(question.input.questions, "This request is no longer active."), null)
       question.resolve(null)
     }
   }
@@ -409,10 +443,10 @@ export class ApprovalManager {
     }).catch((err) => {
       const error = String(err)
       this.deps.log("question reply failed", { requestId: pending.input.requestId, error })
-      void this.editSafe(pending.input.threadId, pending.message, "The answer could not be delivered (the request expired). Aborting this run so the thread is not stuck.")
+      this.emitQuestion(pending.input, renderQuestionStatus(pending.input.questions, "The answer could not be delivered (the request expired). Aborting this run so the thread is not stuck."), null)
       this.deps.onQuestionDeliveryFailed?.({ threadId: pending.input.threadId, sessionId: pending.input.sessionId, requestId: pending.input.requestId, action: "reply", error })
     })
-    void this.editSafe(pending.input.threadId, pending.message, renderQuestionProgress(pending.input.questions, answers, actorId))
+    this.emitQuestion(pending.input, renderQuestionProgress(pending.input.questions, answers, actorId), null)
     pending.resolve(answers)
   }
 }

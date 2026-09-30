@@ -134,12 +134,14 @@ function noticeGlyph(tone: NoticeTone): string {
 type Segment =
   | { kind: "prompt"; id: string; text: string }
   | { kind: "text"; id: string; text: string }
+  | { kind: "question"; id: string; text: string }
   | { kind: "tool"; id: string; name: string; status: string; title?: string }
   | { kind: "notice"; id: string; text: string; tone: NoticeTone }
 
 function renderSegment(segment: Segment): string {
   if (segment.kind === "prompt") return formatPrompt(segment.text)
   if (segment.kind === "text") return segment.text
+  if (segment.kind === "question") return segment.text
   if (segment.kind === "notice") {
     const flat = segment.text.replace(/\s+/g, " ").trim()
     const label = `> ${noticeGlyph(segment.tone)} **${noticeLabel(segment.tone)}**`
@@ -165,8 +167,16 @@ export class Renderer {
   private endedAt: number | null = null
   private inFlight: Promise<void> | null = null
   private footer = ""
+  /**
+   * Interactive controls (agent question buttons) ride on the message that
+   * currently holds the question block. While a question is pending the run is
+   * blocked, so the question is always the tail segment and its controls belong
+   * on the last chunk.
+   */
+  private questionControls: { id: string; components: any[] } | null = null
   constructor(private readonly deps: {
-    send(content: string): Promise<string>; edit(messageId: string, content: string): Promise<void>
+    send(content: string, components?: any[]): Promise<string>
+    edit(messageId: string, content: string, components?: any[]): Promise<void>
     delete?(messageId: string): Promise<void>
     now(): number; intervalMs: number; onMessageId?(id: string): void; onMessageIds?(ids: string[]): void
     initialMessageId?: string | null
@@ -179,6 +189,18 @@ export class Renderer {
       this.upsert({ kind: "prompt", id: "__prompt__", text: deps.prompt })
       this.dirty = true
     }
+  }
+  /**
+   * Render (or update) an agent question inline in the streamed body. A
+   * non-empty `components` attaches the interactive controls to the question's
+   * message; `null` clears them (answered, rejected, timed out, inactive).
+   */
+  upsertQuestion(id: string, text: string, components: any[] | null): void {
+    this.upsert({ kind: "question", id, text })
+    if (components && components.length > 0) this.questionControls = { id, components }
+    else if (this.questionControls?.id === id) this.questionControls = null
+    this.dirty = true
+    this.revision++
   }
   private upsert(segment: Segment): void {
     const existing = this.segmentIndex.get(segment.id)
@@ -241,10 +263,11 @@ export class Renderer {
       return
     }
     for (const [i, content] of chunks.entries()) {
+      const components = i === chunks.length - 1 && this.questionControls ? this.questionControls.components : []
       const existing = this.ids[i]
-      if (existing !== undefined) await this.deps.edit(existing, content)
+      if (existing !== undefined) await this.deps.edit(existing, content, components)
       else {
-        const id = await this.deps.send(content)
+        const id = await this.deps.send(content, components)
         this.ids.push(id)
         this.deps.onMessageId?.(id)
       }
