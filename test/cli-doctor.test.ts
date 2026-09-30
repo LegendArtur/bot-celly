@@ -53,5 +53,5 @@ test("reportDoctor prints pass and fail lines", async () => {
   reportDoctor(results, ui)
   expect(text).toContain("Celly doctor")
   expect(text).toContain("x  Node")
-  expect(text).toContain("→ Install Node 24")
+  expect(text).toContain("-> Install Node 24")
 })

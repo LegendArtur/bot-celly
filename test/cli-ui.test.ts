@@ -7,8 +7,8 @@ function collector() {
 }
 
 test("symbols fall back to single-glyph ASCII so columns stay aligned", () => {
-  expect(symbols(true)).toEqual({ ok: "+", fail: "x", warn: "!", info: "i", pointer: ">" })
-  expect(symbols(false)).toEqual({ ok: "✓", fail: "✗", warn: "!", info: "·", pointer: "›" })
+  expect(symbols(true)).toEqual({ ok: "+", fail: "x", warn: "!", info: "i", pointer: ">", arrow: "->", rule: "-" })
+  expect(symbols(false)).toEqual({ ok: "✓", fail: "✗", warn: "!", info: "·", pointer: "›", arrow: "→", rule: "─" })
 })
 
 test("rows align labels under a shared column and hang the fix below", () => {

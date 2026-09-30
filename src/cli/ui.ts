@@ -8,12 +8,14 @@ export interface Symbols {
   warn: string
   info: string
   pointer: string
+  arrow: string
+  rule: string
 }
 
 export function symbols(ascii: boolean): Symbols {
   return ascii
-    ? { ok: "+", fail: "x", warn: "!", info: "i", pointer: ">" }
-    : { ok: "✓", fail: "✗", warn: "!", info: "·", pointer: "›" }
+    ? { ok: "+", fail: "x", warn: "!", info: "i", pointer: ">", arrow: "->", rule: "-" }
+    : { ok: "✓", fail: "✗", warn: "!", info: "·", pointer: "›", arrow: "→", rule: "─" }
 }
 
 const STYLE: Record<StatusKind, { tone: string; symbol: keyof Symbols }> = {
@@ -67,13 +69,13 @@ export function createUi(options: UiOptions = {}): Ui {
       const label = paint(ANSI.bold, item.label.padEnd(width), color)
       const detail = item.detail ? `${" ".repeat(GAP)}${paint(ANSI.dim, item.detail, color)}` : ""
       write(`${INDENT}${symbol}${" ".repeat(GAP)}${label}${detail}`)
-      if (item.fix) write(`${" ".repeat(detailColumn)}${paint(ANSI.dim, `→ ${item.fix}`, color)}`)
+      if (item.fix) write(`${" ".repeat(detailColumn)}${paint(ANSI.dim, `${marks.arrow} ${item.fix}`, color)}`)
     }
   }
 
   return {
     heading: (text) => write(`${INDENT}${paint(`${ANSI.bold}${ANSI.cyan}`, text, color)}`),
-    rule: (width = 44) => write(`${INDENT}${paint(ANSI.dim, "─".repeat(width), color)}`),
+    rule: (width = 44) => write(`${INDENT}${paint(ANSI.dim, marks.rule.repeat(width), color)}`),
     bullet: (text) => write(`${INDENT}${paint(ANSI.dim, marks.pointer, color)} ${text}`),
     hint: (text) => write(paint(ANSI.dim, `${INDENT}${text}`, color)),
     status: (kind, label, detail) => rows([detail ? { kind, label, detail } : { kind, label }]),

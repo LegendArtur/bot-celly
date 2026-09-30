@@ -91,17 +91,21 @@ export async function runWizard(deps: WizardDeps): Promise<WizardResult> {
 }
 
 export function createPrompter(input: NodeJS.ReadableStream, output: NodeJS.WritableStream): Prompter {
-  const rl = createInterface({ input, output })
+  const askVisible = async (question: string): Promise<string> => {
+    const rl = createInterface({ input, output })
+    try { return await rl.question(question) } finally { rl.close() }
+  }
   return {
-    ask: (question) => rl.question(question),
+    ask: askVisible,
     askSecret: async (question) => {
       const stdin = input as NodeJS.ReadStream
       if (!stdin.isTTY || typeof stdin.setRawMode !== "function") {
         output.write("(this terminal cannot hide input; the token will be visible)\n")
-        return rl.question(question)
+        return askVisible(question)
       }
+      // No readline interface is attached during this read: readline echoes every
+      // keypress it sees, which would print the secret. Read raw keypresses only.
       return new Promise<string>((resolve) => {
-        rl.pause()
         output.write(question)
         let value = ""
         const wasRaw = Boolean(stdin.isRaw)
@@ -111,7 +115,6 @@ export function createPrompter(input: NodeJS.ReadableStream, output: NodeJS.Writ
         const cleanup = (): void => {
           stdin.removeListener("keypress", onKeypress)
           stdin.setRawMode(wasRaw)
-          rl.resume()
         }
         const onKeypress = (str: string, key: { name?: string; ctrl?: boolean }): void => {
           if (key.name === "return" || key.name === "enter") { cleanup(); output.write("\n"); resolve(value) }
@@ -122,6 +125,6 @@ export function createPrompter(input: NodeJS.ReadableStream, output: NodeJS.Writ
         stdin.on("keypress", onKeypress)
       })
     },
-    close: () => rl.close(),
+    close: () => {},
   }
 }

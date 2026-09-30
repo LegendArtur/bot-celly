@@ -99,3 +99,17 @@ test("createPrompter keeps line input working after a hidden prompt", async () =
   expect(await ask).toBe("123456789012345678")
   prompter.close()
 })
+
+test("createPrompter never writes the hidden token to the output", async () => {
+  const input = new FakeTtyInput()
+  let out = ""
+  const output = { write: (chunk: string) => { out += chunk; return true } } as unknown as NodeJS.WritableStream
+  const prompter = createPrompter(input, output)
+
+  const secret = prompter.askSecret("Token: ")
+  for (const ch of "hunter2") input.emit("keypress", ch, { name: ch })
+  input.emit("keypress", "\r", { name: "return" })
+  expect(await secret).toBe("hunter2")
+  expect(out).not.toContain("hunter2")
+  prompter.close()
+})
