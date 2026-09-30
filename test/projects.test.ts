@@ -112,10 +112,10 @@ test("addProject writes and verifies the celly bootstrap before starting the ser
   const db = openDb(":memory:"); db.migrate()
   const { sbx, runner, children } = fakes()
   const order: string[] = []
-  let installInput = ""
+  const inputs: string[] = []
   const baseExec = sbx.exec
   sbx.exec = async (n: string, args: string[]) => { order.push("exec:" + args.join(" ")); return baseExec(n, args) }
-  sbx.execWithInput = async (_n: string, _argv: string[], input: string) => { order.push("install"); installInput = input; return { code: 0, stdout: "", stderr: "" } }
+  sbx.execWithInput = async (_n: string, _argv: string[], input: string) => { order.push("install"); inputs.push(input); return { code: 0, stdout: "", stderr: "" } }
   sbx.execStream = () => { order.push("serve"); const c = makeChild(); children.push(c); return c }
   const server = await healthServer(true)
   try {
@@ -123,6 +123,7 @@ test("addProject writes and verifies the celly bootstrap before starting the ser
       isPortFree: async () => true, createChannel: async () => "chan-demo", deleteChannel: async () => {} } as any)
     await svc.addProject({ guildId: "g", name: "demo", directory: "C:\\projects\\demo" })
     expect(order.findIndex((o) => o === "serve")).toBeGreaterThan(order.findIndex((o) => o === "install"))
+    const installInput = inputs.find((i) => i.includes("OPENCODE_CONFIG=")) ?? ""
     expect(installInput).toContain("OPENCODE_CONFIG=$HOME/.config/celly/opencode.json")
     const password = installInput.match(/OPENCODE_SERVER_PASSWORD=(\w+)/)?.[1] ?? ""
     expect(password).not.toBe("")

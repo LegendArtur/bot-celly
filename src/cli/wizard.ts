@@ -22,6 +22,7 @@ export interface WizardDeps {
 export interface WizardResult {
   token: string
   guilds: string[]
+  githubToken?: string
 }
 
 const GUILD_RE = /^\d{17,20}$/
@@ -76,18 +77,31 @@ export async function runWizard(deps: WizardDeps): Promise<WizardResult> {
     if (parsed && parsed.length > 0 && invalid.length === 0) { guilds = parsed; break }
     ui.status("warn", invalid.length > 0 ? `Not a guild ID: ${invalid.join(", ")}` : "Enter at least one guild ID.")
   }
+
+  // Optional: a shared GitHub token shipped into every sandbox so the agent can
+  // clone/fetch/push private repos. Entered hidden, stored 0600 in the env file.
+  let githubToken: string | undefined
+  const wantsGithub = (await prompter.ask("Add a GitHub token so the agent can clone/push private repos? (y/N) ")).trim().toLowerCase()
+  if (wantsGithub === "y" || wantsGithub === "yes") {
+    const entered = (await prompter.askSecret("GitHub token (github.com, repo scope): ")).trim()
+    if (entered.length > 0) githubToken = entered
+    else ui.status("warn", "No token entered; skipping GitHub.")
+  }
   prompter.close()
 
-  loadConfig({ ...env, DISCORD_TOKEN: token, DISCORD_GUILD_IDS: guilds.join(",") })
+  const updates: Record<string, string> = { DISCORD_TOKEN: token, DISCORD_GUILD_IDS: guilds.join(",") }
+  if (githubToken) updates.GITHUB_TOKEN = githubToken
+  loadConfig({ ...env, ...updates })
 
   let existing = ""
   try { existing = readFile(deps.envFile) } catch { existing = "" }
-  writeFile(deps.envFile, mergeEnv(existing, { DISCORD_TOKEN: token, DISCORD_GUILD_IDS: guilds.join(",") }), { mode: 0o600 })
+  writeFile(deps.envFile, mergeEnv(existing, updates), { mode: 0o600 })
 
   env.DISCORD_TOKEN = token
   env.DISCORD_GUILD_IDS = guilds.join(",")
+  if (githubToken) env.GITHUB_TOKEN = githubToken
   ui.status("ok", `Saved config to ${deps.envFile}`)
-  return { token, guilds }
+  return { token, guilds, ...(githubToken ? { githubToken } : {}) }
 }
 
 export function createPrompter(input: NodeJS.ReadableStream, output: NodeJS.WritableStream): Prompter {

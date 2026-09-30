@@ -7,6 +7,16 @@ test("rejects deny-listed bash patterns", () => {
 test("allows non-matching patterns once", () => {
   expect(evaluatePermission({ tool: "bash", patterns: ["npm test"] }, ["git push*"])).toBe("once")
 })
+test("git push flows through approvals when the deny list omits it (github token set)", () => {
+  const req = { tool: "bash", patterns: ["git push origin main"] }
+  const withoutPush = ["npm publish*"]
+  expect(evaluatePermission(req, withoutPush)).toBe("once")
+  expect(decidePermission("buttons", req, withoutPush)).toBe("ask")
+  expect(decidePermission("auto", req, withoutPush)).toBe("once")
+  expect(decidePermission("plan", req, withoutPush)).toBe("reject")
+  // Default policy still rejects.
+  expect(evaluatePermission(req)).toBe("reject")
+})
 test("rejects non-bash tools by default (external_directory etc.)", () => {
   expect(evaluatePermission({ tool: "external_directory", patterns: [] }, [])).toBe("reject")
 })

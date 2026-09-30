@@ -16,6 +16,7 @@ export interface Config {
   attachAutoThread: boolean
   worktreeDefault: boolean
   idleStopMinutes: number
+  githubToken?: string
   dataDir: string; logLevel: "debug" | "info" | "warn" | "error"
   logMaxBytes: number; logMaxFiles: number
   backupIntervalHours: number; backupKeep: number
@@ -133,6 +134,10 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     attachAutoThread: bool(env, "ATTACH_AUTO_THREAD", false),
     worktreeDefault: bool(env, "WORKTREE_DEFAULT", false),
     idleStopMinutes: int(env, "IDLE_STOP_MINUTES", 0, 0),
+    // One shared GitHub token for the host: `GITHUB_TOKEN` wins, `GH_TOKEN` (the
+    // `gh` CLI convention) is the fallback. Delivered into each sandbox so the
+    // agent can clone/fetch/push private repos; never stored in Celly itself.
+    githubToken: str(env, "GITHUB_TOKEN") ?? str(env, "GH_TOKEN"),
     sessionBudgetUsd,
     dataDir: str(env, "DATA_DIR") ?? "./data",
     logLevel: level as Config["logLevel"],

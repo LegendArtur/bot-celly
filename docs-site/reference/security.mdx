@@ -146,7 +146,8 @@ the full set is below.
       "xxd *opencode.env*": "deny",
       "xxd */.config/celly/*": "deny",
       "*opencode.env*": "deny",
-      "*/.config/celly/*": "deny"
+      "*/.config/celly/*": "deny",
+      "*git-credentials*": "deny"
     },
     "external_directory": "deny",
     "question": "allow"
@@ -158,9 +159,14 @@ the full set is below.
 
 - The `bash` deny list blocks publishing (`npm`, `pnpm`, `yarn`), `git push`,
   `git clean -fdx`, env inspection (`printenv`, `env`), and reads of
-  `opencode.env` or `~/.config/celly/` — including via the inspection utilities
-  `awk`, `base64`, `cat`, `cp`, `grep`, `head`, `less`, `od`, `sed`, `strings`,
-  `tail`, and `xxd`, plus catch-all patterns for both paths.
+  `opencode.env`, `~/.config/celly/`, or the sandbox's git credential store
+  (`~/.git-credentials`) — including via the inspection utilities `awk`,
+  `base64`, `cat`, `cp`, `grep`, `head`, `less`, `od`, `sed`, `strings`, `tail`,
+  and `xxd`, plus catch-all patterns for those paths.
+- When a shared `GITHUB_TOKEN` is configured, `git push` moves from `deny` to
+  `ask`: it goes through the normal approval flow instead of being blocked
+  (runs in `auto`, asks in `buttons`, rejected in `plan`). Everything else stays
+  denied.
 - Celly evaluates every command in a shell line: each `;` / `&&` / `||` / `|` /
   `&` segment, command substitutions (`$(...)`, backticks), and heredoc bodies.
   Commands that cannot be statically analyzed (process substitution,
@@ -210,12 +216,16 @@ dirty project roots before it touches the main branch.
 
 ## Secrets
 
-- `DISCORD_TOKEN` lives only in `.env` (gitignored).
+- `DISCORD_TOKEN` and the optional `GITHUB_TOKEN` live only in `.env`
+  (gitignored).
 - Provider credentials live in `sbx secret` and are injected by the proxy, never
   stored in the bot or the repository.
 - Managing `sbx secret` from Discord is deferred; credentials stay host-only.
 - The per-project server password is never placed on a host command line, is
   never logged, and is masked in `/project status`.
+- `GITHUB_TOKEN`, when set, is copied into the sandbox over stdin at bootstrap
+  (mode `0600`) into `opencode.env` and a `github.com` git credential store; it
+  never appears on a host command line and is never stored by Celly itself.
 - Log redaction covers tokens, passwords, and Authorization headers.
 
 ## Honest caveat

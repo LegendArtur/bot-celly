@@ -74,6 +74,11 @@ Approval mode is per project channel. `/mode` writes the override; the
   out after 5 minutes and are rejected. Deny-listed commands, sensitive paths,
   and unknown tools are rejected without asking.
 
+With a shared `GITHUB_TOKEN` configured (see
+[GitHub token](/guides/configuration#github-token)), `git push` is no longer
+deny-listed; it follows the mode above — runs in `auto`, asks in `buttons`, and
+is rejected in `plan`.
+
 In `buttons` mode an agent question renders inline in the streamed reply, in the
 order it was asked, so it does not split the surrounding answer. Its interactive
 controls live on that message: buttons (one to five options), a string select

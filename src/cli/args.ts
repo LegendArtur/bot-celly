@@ -5,16 +5,18 @@ export interface CliOptions {
   run: boolean
   token?: string
   guilds?: string
+  githubToken?: string
   home?: string
 }
 
 export type ParseResult = { ok: true; options: CliOptions } | { ok: false; message: string }
 
 const COMMANDS = new Set<CliCommand>(["run", "setup", "doctor", "help", "version"])
-type ValueFlag = "token" | "guilds" | "home"
+type ValueFlag = "token" | "guilds" | "githubToken" | "home"
 const VALUE_FLAGS = new Map<string, ValueFlag>([
   ["--token", "token"],
   ["--guilds", "guilds"],
+  ["--github-token", "githubToken"],
   ["--home", "home"],
 ])
 

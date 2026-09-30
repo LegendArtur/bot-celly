@@ -75,6 +75,9 @@ The whole model fits in three lines:
   Decisions are written to a best-effort audit log, and requests dropped before a
   decision (run ended, server-resolved, timed out) are logged with their cause so
   a stale click can be traced.
+- **GitHub.** Add an optional shared `GITHUB_TOKEN` (asked during setup) and the
+  agent can clone, fetch, and push private repos from inside its sandbox; with a
+  token set, `git push` follows the approval mode instead of being denied.
 - **Shell.** A message starting with `!` runs `bash -lc <command>` inside the
   project's sandbox.
 - **Text attachments.** Size-capped, written to a validated inbox, referenced in
@@ -157,10 +160,11 @@ Gather these before you start — the setup steps assume they are ready.
    npx bot-celly@latest
    ```
 
-   The first run asks for your **Discord bot token** and **guild IDs**, saves
-   them to `~/.bot-celly/.env` (`%USERPROFILE%\.bot-celly\.env` on Windows,
-   override with `CELLY_HOME`), checks that `sbx` is installed and its network
-   policy is initialized, then starts the bot. `PROJECTS_ROOT` defaults to
+   The first run asks for your **Discord bot token** and **guild IDs** — and,
+   optionally, a **GitHub token** for the sandboxes — saves them to
+   `~/.bot-celly/.env` (`%USERPROFILE%\.bot-celly\.env` on Windows, override with
+   `CELLY_HOME`), checks that `sbx` is installed and its network policy is
+   initialized, then starts the bot. `PROJECTS_ROOT` defaults to
    `~/Celly/projects`. Optional `CELLY_ASCII=1` forces ASCII output symbols
    (off by default). Re-run the same command to start; `npx bot-celly doctor`
    diagnoses the host without starting; `npx bot-celly setup` reconfigures.
@@ -250,6 +254,8 @@ At a glance:
   denylist.
 - **Loopback-only server** with a generated password; provider credentials live
   in `sbx secret` and never touch argv or Discord.
+- **Optional `GITHUB_TOKEN`** is copied into each sandbox over stdin (mode
+  `0600`), never on a command line; the agent cannot read it back.
 
 <details>
 <summary>Full security model</summary>
@@ -346,6 +352,8 @@ The command set above is the current surface. Planned, not committed:
   the thread, alongside streamed text.
 - **Cloud sandboxes and hosted deployment.** Run projects in cloud sandboxes and
   deploy Celly as a hosted service, so no local host is required.
+- **Per-user GitHub connect.** A Discord `/connect github` device-flow OAuth
+  handshake so each user links their own GitHub, replacing the shared host token.
 - **Image and voice input.** Send images and voice messages as prompts.
 - **Single OpenCode API surface.** Move all OpenCode calls onto its v2 SDK surface
   and remove the v1 client, so the v1/v2 split exists only in upstream event names
@@ -364,6 +372,8 @@ The canonical roadmap is at
 - **Access control is global across guilds.** The same role IDs apply to every
   configured guild; per-guild roles are not supported. A configured guild the bot
   cannot see is skipped at startup with a warning.
+- **GitHub access is one shared host token.** The optional `GITHUB_TOKEN`
+  applies to every project; per-user GitHub identities are not supported.
 - **Per-user command rate limiting, sandbox disk-usage warnings, and `DATA_DIR`
   cloud-sync detection are backlog.** Keep `DATA_DIR` out of synced folders.
 - **Host-only items** (the spike, `sbx policy ls` semantics, Windows path

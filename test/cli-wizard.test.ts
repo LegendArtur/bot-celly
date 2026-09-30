@@ -47,6 +47,38 @@ test("runWizard collects values, writes 0600, and refreshes process.env", async 
   expect(env.DISCORD_GUILD_IDS).toBe("123456789012345678,234567890123456789")
 })
 
+test("runWizard asks for a GitHub token and stores it on yes", async () => {
+  const env: NodeJS.ProcessEnv = {}
+  const writes: string[] = []
+  const result = await runWizard({
+    env,
+    envFile: "/tmp/.env",
+    ui: silentUi(),
+    prompter: fakePrompter({ secret: ["token-123", "ghp_secret"], visible: ["123456789012345678", "y"] }),
+    readFile: () => { throw new Error("ENOENT") },
+    writeFile: (_path, data) => { writes.push(data) },
+  })
+  expect(result.githubToken).toBe("ghp_secret")
+  expect(writes[0]).toContain("GITHUB_TOKEN=ghp_secret")
+  expect(env.GITHUB_TOKEN).toBe("ghp_secret")
+})
+
+test("runWizard skips the GitHub token on no", async () => {
+  const env: NodeJS.ProcessEnv = {}
+  const writes: string[] = []
+  const result = await runWizard({
+    env,
+    envFile: "/tmp/.env",
+    ui: silentUi(),
+    prompter: fakePrompter({ secret: ["token-123"], visible: ["123456789012345678", "n"] }),
+    readFile: () => { throw new Error("ENOENT") },
+    writeFile: (_path, data) => { writes.push(data) },
+  })
+  expect(result.githubToken).toBeUndefined()
+  expect(writes[0]).not.toContain("GITHUB_TOKEN")
+  expect(env.GITHUB_TOKEN).toBeUndefined()
+})
+
 test("runWizard re-prompts on a bad guild id and an empty token", async () => {
   const env: NodeJS.ProcessEnv = {}
   const answers = { secret: ["", "good-token"], visible: ["not-an-id", "123456789012345678"] }

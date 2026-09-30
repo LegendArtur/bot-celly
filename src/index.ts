@@ -27,7 +27,7 @@ import { Runner, withDirectory } from "./runner.js"
 import { EventRouter } from "./events.js"
 import { Renderer, renderPayload, sanitizeThreadName } from "./render.js"
 import { cardPayload, noticeCard } from "./cards.js"
-import { resolveBaseUrl, resolveClient, resolveV2Client } from "./opencode.js"
+import { bashDenyPatterns, resolveBaseUrl, resolveClient, resolveV2Client } from "./opencode.js"
 import { createSessionOps } from "./session-utils.js"
 import { createProjectLists } from "./lists.js"
 import { runShell } from "./shell.js"
@@ -60,6 +60,7 @@ export async function main(): Promise<void> {
   ensureDataDir(cfg.projectsRoot)
   const lock = await acquireLock(4555)
   const secrets = [cfg.discordToken]
+  if (cfg.githubToken) secrets.push(cfg.githubToken)
   const log = createLogger({ level: cfg.logLevel, file: `${cfg.dataDir}/bot.log`, secrets, truncate: true, maxBytes: cfg.logMaxBytes, maxFiles: cfg.logMaxFiles })
   const db = openDb(`${cfg.dataDir}/bot.db`)
   db.migrate()
@@ -375,6 +376,9 @@ export async function main(): Promise<void> {
     log: (message, fields) => log.info(message, fields),
     maxQueue: cfg.maxQueue,
     maxConcurrentRuns: cfg.maxConcurrentRuns,
+    // Mirror the sandbox policy: `git push` is only approval-gated (not denied)
+    // when a shared GitHub token is configured.
+    denyPatterns: bashDenyPatterns({ githubToken: cfg.githubToken }),
     approvalModeFor: (channelId) => approvalModeFor(db.settings, channelId),
     respondPermission: async ({ source, threadId, sessionId, requestId, reply }) => {
       if (source === "v2") {
