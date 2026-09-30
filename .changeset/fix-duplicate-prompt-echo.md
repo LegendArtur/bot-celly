@@ -1,5 +1,5 @@
 ---
-"celly": patch
+"bot-celly": patch
 ---
 
 Stop echoing the prompt twice in a streamed reply. opencode publishes

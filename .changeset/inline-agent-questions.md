@@ -1,5 +1,5 @@
 ---
-"celly": patch
+"bot-celly": patch
 ---
 
 Render agent questions inline in the streamed reply instead of posting them as
