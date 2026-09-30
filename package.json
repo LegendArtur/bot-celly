@@ -19,30 +19,29 @@
     "self-hosted",
     "typescript"
   ],
-  "license": "MIT",
-  "author": "Artur Gubaidullin <29106800+LegendArtur@users.noreply.github.com>",
-  "type": "module",
-  "engines": {
-    "node": ">=24 <25"
-  },
-  "bin": {
-    "bot-celly": "dist/cli.js"
-  },
-  "files": [
-    "dist",
-    "assets"
-  ],
-  "publishConfig": {
-    "access": "public"
+  "homepage": "https://celly.agub.dev",
+  "bugs": {
+    "url": "https://github.com/LegendArtur/bot-celly/issues"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/LegendArtur/bot-celly.git"
   },
-  "homepage": "https://celly.agub.dev",
-  "bugs": {
-    "url": "https://github.com/LegendArtur/bot-celly/issues"
+  "license": "MIT",
+  "author": "Artur Gubaidullin <29106800+LegendArtur@users.noreply.github.com>",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "bot-celly": "dist/cli.js"
   },
+  "directories": {
+    "doc": "docs",
+    "test": "test"
+  },
+  "files": [
+    "dist",
+    "assets"
+  ],
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
@@ -70,5 +69,11 @@
     "tsx": "^4.19.0",
     "typescript": "^5.8.0",
     "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
