@@ -53,8 +53,9 @@ test("tail on a missing file returns an empty list", async () => {
 
 test("reports init and append failures through the injected error logger", async () => {
   await withTempDir("celly-audit-", (dir) => {
-    const file = join(dir, "audit.jsonl")
-    mkdirSync(file)
+    const blocker = join(dir, "blocker")
+    writeFileSync(blocker, "not a directory")
+    const file = join(blocker, "audit.jsonl")
     const errors: Array<{ msg: string; fields?: Record<string, unknown> }> = []
     const audit = createAuditLog({ file, error: (msg, fields) => errors.push({ msg, fields }) })
     audit.append({ kind: "shell", channelId: "c1", threadId: "c1", actorId: "u1", detail: "x", decision: "run" })
