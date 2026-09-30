@@ -1,7 +1,26 @@
 {
   "name": "bot-celly",
   "version": "0.2.0",
+  "description": "Drive OpenCode coding agents from Discord, with one isolated microVM per project.",
+  "keywords": [
+    "discord",
+    "discord-bot",
+    "opencode",
+    "coding-agent",
+    "ai-agent",
+    "ai-coding-assistant",
+    "llm",
+    "claude",
+    "gpt",
+    "sandbox",
+    "microvm",
+    "developer-tools",
+    "automation",
+    "self-hosted",
+    "typescript"
+  ],
   "license": "MIT",
+  "author": "Artur Gubaidullin <29106800+LegendArtur@users.noreply.github.com>",
   "type": "module",
   "engines": {
     "node": ">=24 <25"
