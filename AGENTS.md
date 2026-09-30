@@ -29,15 +29,32 @@ Releases are tag-driven: run `npm run changeset:version`, commit the bump, then
 Publishing (OIDC). Do not run `npm publish` by hand once Trusted Publishing is
 configured.
 
+## Changeset bumps
+
+Pick the bump with this rubric (pre-1.0, so version for users, not API stability):
+
+- **patch** — bug fixes, refactors, dependency/tooling/docs changes, performance,
+  formatting, and single features that slot into the existing model (a new
+  command, flag, or input type).
+- **minor** — a feature *set* or a change to the model or policy: a new
+  subsystem, a new install or run path, a permission/security-policy change, a
+  default-behavior change, or a config/data-format change.
+- **major** — reserved for 1.0+ breaking changes.
+
+`changeset version` applies the **highest** bump among all pending changesets, so
+several `minor`s in one release still produce a single minor bump; extra entries
+only add changelog lines. Flip to strict SemVer (any feature = `minor`) at 1.0.
+
 ## Definition of done
 
 A change is not done until all of these hold:
 
 1. `npm test`, `npm run typecheck`, and `npm run build` pass.
 2. Every change to behavior, configuration, a command, an environment variable,
-   or security adds a changeset (`npx changeset`). Docs-only changes do not.
-   When cutting a release, bump via changesets and push the `v*` tag instead of
-   publishing manually.
+   or security adds a changeset (`npx changeset`; see
+   [Changeset bumps](#changeset-bumps)). Docs-only changes do not. When cutting a
+   release, bump via changesets and push the `v*` tag instead of publishing
+   manually.
 3. The affected documentation and the README are reviewed and updated **in the
    same change** (see the table below).
 4. No secrets are committed and the argv-only invariant is preserved.

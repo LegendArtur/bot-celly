@@ -51,6 +51,21 @@ Every pull request that changes behavior should add a changeset:
 npx changeset        # pick patch/minor/major and write a short summary
 ```
 
+Pick the bump with this rubric (pre-1.0, so we version for users, not API
+stability):
+
+- **patch** — bug fixes, refactors, dependency/tooling/docs changes, performance,
+  formatting, and single features that slot into the existing model (a new
+  command, flag, or input type).
+- **minor** — a feature *set* or a change to the model or policy: a new
+  subsystem, a new install or run path, a permission/security-policy change, a
+  default-behavior change, or a config/data-format change.
+- **major** — reserved for 1.0+ breaking changes.
+
+`changeset version` takes the **highest** pending bump, so several `minor`s in
+one release still produce a single minor bump; extra entries only add changelog
+lines.
+
 Changesets live in `.changeset/`. On release, `npm run changeset:version` bumps
 the version, updates `CHANGELOG.md`, and regenerates the [changelog](/changelog)
 page from it (`npm run changelog:sync`).
