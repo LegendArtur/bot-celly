@@ -71,11 +71,14 @@ Approval mode is per project channel. `/mode` writes the override; the
   out after 5 minutes and are rejected. Deny-listed commands, sensitive paths,
   and unknown tools are rejected without asking.
 
-In `buttons` mode an agent question renders as buttons (one to five options), a
-string select (six to twenty-five options), a **Custom answer** button that
-opens a modal, and a **Reject** button. Multi-question requests collect answers
-in order. Questions time out after 5 minutes and are rejected. `auto` and
-`plan` modes reject questions rather than interrupting the run.
+In `buttons` mode an agent question renders inline in the streamed reply, in the
+order it was asked, so it does not split the surrounding answer. Its interactive
+controls live on that message: buttons (one to five options), a string select
+(six to twenty-five options), a **Custom answer** button that opens a modal, and
+a **Reject** button; they are removed once the request is answered, rejected, or
+times out. Multi-question requests collect answers in order. Questions time out
+after 5 minutes and are rejected. `auto` and `plan` modes reject questions rather
+than interrupting the run.
 
 Clicking a button from a previous bot process answers "this request is no
 longer active"; pending requests are not persisted across restarts.
