@@ -26,6 +26,7 @@ import { acquireLock } from "./lock.js"
 import { Runner, withDirectory } from "./runner.js"
 import { EventRouter } from "./events.js"
 import { Renderer, renderPayload, sanitizeThreadName } from "./render.js"
+import { cardPayload, noticeCard } from "./cards.js"
 import { resolveBaseUrl, resolveClient, resolveV2Client } from "./opencode.js"
 import { createSessionOps } from "./session-utils.js"
 import { createProjectLists } from "./lists.js"
@@ -604,7 +605,7 @@ export async function main(): Promise<void> {
     postConnected: async (channelId, projectName) => {
       const channel = await client.channels.fetch(channelId).catch(() => null)
       if (channel && "send" in channel) {
-        await scheduleWithBucket(channelId, () => (channel as any).send(renderPayload(`**${projectName}** is connected.`))).catch(() => {})
+        await scheduleWithBucket(channelId, () => (channel as any).send(cardPayload(noticeCard("ok", `${projectName} connected`)))).catch(() => {})
       }
     },
   }
@@ -705,7 +706,7 @@ export async function main(): Promise<void> {
       notify: async (channelId, minutes) => {
         const channel = await client.channels.fetch(channelId).catch(() => null)
         if (channel && "send" in channel) {
-          await scheduleWithBucket(channelId, () => (channel as any).send(renderPayload(formatIdleStopNotice(minutes)))).catch(() => {})
+          await scheduleWithBucket(channelId, () => (channel as any).send(cardPayload(noticeCard("info", "Idle timeout", formatIdleStopNotice(minutes))))).catch(() => {})
         }
       },
       idleMs: cfg.idleStopMinutes * 60_000,

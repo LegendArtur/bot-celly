@@ -5,6 +5,7 @@ import type { AuditDraft } from "./audit.ts"
 import { buildPromptText, projectForChannel, sessionIdFrom } from "./helpers.js"
 import { shouldHandleMessage } from "./discord.js"
 import { renderPayload, sanitizeThreadName } from "./render.js"
+import { cardPayload, noticeCard } from "./cards.js"
 import type { CreateThreadInput, ForkThreadInput, ForkedThread } from "./commands.ts"
 import type { Runner } from "./runner.ts"
 import { withDirectory } from "./runner.js"
@@ -86,7 +87,7 @@ export function createMessageHandler(deps: MessageHandlerDeps): (message: any) =
       deps.log.error("message handler failed", { error: String(err) })
       try {
         if (message?.channel && typeof message.reply === "function") {
-          await deps.bucketFor(message.channelId).schedule(() => message.reply(renderPayload("Something went wrong handling that message; check the bot logs.")))
+          await deps.bucketFor(message.channelId).schedule(() => message.reply(cardPayload(noticeCard("error", "Something went wrong", "Check the bot logs."))))
         }
       } catch {}
     }
@@ -106,7 +107,7 @@ export function createProjectDownHandler(deps: ProjectDownDeps): (channelId: str
     const channel = deps.client.channels.cache.get(channelId)
     if (channel && "send" in channel) {
       void deps.bucketFor(channelId)
-        .schedule(() => channel.send(renderPayload("The project server stopped unexpectedly; it will restart on the next message.")))
+        .schedule(() => channel.send(cardPayload(noticeCard("warn", "Project server stopped", "It will restart on the next message."))))
         .catch(() => {})
     } else {
       deps.log.warn("project down but the channel is unavailable", { channelId })
@@ -120,7 +121,7 @@ export function createProjectMissingHandler(deps: ProjectDownDeps): (channelId: 
     const channel = deps.client.channels.cache.get(channelId)
     if (channel && "send" in channel) {
       void deps.bucketFor(channelId)
-        .schedule(() => channel.send(renderPayload(`The sandbox for **${projectName}** is missing. Run /project start to recreate it.`)))
+        .schedule(() => channel.send(cardPayload(noticeCard("warn", "Sandbox missing", `The sandbox for **${projectName}** is missing. Run /project start to recreate it.`))))
         .catch(() => {})
     } else {
       deps.log.warn("sandbox missing but the channel is unavailable", { channelId })

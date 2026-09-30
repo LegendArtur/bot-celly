@@ -1,3 +1,4 @@
+import { MessageFlags } from "discord.js"
 import { expect, test, vi } from "vitest"
 import { createForkThread, createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "../src/handlers.ts"
 import { describeDiscordStartupError, formatStartupBanner } from "../src/helpers.ts"
@@ -78,13 +79,14 @@ test("a 'queue full' first message that created a thread surfaces the notice wit
   expect(deps.startTyping).not.toHaveBeenCalled()
 })
 
-test("a handler failure posts a plain error notice without mentions", async () => {
+test("a handler failure posts an error card without mentions", async () => {
   const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
   const deps = baseDeps(db, { projects: { ensureReady: vi.fn(async () => { throw new Error("sandbox down") }) } })
   const { message, replies } = fakeMessage({ content: "hello" })
   await createMessageHandler(deps)(message)
   expect(replies.length).toBe(1)
-  expect(replies[0].content).toMatch(/went wrong/i)
+  expect(replies[0].flags & MessageFlags.IsComponentsV2).toBe(MessageFlags.IsComponentsV2)
+  expect(JSON.stringify(replies[0].components[0].toJSON())).toMatch(/went wrong/i)
   expect(replies[0].allowedMentions).toEqual({ parse: [] })
 })
 
@@ -178,7 +180,8 @@ test("project-down handler fans out to the runner and notifies the channel once"
   expect(handleProjectDown).toHaveBeenCalledWith("c")
   expect(send).toHaveBeenCalledTimes(1)
   const payload = send.mock.calls[0][0]
-  expect(payload.content).toMatch(/stopped unexpectedly/)
+  expect(payload.flags & MessageFlags.IsComponentsV2).toBe(MessageFlags.IsComponentsV2)
+  expect(JSON.stringify(payload.components[0].toJSON())).toMatch(/stopped unexpectedly|Project server stopped/)
   expect(payload.allowedMentions).toEqual({ parse: [] })
 })
 
@@ -195,8 +198,9 @@ test("project-missing handler notifies the channel with a recreate action", asyn
   await new Promise((r) => setTimeout(r, 0))
   expect(handleProjectDown).toHaveBeenCalledWith("c")
   const payload = send.mock.calls[0][0]
-  expect(payload.content).toMatch(/demo/)
-  expect(payload.content).toMatch(/\/project start/)
+  const card = JSON.stringify(payload.components[0].toJSON())
+  expect(card).toMatch(/demo/)
+  expect(card).toMatch(/\/project start/)
   expect(payload.allowedMentions).toEqual({ parse: [] })
 })
 
