@@ -1,5 +1,5 @@
 ---
-"bot-celly": minor
+"bot-celly": patch
 ---
 
 Add `/thinking` to pick a model's thinking depth (an OpenCode model variant,

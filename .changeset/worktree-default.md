@@ -1,5 +1,5 @@
 ---
-"bot-celly": minor
+"bot-celly": patch
 ---
 
 Start new sessions in their own git worktree. Add `WORKTREE_DEFAULT` (global,

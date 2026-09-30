@@ -1,5 +1,5 @@
 ---
-"bot-celly": minor
+"bot-celly": patch
 ---
 
 Add an owner-only `/dashboard` command that posts the loopback admin console

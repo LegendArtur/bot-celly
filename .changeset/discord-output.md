@@ -1,5 +1,5 @@
 ---
-"bot-celly": minor
+"bot-celly": patch
 ---
 
 Fix broken code blocks in long Discord replies: Celly now always emits fences
