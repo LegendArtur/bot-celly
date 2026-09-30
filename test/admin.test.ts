@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
-import { createAdminServer } from "../src/admin.ts"
+import { adminConsoleUrl, createAdminServer } from "../src/admin.ts"
 import { freshDb, projectFixture } from "./helpers/fixtures.ts"
 
 async function admin(over: any = {}) {
@@ -165,6 +165,12 @@ test("GET /api/logs returns the requested count for files larger than the UI tai
     svr.close()
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test("adminConsoleUrl builds a loopback link only when a port is configured", () => {
+  expect(adminConsoleUrl(4560)).toBe("http://127.0.0.1:4560")
+  expect(adminConsoleUrl(0)).toBeUndefined()
+  expect(adminConsoleUrl(-1)).toBeUndefined()
 })
 
 test("unknown routes and methods return JSON errors", async () => {

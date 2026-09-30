@@ -86,7 +86,8 @@ export function commandData(): any[] {
       { type: ApplicationCommandOptionType.String, name: "mode", description: "How permission requests are handled", required: true,
         choices: APPROVAL_MODES.map((mode) => ({ name: mode, value: mode })) } ] },
     { name: "session-id", description: "Show this thread's OpenCode session id" },
-    { name: "attach", description: "Show the terminal attach command for this thread" } ]
+    { name: "attach", description: "Show the terminal attach command for this thread" },
+    { name: "dashboard", description: "Post the local admin console link (owner-only)" } ]
 }
 
 export interface CommandDeployGuild {
@@ -160,6 +161,7 @@ export interface CommandDeps {
   audit?(entry: AuditDraft): void
   worktree?: WorktreeCommands
   sessionBudgetUsd?: number
+  adminUrl?: string
 }
 
 export const RESUME_SELECT = "resume"
@@ -275,6 +277,7 @@ const OWNER_ONLY_TASK_SUBS = new Set(["add", "remove"])
 const OWNER_ONLY_WORKTREE_SUBS = new Set(["merge", "default"])
 export function requiresOwner(commandName: string, sub: string | null | undefined): boolean {
   if (commandName === "mode") return true
+  if (commandName === "dashboard") return true
   if (commandName === "project") return !!sub && OWNER_ONLY_PROJECT_SUBS.has(sub)
   if (commandName === "task") return !!sub && OWNER_ONLY_TASK_SUBS.has(sub)
   if (commandName === "worktree") return !!sub && OWNER_ONLY_WORKTREE_SUBS.has(sub)
@@ -555,6 +558,10 @@ export async function handleCommand(interaction: any, deps: CommandDeps): Promis
         actorId: interaction.user?.id ?? "unknown", detail: `approval_mode:${channelId}`, decision: requested,
       })
       return void await interaction.editReply(noMentions(`approval mode set to ${requested}`))
+    }
+    if (interaction.commandName === "dashboard") {
+      if (!deps.adminUrl) return void await interaction.editReply(noMentions("admin console is disabled; set ADMIN_PORT to enable it"))
+      return void await interaction.editReply(noMentions(`admin console (loopback only, open on the Celly host): ${deps.adminUrl}`))
     }
     if (interaction.commandName === "attach" || interaction.commandName === "session-id") {
       const thread = deps.db.threads.get(interaction.channelId)

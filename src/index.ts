@@ -1,7 +1,7 @@
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { realpathSync } from "node:fs"
 import { join } from "node:path"
-import { createAdminServer } from "./admin.js"
+import { adminConsoleUrl, createAdminServer } from "./admin.js"
 import type { AdminServer } from "./admin.js"
 import { createBackupScheduler } from "./backup.js"
 import { createTaskRunner } from "./tasks.js"
@@ -519,6 +519,9 @@ export async function main(): Promise<void> {
       log.warn("admin server failed to start", { port: cfg.adminPort, error: String(e) })
     }
   }
+  // Only advertise the console when the server actually started; a failed bind
+  // or ADMIN_PORT=0 leaves it undefined so /dashboard says it is disabled.
+  const adminUrl = admin ? adminConsoleUrl(admin.port) : undefined
 
   const createThreadForProject = async (input: CreateThreadInput): Promise<{ threadId: string; sessionId: string; notice?: string }> => {
     const project = db.projects.getByChannel(input.channelId)
@@ -607,6 +610,7 @@ export async function main(): Promise<void> {
     sessions,
     worktree: worktrees,
     sessionBudgetUsd: cfg.sessionBudgetUsd,
+    adminUrl,
     postConnected: async (channelId, projectName) => {
       const channel = await client.channels.fetch(channelId).catch(() => null)
       if (channel && "send" in channel) {
@@ -741,6 +745,7 @@ export async function main(): Promise<void> {
     projects: db.projects.list().length,
     dataDir: cfg.dataDir,
     model: cfg.defaultModel,
+    adminUrl,
   }))
 }
 

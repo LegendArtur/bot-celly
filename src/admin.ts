@@ -15,6 +15,15 @@ import type { AuditView, DetailView, ProjectView, SessionView, StatsView } from 
 
 export const ADMIN_HOST = "127.0.0.1"
 
+/**
+ * URL of the loopback admin console. `port <= 0` disables the server, so there
+ * is no link to hand out. The host is a fixed loopback address: the console is
+ * never network-exposed (see the admin-page security note).
+ */
+export function adminConsoleUrl(port: number): string | undefined {
+  return port > 0 ? `http://${ADMIN_HOST}:${port}` : undefined
+}
+
 const LOG_TAIL_BYTES = 64 * 1024
 
 function tailFileSync(path: string, maxBytes: number): string {

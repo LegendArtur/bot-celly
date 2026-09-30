@@ -147,6 +147,15 @@ cannot run host commands, but it can do anything the sandbox allows. Treat it as
 running code.
 </Warning>
 
+## Admin console
+
+| Command | Access | Behavior |
+| --- | --- | --- |
+| `/dashboard` | owner | Post the loopback admin console URL (`http://127.0.0.1:ADMIN_PORT`) in an ephemeral reply. Reports that the console is disabled when `ADMIN_PORT=0`. |
+
+The link only opens on the Celly host itself: the console binds `127.0.0.1` and
+is never network-exposed. See [Operations](/guides/operations).
+
 ## Deferred
 
 Deferred features are tracked on the [roadmap](/project/roadmap).

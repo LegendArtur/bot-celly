@@ -86,6 +86,9 @@ recreated.
   create and remove projects: removal deletes the Discord channel and the
   sandbox and keeps the host directory. It remains unauthenticated and
   loopback-only.
+- `/dashboard` (owner-only) posts the console URL to Discord. The URL is a
+  loopback address, so it only opens on the host or through an SSH tunnel;
+  revealing it does not expose the console to other devices.
 - Backups are written under `DATA_DIR/backups` (`VACUUM INTO` output) and stay
   in the host trust domain, alongside `bot.db`.
 

@@ -14,6 +14,9 @@ admin page, logs, log rotation, backups, and restore. The
 The page trusts anything on the host, so local code shares the host trust
 boundary. See [Security](/reference/security) for the threat model.
 
+An owner can post the console URL to Discord with `/dashboard`. The link only
+opens from the Celly host or an SSH tunnel; `ADMIN_PORT=0` reports it disabled.
+
 ### Endpoints
 
 - `GET /` — HTML status page.

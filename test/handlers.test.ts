@@ -365,11 +365,12 @@ test("formatStartupBanner lists every guild and flags its missing permissions", 
       { id: "g1", name: "Guild One", missingPermissions: [] },
       { id: "g2", name: "Guild Two", missingPermissions: [] },
     ],
-    projects: 2, dataDir: "./data", model: "anthropic/x",
+    projects: 2, dataDir: "./data", model: "anthropic/x", adminUrl: "http://127.0.0.1:4560",
   }, { color: false })
   expect(ok).toContain("Celly is running")
   expect(ok).toContain("Projects  2")
   expect(ok).toContain("Model     anthropic/x")
+  expect(ok).toContain("Console   http://127.0.0.1:4560")
   expect(ok).toContain("Guild     Guild One (g1)")
   expect(ok).toContain("Guild     Guild Two (g2)")
   expect(ok).toContain("Next")
@@ -379,6 +380,7 @@ test("formatStartupBanner lists every guild and flags its missing permissions", 
   }, { color: false })
   expect(bad).toMatch(/MISSING\s+Manage Channels/)
   expect(bad).toContain("/project add")
+  expect(bad).toContain("Console   disabled")
 })
 test("formatStartupBanner paints the title, rule, and missing permissions only when color is on", () => {
   const info = { guilds: [{ id: "g1", name: "Guild One", missingPermissions: ["Manage Channels"] }], projects: 1, dataDir: "./data" }

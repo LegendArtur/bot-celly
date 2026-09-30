@@ -92,7 +92,7 @@ The whole model fits in three lines:
   `127.0.0.1:4560` (`ADMIN_PORT`, `0` disables) for a loopback ops console:
   live project cards with start/stop/restart, project create/remove, usage and
   cost, the audit trail, and per-project logs and sessions. No authentication by
-  design — loopback only.
+  design — loopback only. `/dashboard` (owner-only) posts the URL to Discord.
 
 ## Architecture
 
@@ -228,6 +228,7 @@ The everyday handful:
 | `/cost` | thread or channel | Show accumulated cost, tokens, and the session budget. |
 | `/budget show\|set <usd>` | channel (owner) | Show or set the per-channel session budget. |
 | `/mode <auto\|buttons\|plan>` | project channel or thread (owner) | Set the channel approval mode. |
+| `/dashboard` | guild (owner) | Post the loopback admin console URL (`ADMIN_PORT`; disabled when `0`). |
 | `/task add <channel> <prompt> <every_minutes>` | guild (owner) | Schedule a recurring prompt in a project channel. |
 | `/task list` | guild | List scheduled tasks. |
 | `/task remove <id>` | guild (owner) | Remove a scheduled task. |
