@@ -910,6 +910,90 @@ test("question events are routed to the approval manager", async () => {
   expect(asked).toEqual([{ threadId: "t1", sessionId: "s1", requestId: "q1", source: "v1", questions }])
 })
 
+test("onQuestionState paints the inline question into the thread renderer", async () => {
+  const painted: any[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: {} }) as any,
+    createRenderer: async () => ({ push() {}, tick: async () => {}, finalize: async () => {}, flush: async () => {}, upsertQuestion: (...args: any[]) => painted.push(args) }) as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4,
+  })
+  await runner.onEvent("t1", { kind: "text", sessionId: "s1", messageId: "m", partId: "p", text: "hi" })
+  runner.onQuestionState({ threadId: "t1", requestId: "q1", questions: [], text: "Which DB?", components: [{ type: 1 }] })
+  await vi.waitFor(() => expect(painted).toHaveLength(1))
+  expect(painted[0]).toEqual(["question:q1", "Which DB?", [{ type: 1 }]])
+})
+
+test("a question renders inline in the streamed reply and its controls clear when answered", async () => {
+  const sends: Array<{ content: string; components: any[] }> = []
+  const edits: Array<{ id: string; content: string; components: any[] }> = []
+  const { db } = makeDb()
+  let runner: Runner
+  runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async () => {} } }) as any,
+    createRenderer: async (_t, liveId) => new Renderer({
+      initialMessageId: liveId,
+      send: async (c, components) => { sends.push({ content: c, components: components ?? [] }); return `m${sends.length}` },
+      edit: async (id, c, components) => { edits.push({ id, content: c, components: components ?? [] }) },
+      now: () => 0, intervalMs: 1,
+    }),
+    sessionFor: async () => "s1", log() {}, maxQueue: 5, maxConcurrentRuns: 4,
+    approvals: {
+      requestPermission: async () => "reject" as const,
+      askQuestion: async (input: any) => {
+        runner.onQuestionState({ threadId: input.threadId, requestId: input.requestId, questions: input.questions, text: "**❓ The agent asked**\nWhich DB?", components: [{ type: 1 }] })
+        await new Promise((r) => setTimeout(r, 0))
+        runner.onQuestionState({ threadId: input.threadId, requestId: input.requestId, questions: input.questions, text: "**❓ The agent asked**\nWhich DB?\n**Answer:** sqlite", components: null })
+        return [["sqlite"]]
+      },
+      cancel: () => {}, cancelThread: () => {},
+    },
+  })
+  await runner.prompt("t1", "hi", "u")
+  await runner.onEvent("t1", { kind: "text", sessionId: "s1", messageId: "m", partId: "p1", text: "Approaches A." })
+  await runner.onEvent("t1", { kind: "question", sessionId: "s1", requestId: "q1", source: "v1", questions: [] })
+  await vi.waitFor(() => expect(edits.at(-1)?.content).toContain("**Answer:** sqlite"))
+  expect(sends[0]!.content).toBe("Approaches A.")
+  expect(sends[0]!.components).toEqual([])
+  const withControls = edits.find((e) => e.components.length > 0)!
+  expect(withControls.content).toContain("Approaches A.")
+  expect(withControls.content).toContain("Which DB?")
+  expect(withControls.components).toEqual([{ type: 1 }])
+  expect(edits.at(-1)!.components).toEqual([])
+})
+
+test("onQuestionState ignores threads without a live renderer", async () => {
+  const painted: any[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: {} }) as any,
+    createRenderer: async () => ({ push() {}, tick: async () => {}, finalize: async () => {}, flush: async () => {}, upsertQuestion: (...args: any[]) => painted.push(args) }) as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4,
+  })
+  runner.onQuestionState({ threadId: "other", requestId: "q1", questions: [], text: "Q", components: [] })
+  await new Promise((r) => setTimeout(r, 0))
+  expect(painted).toEqual([])
+})
+
+test("question events ensure the thread has a renderer before asking", async () => {
+  let created = 0
+  const asked: any[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: {} }) as any,
+    createRenderer: async () => { created++; return makeRenderer() as any },
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4,
+    approvals: {
+      requestPermission: async () => "reject" as const,
+      askQuestion: async (input: any) => { asked.push(input); return null },
+      cancel: () => {}, cancelThread: () => {},
+    },
+  })
+  await runner.onEvent("t1", { kind: "question", sessionId: "s1", requestId: "q1", source: "v1", questions: [] })
+  expect(created).toBe(1)
+  expect(asked).toHaveLength(1)
+})
+
 test("question.replied and question.rejected cancel the pending question", async () => {
   const cancelled: any[] = []
   const { db } = makeDb()

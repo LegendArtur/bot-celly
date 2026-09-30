@@ -285,6 +285,7 @@ export async function main(): Promise<void> {
       const message = await (channel as any).messages.fetch(messageId)
       await scheduleWithBucket(threadBucket(threadId), () => message.edit({ ...renderPayload(content), components }))
     },
+    onQuestionState: (update) => runnerSvc.onQuestionState(update),
     replyPermission: async ({ threadId, sessionId, requestId, reply, source }) => {
       if (source === "v2") {
         await v2ClientFor(threadId).v2.session.permission.reply({ sessionID: sessionId, requestID: requestId, reply })
@@ -336,14 +337,14 @@ export async function main(): Promise<void> {
         initialMessageId: liveMessageId,
         initialMessageIds: liveMessageIds,
         prompt,
-        send: async (content) => scheduleWithBucket(bucketChannelId, async () => {
-          const sent = await (channel as any).send(renderPayload(content))
+        send: async (content, components) => scheduleWithBucket(bucketChannelId, async () => {
+          const sent = await (channel as any).send({ ...renderPayload(content), components: components ?? [] })
           db.threads.setLiveMessage(threadId, sent.id)
           return sent.id as string
         }),
-        edit: async (messageId, content) => scheduleWithBucket(bucketChannelId, async () => {
+        edit: async (messageId, content, components) => scheduleWithBucket(bucketChannelId, async () => {
           const message = await (channel as any).messages.fetch(messageId)
-          await message.edit(renderPayload(content))
+          await message.edit({ ...renderPayload(content), components: components ?? [] })
         }),
         delete: async (messageId) => scheduleWithBucket(bucketChannelId, async () => {
           const message = await (channel as any).messages.fetch(messageId).catch(() => null)

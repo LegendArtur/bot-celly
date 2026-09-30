@@ -122,6 +122,25 @@ export function nextBackoff(prevMs: number, connected = false): number {
 
 const FRAME_BOUNDARY = /\r?\n\r?\n/
 const MAX_SSE_BUFFER = 1024 * 1024
+const MAX_TRACKED_MESSAGES = 2000
+
+/**
+ * opencode publishes `message.part.updated` for the user's own prompt parts
+ * too, and a part carries no role. The renderer must not echo the user's text
+ * back (it already quotes the prompt), so remember each message's role from the
+ * `message.updated` event that precedes its parts and drop user-authored parts.
+ */
+function messageRole(event: any): { id: string; role: string } | null {
+  if (event?.type !== "message.updated") return null
+  const info = event.properties?.info
+  return info && typeof info.id === "string" && typeof info.role === "string" ? { id: info.id, role: info.role } : null
+}
+
+function isUserPart(event: any, roles: Map<string, string>): boolean {
+  if (event?.type !== "message.part.updated") return false
+  const messageId = event.properties?.part?.messageID
+  return typeof messageId === "string" && roles.get(messageId) === "user"
+}
 
 export function trimSseBuffer(buf: string, max = MAX_SSE_BUFFER): string {
   if (buf.length <= max) return buf
@@ -159,6 +178,7 @@ export class EventRouter {
     let connectedBefore = false
     let backoff = INITIAL_BACKOFF
     let warned = false
+    const roles = new Map<string, string>()
     while (!signal.aborted) {
       let connected = false
       let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
@@ -186,6 +206,15 @@ export class EventRouter {
             const data = block.split(/\r?\n/).filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("\n")
             if (!data) continue
             let parsed: any; try { parsed = JSON.parse(data) } catch { continue }
+            const event = parsed?.payload ?? parsed
+            const role = messageRole(event)
+            if (role) {
+              if (roles.size >= MAX_TRACKED_MESSAGES) {
+                const oldest = roles.keys().next().value
+                if (oldest !== undefined) roles.delete(oldest)
+              }
+              roles.set(role.id, role.role)
+            } else if (isUserPart(event, roles)) continue
             const e = normalizeEvent(parsed); if (!e) continue
             let threadId = this.deps.route(e.sessionId)
             if (!threadId && this.deps.onUnknownSession) {

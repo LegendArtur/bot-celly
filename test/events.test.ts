@@ -188,6 +188,43 @@ test("routes SSE frames by session and resyncs known sessions on reconnect", asy
   }
 })
 
+test("drops user message parts so the prompt is not echoed back", async () => {
+  const events: Array<{ threadId: string; e: any }> = []
+  let connections = 0
+  const server = await startTestServer((_req, res) => {
+    connections++
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
+    res.flushHeaders()
+    if (connections === 1) {
+      res.write(`data: ${JSON.stringify({ payload: { type: "message.updated", properties: { info: { id: "mu", sessionID: "s1", role: "user" } } } })}\n\n`)
+      res.write(`data: ${JSON.stringify({ payload: { type: "message.part.updated", properties: { part: { id: "pu", messageID: "mu", sessionID: "s1", type: "text", text: "the prompt" } } } })}\n\n`)
+      res.write(`data: ${JSON.stringify({ payload: { type: "message.updated", properties: { info: { id: "ma", sessionID: "s1", role: "assistant" } } } })}\n\n`)
+      res.write(`data: ${JSON.stringify({ payload: { type: "message.part.updated", properties: { part: { id: "pa", messageID: "ma", sessionID: "s1", type: "text", text: "the answer" } } } })}\n\n`)
+      res.write(`data: ${JSON.stringify({ payload: { type: "session.idle", properties: { sessionID: "s1" } } })}\n\n`)
+      res.end()
+    }
+  })
+  try {
+    const router = new EventRouter({
+      route: () => "t1",
+      onEvent: (threadId, e) => events.push({ threadId, e }),
+      onResync: async () => {},
+      knownSessions: () => [],
+    })
+    const ac = new AbortController()
+    const done = router.subscribe(server.url, "pw", ac.signal)
+    await waitFor(() => events.length >= 2)
+    ac.abort()
+    await done
+    expect(events.map((x) => x.e)).toEqual([
+      { kind: "text", sessionId: "s1", messageId: "ma", partId: "pa", text: "the answer" },
+      { kind: "idle", sessionId: "s1" },
+    ])
+  } finally {
+    await server.close()
+  }
+})
+
 test("isolates a throwing onResync and keeps the stream alive", async () => {
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
   const events: Array<{ threadId: string; e: any }> = []

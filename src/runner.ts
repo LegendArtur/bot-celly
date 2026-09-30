@@ -5,7 +5,7 @@ import type { NormalizedEvent } from "./events.ts"
 import type { Renderer } from "./render.ts"
 import type { Db } from "./db.ts"
 import type { Thread } from "./types.ts"
-import type { ApprovalManager } from "./approvals.ts"
+import type { ApprovalManager, QuestionStateUpdate } from "./approvals.ts"
 import type { AuditDraft } from "./audit.ts"
 import { formatCost, formatDuration, formatUsageFooter, resolveBudget } from "./usage.js"
 import { decidePermission, type PermissionReplyInput } from "./policy.js"
@@ -95,6 +95,21 @@ export class Runner {
     const count = q?.length ?? 0
     this.queue.delete(threadId)
     return count
+  }
+
+  /**
+   * Paint an agent question inline into the thread's streamed reply so it does
+   * not split the surrounding answer. The approval manager owns the question
+   * state; the runner owns the renderer. No-op when the thread has no live
+   * renderer (the run already ended).
+   */
+  onQuestionState(update: QuestionStateUpdate): void {
+    const renderer = this.renderers.get(update.threadId)
+    if (!renderer) return
+    const segmentId = `question:${update.requestId}`
+    void renderer
+      .then((r) => { r.upsertQuestion(segmentId, update.text, update.components); return r.flush() })
+      .catch((err) => this.deps.log("question render failed", { threadId: update.threadId, requestId: update.requestId, error: String(err) }))
   }
 
   private nextEpoch(threadId: string): number {
@@ -272,6 +287,9 @@ export class Runner {
       this.deps.approvals?.cancel(e.sessionId, e.requestId, "question-rejected")
     } else if (e.kind === "question") {
       try {
+        // Ensure the question has a streamed message to render into before the
+        // approval manager emits its state.
+        await this.rendererFor(threadId)
         await this.deps.approvals?.askQuestion({ threadId, sessionId: e.sessionId, requestId: e.requestId, source: e.source, questions: e.questions })
       } catch (err) {
         this.deps.log("question handling failed", { threadId, requestId: e.requestId, error: String(err) })

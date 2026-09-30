@@ -2,15 +2,14 @@
 
 <p align="center"><strong>Drive OpenCode from Discord — one isolated microVM per project.</strong></p>
 
-Start a coding agent from your phone, in a channel you already keep open. Celly
-turns [Discord](https://discord.com) into a control surface for
-[OpenCode](https://opencode.ai) agents: kick off work, watch it stream, approve a
-command, and pick the session back up later.
+Celly turns [Discord](https://discord.com) into a control plane for sandboxed
+[OpenCode](https://opencode.ai) agents: start a project from any device, 
+watch it stream, approve a command, and pick the session back up any time.
 
 It is for people who want an always-on coding agent without exposing their whole
-machine: each project runs in its own disposable sandbox, and the only thing the
-agent can reach is that project's directory. For a deeper tour, see the
-[docs](https://celly.agub.dev).
+machine: each project runs in its own disposable Docker sandbox (microVM),
+and the only thing the agent can reach is that project's directory. 
+For a deeper tour, see the [docs](https://celly.agub.dev).
 
 ## Why Celly
 
@@ -68,10 +67,12 @@ The whole model fits in three lines:
   per-thread settings.
 - **Abort.** `/abort` stops the current run, or every active run in the channel.
 - **Approvals.** `/mode` picks `auto`, `buttons`, or `plan`; `buttons` posts
-  permission requests as Discord buttons and agent questions as
-  buttons/selects/modals. Decisions are written to a best-effort audit log, and
-  requests dropped before a decision (run ended, server-resolved, timed out) are
-  logged with their cause so a stale click can be traced.
+  permission requests as Discord buttons. Agent questions render inline in the
+  streamed reply, in the order they were asked, with
+  buttons/selects/modals on that message so the answer is not split around them.
+  Decisions are written to a best-effort audit log, and requests dropped before a
+  decision (run ended, server-resolved, timed out) are logged with their cause so
+  a stale click can be traced.
 - **Shell.** A message starting with `!` runs `bash -lc <command>` inside the
   project's sandbox.
 - **Text attachments.** Size-capped, written to a validated inbox, referenced in
