@@ -29,23 +29,19 @@ This guide covers running Celly as a long-lived service on a Linux host with
    sbx secret set <provider>
    ```
 
-## 2. Build and configure
+## 2. Install and configure
 
 ```bash
-git clone https://github.com/LegendArtur/bot-celly.git ~/bot-celly
-cd ~/bot-celly
-npm ci
-npm run build
-cp .env.example .env   # fill in the required values
-node dist/index.js     # first foreground boot; Ctrl-C once it is ready
+npx bot-celly@latest   # first foreground boot; Ctrl-C once it is ready
 ```
 
-The required values are documented in
+The wizard writes `~/.bot-celly/.env`. The required values are documented in
 [Configuration](/guides/configuration).
 
 ## 3. systemd user service
 
-Create `~/.config/systemd/user/celly.service`:
+Install globally first with `npm install -g bot-celly`. Create
+`~/.config/systemd/user/celly.service`:
 
 ```ini
 [Unit]
@@ -54,8 +50,8 @@ After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/bot-celly
-ExecStart=/bin/bash -lc 'exec node dist/index.js'
+WorkingDirectory=%h
+ExecStart=/bin/bash -lc 'exec bot-celly'
 Restart=on-failure
 RestartSec=5
 KillSignal=SIGTERM
@@ -66,7 +62,7 @@ WantedBy=default.target
 ```
 
 `bash -lc` loads your shell profile so `fnm`/`nvm` and `sbx` are on `PATH`;
-`exec` keeps Node as the main process so `SIGTERM` reaches Celly's shutdown
+`exec` keeps the CLI as the main process so `SIGTERM` reaches Celly's shutdown
 handler. Enable it and keep it running after logout:
 
 ```bash
@@ -81,7 +77,8 @@ journalctl --user -u celly -f
 - `sbx diagnose` reports a healthy daemon and authentication.
 - `systemctl --user status celly` is `active (running)`.
 - `curl -s http://127.0.0.1:4560/api/health` returns `{"ok":true,...}`.
-- `data/bot.log` shows the preflight passing and the Discord client logging in.
+- `~/.bot-celly/data/bot.log` shows the preflight passing and the Discord client
+  logging in.
 
 ## 5. Troubleshooting
 

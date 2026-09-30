@@ -8,7 +8,7 @@ import { createTaskRunner } from "./tasks.js"
 import { ChannelType, Events, PermissionFlagsBits } from "discord.js"
 import type { Guild, Interaction, Message } from "discord.js"
 import type { Project, Thread } from "./types.ts"
-import { ensureDataDir, loadConfig, loadDotEnv, seedSettings } from "./config.js"
+import { ensureDataDir, envFileFrom, loadConfig, loadDotEnv, seedSettings } from "./config.js"
 import { createAuditLog } from "./audit.js"
 import type { AuditDraft } from "./audit.ts"
 import { createLogger } from "./log.js"
@@ -52,8 +52,8 @@ export async function touchAfterWake(
   db.projects.touch(channelId, Date.now())
 }
 
-async function main(): Promise<void> {
-  loadDotEnv()
+export async function main(): Promise<void> {
+  loadDotEnv(envFileFrom())
   const cfg = loadConfig(process.env)
   ensureDataDir(cfg.dataDir)
   ensureDataDir(cfg.projectsRoot)

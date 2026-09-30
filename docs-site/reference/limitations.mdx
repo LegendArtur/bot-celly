@@ -23,6 +23,9 @@ link here instead of restating it.
 - **Some checks are host-only.** The `sbx` spike, `sbx policy ls` semantics,
   Windows path mapping, and live Discord behavior are exercised on the host, not
   in the Linux test suite.
+- **The one-line install uses npm and still needs the host.** `npx bot-celly`
+  requires Node 24 and a host with `sbx` installed, logged in, and
+  policy-initialized; it never installs host software.
 - **The bash deny list is defense-in-depth, not the sandbox boundary.** Celly
   statically analyzes shell commands and fails closed on what it cannot prove,
   but arbitrary wrapper binaries, encoded payloads, and unmodelled shell

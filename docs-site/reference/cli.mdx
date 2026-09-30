@@ -1,0 +1,50 @@
+---
+title: CLI
+description: The bot-celly command-line interface — install, setup, doctor, and headless flags.
+---
+
+Celly installs and runs through the `bot-celly` CLI on the host. It requires
+Node 24 and the host prerequisites in the [Quickstart](/quickstart).
+
+```bash
+npx bot-celly@latest
+```
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `bot-celly` | Set up on first run (wizard), check the host, then start the bot. |
+| `bot-celly run` | Start the bot (same as passing no command). |
+| `bot-celly setup` | Re-run the setup wizard. Add `--run` to start after setup. |
+| `bot-celly doctor` | Check prerequisites and configuration; never starts the bot. |
+| `bot-celly --version` · `-v` | Print the version. |
+| `bot-celly --help` · `-h` | Show usage. |
+
+## Flags
+
+| Flag | Purpose |
+| --- | --- |
+| `--token <value>` | Discord bot token, for headless setup. |
+| `--guilds <a,b,c>` | Comma-separated guild IDs, for headless setup. |
+| `--home <dir>` | Config and data directory; same as `CELLY_HOME`. |
+| `--run` | With `setup`, start the bot after setup. |
+
+## Configuration and data
+
+The wizard writes `~/.bot-celly/.env` (Windows:
+`%USERPROFILE%\.bot-celly\.env`) with mode `600`. `DATA_DIR` defaults to
+`~/.bot-celly/data`; `PROJECTS_ROOT` still defaults to `~/Celly/projects`. Set
+`CELLY_HOME` to move the directory, and `CELLY_ASCII=1` to force ASCII output
+symbols even when color is on. See
+[Configuration](/guides/configuration) for every variable.
+
+## Exit codes
+
+`0` success, `1` an operational failure (missing prerequisite or config), `2` a
+usage error (unknown command or flag).
+
+## Related
+
+- [Quickstart](/quickstart) — the host bootstrap and first project.
+- [Commands](/reference/commands) — the Discord command surface.

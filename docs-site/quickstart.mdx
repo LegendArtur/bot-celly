@@ -36,30 +36,32 @@ binary.
     custom secret setup.
   </Step>
 
-  <Step title="Clone and install">
+  <Step title="Install and configure">
     ```powershell
-    git clone https://github.com/LegendArtur/bot-celly.git
-    cd bot-celly
-    npm ci
-    npm run build
+    npx bot-celly@latest
     ```
-  </Step>
 
-  <Step title="Configure `.env`">
-    <Snippet file="snippets/env-minimal.mdx" />
-
-    `PROJECTS_ROOT` defaults to `~/Celly/projects`
-    (`%USERPROFILE%\Celly\projects` on Windows) and is created on boot.
-  </Step>
-
-  <Step title="Run the bot">
-    ```powershell
-    node dist/index.js
-    ```
+    The first run asks for your **Discord bot token** and **guild IDs** and saves
+    them to `~/.bot-celly/.env`. `PROJECTS_ROOT` defaults to `~/Celly/projects`
+    (created on boot). Re-run the command to start again; `npx bot-celly doctor`
+    checks the host without starting.
 
     On boot the bot performs a preflight (`sbx version`, policy check,
     single-instance lock) and fails fast with an actionable message. Logs are
-    written to `data/bot.log`.
+    written to `~/.bot-celly/data/bot.log`.
+
+    <Accordion title="From source">
+      ```powershell
+      git clone https://github.com/LegendArtur/bot-celly.git
+      cd bot-celly
+      npm ci
+      npm run build
+      copy .env.example .env    # macOS/Linux: cp .env.example .env
+      node dist/index.js
+      ```
+
+      From a source checkout, logs are written to `./data/bot.log`.
+    </Accordion>
   </Step>
 
   <Step title="Add a project and send a message">

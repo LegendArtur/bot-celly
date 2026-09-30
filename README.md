@@ -149,22 +149,23 @@ Gather these before you start — the setup steps assume they are ready.
    sbx secret set <provider>
    ```
 
-2. **Install and configure:**
+2. **Install and run:**
 
    ```powershell
-   git clone https://github.com/LegendArtur/bot-celly.git
-   cd bot-celly
-   npm ci
-   npm run build
-   copy .env.example .env    # macOS/Linux: cp .env.example .env
+   npx bot-celly@latest
    ```
 
-   Set **only** `DISCORD_TOKEN` and the guild list in `DISCORD_GUILD_IDS`
-   (comma-separated; `DISCORD_GUILD_ID` still works for one guild).
-   `PROJECTS_ROOT` defaults to `~/Celly/projects`.
+   The first run asks for your **Discord bot token** and **guild IDs**, saves
+   them to `~/.bot-celly/.env` (`%USERPROFILE%\.bot-celly\.env` on Windows,
+   override with `CELLY_HOME`), checks that `sbx` is installed and its network
+   policy is initialized, then starts the bot. `PROJECTS_ROOT` defaults to
+   `~/Celly/projects`. Optional `CELLY_ASCII=1` forces ASCII output symbols
+   (off by default). Re-run the same command to start; `npx bot-celly doctor`
+   diagnoses the host without starting; `npx bot-celly setup` reconfigures.
+   Prefer a source checkout? See [Development](#development).
 
-3. **Run** `node dist/index.js`, then `/project add name:<name> path:<path>` and
-   send a message in the new channel.
+3. In Discord, run `/project add name:<name> path:<path>` and send a message in
+   the new channel.
 
 > **You'll know it worked when:** the bot comes online, your `/project add`
 > command creates a channel under the **Forge** category, and a plain message in
@@ -260,7 +261,9 @@ full model.
 The host is designed to run unattended:
 
 - **Logs.** Console output plus `DATA_DIR/bot.log` (JSONL) and per-project
-  `DATA_DIR/logs/<project>.log`, with token/password redaction.
+  `DATA_DIR/logs/<project>.log`, with token/password redaction. The CLI sets
+  `DATA_DIR` to `~/.bot-celly/data` when `DATA_DIR` is unset, so logs default to
+  `~/.bot-celly/data/bot.log`; a source checkout uses `./data`.
 - **Admin page.** A loopback-only status page and JSON API on
   `127.0.0.1:4560` (`ADMIN_PORT`), unauthenticated by design and never
   network-exposed.
@@ -288,7 +291,7 @@ Register the provider with `sbx secret set <provider>` on the host and confirm
 you are logged in with `sbx login`.
 
 **A project shows unhealthy, or the serve child will not start.**
-Check `data/bot.log`, then run `/project start <name>` (or
+Check `~/.bot-celly/data/bot.log`, then run `/project start <name>` (or
 `/project restart <name>`). If the log shows
 `failed to start runtime` with `500 Internal Server Error`, that is a known
 upstream `sbx` issue — restart the host. See [Known issues](#known-issues).
@@ -298,7 +301,7 @@ Use role **IDs**, not role names.
 
 **Where do I look when something is off?**
 The loopback-only admin page on `127.0.0.1:4560` (projects, health, logs,
-audit) and `data/bot.log`. See
+audit) and `~/.bot-celly/data/bot.log`. See
 [Operations](https://celly.agub.dev/guides/operations).
 
 ## Development
@@ -309,6 +312,10 @@ npm test             # full vitest suite
 npm run typecheck    # tsc --noEmit
 npm run build        # tsc -p tsconfig.json
 ```
+
+The published CLI is the same code: `npx bot-celly@latest` runs `dist/cli.js`,
+which sets up `~/.bot-celly` and then calls `dist/index.js`. To exercise it from
+a checkout, run `npm run build && npx bot-celly` (requires Node 24).
 
 Two host-only scripts exercise the real chain and are not run by the Linux test
 suite:
@@ -331,8 +338,6 @@ The command set above is the current surface. Planned, not committed:
 - **Thread title updater and live thread stats.** Keep each Discord thread's
   title in sync with its session, and surface live per-thread stats (run state,
   model and agent, queued prompts, tokens, cost) in the thread or channel.
-- **One-line install.** A single command (for example `npx celly`) to install
-  and run Celly, without the manual Node, clone, build, and `.env` steps.
 - **Image output.** Post images the agent produces (screenshots, diagrams) into
   the thread, alongside streamed text.
 - **Cloud sandboxes and hosted deployment.** Run projects in cloud sandboxes and
@@ -360,6 +365,8 @@ The canonical roadmap is at
 - **Host-only items** (the spike, `sbx policy ls` semantics, Windows path
   mapping, live Discord behavior) are exercised on the host, not in the Linux
   test environment.
+- **The one-line install uses npm.** `npx bot-celly@latest` still requires Node
+  24 and a host with `sbx` installed, logged in, and policy-initialized.
 - **The bash deny list is defense-in-depth, not the sandbox boundary.** Celly
   statically analyzes shell commands and fails closed on what it cannot prove,
   but arbitrary wrapper binaries, encoded payloads, and unmodelled shell
