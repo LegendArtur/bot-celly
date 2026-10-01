@@ -1,6 +1,6 @@
 import { expect, test } from "vitest"
 import {
-  composeThreadName, normalizeTitle, parseNameMarker, statusPrefix, stripNameMarker,
+  composeThreadName, isManualRename, normalizeTitle, parseNameMarker, statusPrefix, stripNameMarker,
 } from "../src/thread-name.ts"
 
 test("statusPrefix maps every status to an emoji + label", () => {
@@ -41,6 +41,16 @@ test("parseNameMarker extracts the first marker line only when complete", () => 
 test("stripNameMarker removes marker lines including a trailing partial one", () => {
   expect(stripNameMarker("hello\n:::celly-name Fix auth\nworld")).toBe("hello\nworld")
   expect(stripNameMarker("hello\n:::celly-name Fix auth")).toBe("hello\n")
+})
+
+test("isManualRename ignores our own writes, archived threads, and unknown threads", () => {
+  const base = { oldName: "a", newName: "b", archived: false, known: true, manual: false, lastThreadName: "a" }
+  expect(isManualRename(base)).toBe(true)
+  expect(isManualRename({ ...base, newName: "a" })).toBe(false)
+  expect(isManualRename({ ...base, newName: "b", lastThreadName: "b" })).toBe(false)
+  expect(isManualRename({ ...base, archived: true })).toBe(false)
+  expect(isManualRename({ ...base, known: false })).toBe(false)
+  expect(isManualRename({ ...base, manual: true })).toBe(false)
 })
 
 import { vi } from "vitest"

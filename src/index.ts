@@ -35,6 +35,7 @@ import { ingestAttachments } from "./attachments.js"
 import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
 import { SessionRoutes } from "./routing.js"
 import { createForkThread, createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown, createThreadArchiveHandler } from "./handlers.js"
+import { isManualRename, ThreadNamer } from "./thread-name.js"
 import { createIdleSweeper, formatIdleStopNotice } from "./idle.js"
 import { createTypingIndicators } from "./typing.js"
 import { buildPromptText, channelIdForBucket, createSubscriptionGate, describeDiscordStartupError, findCategoryId, formatStartupBanner, modelVariants, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, uniqueChannelName } from "./helpers.js"
@@ -328,6 +329,24 @@ export async function main(): Promise<void> {
     log: (message, fields) => log.warn(message, fields),
   })
 
+  const threadNamer = new ThreadNamer({
+    enabled: () => cfg.smartThreadNames,
+    rename: async (threadId, name) => {
+      const thread = db.threads.get(threadId)
+      if (!thread || thread.nameManual) return
+      db.threads.setLastThreadName(threadId, name)
+      const channel = await client.channels.fetch(threadId)
+      if (channel && typeof (channel as any).setName === "function") {
+        await scheduleWithBucket(threadBucket(threadId), () => (channel as any).setName(name))
+      }
+    },
+    getTitle: (threadId) => db.threads.get(threadId)?.title ?? null,
+    isLocked: (threadId) => db.threads.get(threadId)?.nameLocked ?? false,
+    setLockedTitle: (threadId, title) => { db.threads.setTitle(threadId, title); db.threads.setNameLocked(threadId, true) },
+    now: () => Date.now(),
+    log: (message, fields) => log.warn(message, fields),
+  })
+
   runnerSvc = new Runner({
     db, clientFor,
     createRenderer: async (threadId, liveMessageId, liveMessageIds, prompt) => {
@@ -399,6 +418,8 @@ export async function main(): Promise<void> {
       if (channel && "send" in channel) await scheduleWithBucket(channelId, () => (channel as any).send(renderPayload(text))).catch(() => {})
     },
     onThreadIdle: (threadId) => stopTyping(threadId),
+    onThreadState: (threadId, status) => threadNamer.setStatus(threadId, status),
+    onFinalText: (threadId, text) => threadNamer.noteFinalText(threadId, text),
   })
 
   const worktrees = new WorktreeService({ sbx, db, log })
@@ -616,6 +637,7 @@ export async function main(): Promise<void> {
       }
     }
     db.threads.prune(threadId)
+    threadNamer.cancel(threadId)
     sessionRoutes.forgetThread(threadId)
     audit({ kind: "session", channelId: thread.channelId, threadId, actorId: "archive-prompt", detail: `remove session ${thread.sessionId}`, decision: "removed" })
     return true
@@ -695,7 +717,17 @@ export async function main(): Promise<void> {
       })
     },
   })
-  client.on(Events.ThreadUpdate, (oldThread, newThread) => { void onThreadUpdate(oldThread, newThread) })
+  client.on(Events.ThreadUpdate, (oldThread, newThread) => {
+    const thread = newThread?.id ? db.threads.get(newThread.id) : undefined
+    if (isManualRename({
+      oldName: oldThread?.name, newName: newThread?.name, archived: !!newThread?.archived,
+      known: !!thread, manual: thread?.nameManual ?? false, lastThreadName: thread?.lastThreadName ?? null,
+    })) {
+      db.threads.setNameManual(newThread.id, true)
+      threadNamer.onManualRename(newThread.id)
+    }
+    void onThreadUpdate(oldThread, newThread)
+  })
 
   const shutdown = createShutdown({
     log,

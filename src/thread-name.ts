@@ -51,6 +51,19 @@ export function stripNameMarker(text: string): string {
   return (text ?? "").replace(MARKER_LINE_REMOVE, "")
 }
 
+export function isManualRename(input: {
+  oldName: string | null | undefined
+  newName: string | null | undefined
+  archived: boolean
+  known: boolean
+  manual: boolean
+  lastThreadName: string | null
+}): boolean {
+  if (!input.known || input.archived || input.manual) return false
+  if (!input.newName || input.newName === input.oldName) return false
+  return input.newName !== input.lastThreadName
+}
+
 export const NAMER_SETTLE_MS = 20_000
 export const NAMER_BUCKET_CAPACITY = 2
 export const NAMER_REFILL_MS = 300_000
