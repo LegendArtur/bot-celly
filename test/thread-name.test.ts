@@ -42,3 +42,110 @@ test("stripNameMarker removes marker lines including a trailing partial one", ()
   expect(stripNameMarker("hello\n:::celly-name Fix auth\nworld")).toBe("hello\nworld")
   expect(stripNameMarker("hello\n:::celly-name Fix auth")).toBe("hello\n")
 })
+
+import { vi } from "vitest"
+import { ThreadNamer } from "../src/thread-name.ts"
+
+function namerDeps(overrides: Partial<ConstructorParameters<typeof ThreadNamer>[0]> = {}) {
+  const titles: Record<string, string | null> = {}
+  const locked = new Set<string>()
+  const renames: { threadId: string; name: string }[] = []
+  return {
+    renames, titles, locked,
+    deps: {
+      enabled: () => true,
+      rename: async (threadId: string, name: string) => { renames.push({ threadId, name }) },
+      getTitle: (threadId: string) => titles[threadId] ?? "seed",
+      isLocked: (threadId: string) => locked.has(threadId),
+      setLockedTitle: (threadId: string, title: string) => { titles[threadId] = title; locked.add(threadId) },
+      now: () => Date.now(),
+      log: () => {},
+      settleMs: 20,
+      bucketCapacity: 2,
+      refillMs: 300,
+      ...overrides,
+    },
+  }
+}
+
+test("namer coalesces bursts and applies the last state after settle", async () => {
+  vi.useFakeTimers()
+  try {
+    const { deps, renames } = namerDeps()
+    const namer = new ThreadNamer(deps)
+    namer.setStatus("t1", "working")
+    namer.setStatus("t1", "blocked")
+    namer.setStatus("t1", "idle")
+    await vi.advanceTimersByTimeAsync(25)
+    expect(renames).toEqual([{ threadId: "t1", name: "⏸️ idle · seed" }])
+  } finally { vi.useRealTimers() }
+})
+
+test("namer locks the title on the first marker and ignores later ones", async () => {
+  vi.useFakeTimers()
+  try {
+    const { deps, renames, titles } = namerDeps()
+    const namer = new ThreadNamer(deps)
+    namer.noteFinalText("t1", "intro\n:::celly-name Fix auth redirect loop\n")
+    namer.noteFinalText("t1", "again\n:::celly-name Something else entirely\n")
+    namer.setStatus("t1", "working")
+    await vi.advanceTimersByTimeAsync(25)
+    expect(titles.t1).toBe("Fix auth redirect loop")
+    expect(renames.at(-1)).toEqual({ threadId: "t1", name: "🟢 working · Fix auth redirect loop" })
+  } finally { vi.useRealTimers() }
+})
+
+test("namer throttles to the token bucket and eventually applies", async () => {
+  vi.useFakeTimers()
+  try {
+    const { deps, renames } = namerDeps({ settleMs: 5, refillMs: 100 })
+    const namer = new ThreadNamer(deps)
+    namer.setStatus("t1", "working")
+    await vi.advanceTimersByTimeAsync(10)   // token 1
+    namer.setStatus("t1", "blocked")
+    await vi.advanceTimersByTimeAsync(10)   // token 2
+    namer.setStatus("t1", "idle")
+    await vi.advanceTimersByTimeAsync(10)   // no token yet
+    expect(renames).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(150)  // refill
+    expect(renames).toHaveLength(3)
+  } finally { vi.useRealTimers() }
+})
+
+test("namer keeps the desired state when a rename fails, and retries", async () => {
+  vi.useFakeTimers()
+  try {
+    let fail = true
+    const { deps } = namerDeps({
+      settleMs: 5, refillMs: 50,
+      rename: async () => { if (fail) throw Object.assign(new Error("rate limited"), { retryAfter: 1 }) },
+    })
+    const calls = { n: 0 }
+    deps.rename = async () => { calls.n++; if (fail) throw new Error("boom") }
+    const namer = new ThreadNamer(deps)
+    namer.setStatus("t1", "working")
+    await vi.advanceTimersByTimeAsync(10)
+    expect(calls.n).toBe(1)
+    fail = false
+    await vi.advanceTimersByTimeAsync(100)
+    expect(calls.n).toBeGreaterThan(1)
+  } finally { vi.useRealTimers() }
+})
+
+test("namer stops after a manual rename and when disabled", async () => {
+  vi.useFakeTimers()
+  try {
+    const { deps, renames } = namerDeps()
+    const namer = new ThreadNamer(deps)
+    namer.onManualRename("t1")
+    namer.setStatus("t1", "working")
+    await vi.advanceTimersByTimeAsync(25)
+    expect(renames).toHaveLength(0)
+
+    const off = namerDeps({ enabled: () => false })
+    const namer2 = new ThreadNamer(off.deps)
+    namer2.setStatus("t2", "working")
+    await vi.advanceTimersByTimeAsync(25)
+    expect(off.renames).toHaveLength(0)
+  } finally { vi.useRealTimers() }
+})

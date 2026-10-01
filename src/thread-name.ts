@@ -1,3 +1,5 @@
+import { unrefTimer } from "./helpers.js"
+
 export type ThreadStatus = "working" | "blocked" | "idle" | "error" | "stopping"
 
 export const TITLE_MAX_WORDS = 10
@@ -47,4 +49,114 @@ export function parseNameMarker(text: string): string | null {
 
 export function stripNameMarker(text: string): string {
   return (text ?? "").replace(MARKER_LINE_REMOVE, "")
+}
+
+export const NAMER_SETTLE_MS = 20_000
+export const NAMER_BUCKET_CAPACITY = 2
+export const NAMER_REFILL_MS = 300_000
+
+export interface ThreadNamerDeps {
+  enabled(): boolean
+  rename(threadId: string, name: string): Promise<void>
+  getTitle(threadId: string): string | null
+  isLocked(threadId: string): boolean
+  setLockedTitle(threadId: string, title: string): void
+  now(): number
+  log(msg: string, fields?: Record<string, unknown>): void
+  settleMs?: number
+  bucketCapacity?: number
+  refillMs?: number
+}
+
+interface NamerState {
+  status: ThreadStatus
+  title: string | null
+  manual: boolean
+  last?: string
+  tokens: number
+  lastRefill: number
+  blockedUntil: number
+  timer?: ReturnType<typeof setTimeout>
+}
+
+export class ThreadNamer {
+  private states = new Map<string, NamerState>()
+  private readonly settleMs: number
+  private readonly capacity: number
+  private readonly refillMs: number
+  constructor(private readonly deps: ThreadNamerDeps) {
+    this.settleMs = deps.settleMs ?? NAMER_SETTLE_MS
+    this.capacity = deps.bucketCapacity ?? NAMER_BUCKET_CAPACITY
+    this.refillMs = deps.refillMs ?? NAMER_REFILL_MS
+  }
+  private state(threadId: string): NamerState {
+    let state = this.states.get(threadId)
+    if (!state) {
+      state = {
+        status: "idle", title: this.deps.getTitle(threadId), manual: false,
+        tokens: this.capacity, lastRefill: this.deps.now(), blockedUntil: 0,
+      }
+      this.states.set(threadId, state)
+    }
+    return state
+  }
+  private clearTimer(threadId: string): void {
+    const state = this.states.get(threadId)
+    if (state?.timer !== undefined) { clearTimeout(state.timer); state.timer = undefined }
+  }
+  private schedule(threadId: string): void {
+    const state = this.states.get(threadId)
+    if (!state || state.timer !== undefined) return
+    state.timer = setTimeout(() => { state.timer = undefined; void this.flush(threadId) }, this.settleMs)
+    unrefTimer(state.timer)
+  }
+  setStatus(threadId: string, status: ThreadStatus): void {
+    if (!this.deps.enabled()) return
+    const state = this.state(threadId)
+    if (state.manual) return
+    state.status = status
+    this.schedule(threadId)
+  }
+  noteFinalText(threadId: string, text: string): void {
+    if (!this.deps.enabled() || this.deps.isLocked(threadId)) return
+    const title = parseNameMarker(text)
+    if (!title) return
+    const state = this.state(threadId)
+    state.title = title
+    this.deps.setLockedTitle(threadId, title)
+    this.schedule(threadId)
+  }
+  onManualRename(threadId: string): void {
+    const state = this.state(threadId)
+    state.manual = true
+    this.clearTimer(threadId)
+  }
+  cancel(threadId: string): void {
+    this.clearTimer(threadId)
+    this.states.delete(threadId)
+  }
+  private async flush(threadId: string): Promise<void> {
+    const state = this.states.get(threadId)
+    if (!state || state.manual || !this.deps.enabled()) return
+    const now = this.deps.now()
+    if (now < state.blockedUntil) { this.schedule(threadId); return }
+    const elapsed = now - state.lastRefill
+    if (elapsed >= this.refillMs) {
+      const gained = Math.floor(elapsed / this.refillMs)
+      state.tokens = Math.min(this.capacity, state.tokens + gained)
+      state.lastRefill += gained * this.refillMs
+    }
+    const name = composeThreadName(state.status, state.title)
+    if (name === state.last) return
+    if (state.tokens < 1) { this.schedule(threadId); return }
+    state.tokens -= 1
+    try {
+      await this.deps.rename(threadId, name)
+      state.last = name
+    } catch (err) {
+      this.deps.log("thread rename failed", { threadId, error: String(err) })
+      state.blockedUntil = this.deps.now() + this.refillMs
+      this.schedule(threadId)
+    }
+  }
 }
