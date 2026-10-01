@@ -540,3 +540,16 @@ test("plainText joins text segments and drops tool/notice segments", () => {
   r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p3", text: "world" })
   expect(r.plainText()).toBe("hello\n\nworld")
 })
+
+test("renderer strips the name marker from the rendered output but keeps the raw text in plainText", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async (_id, c) => { sends.push(c) },
+    now: () => 0, intervalMs: 1000 })
+  const raw = "done\n:::celly-name Fix auth redirect loop\n"
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: raw })
+  await r.finalize()
+  expect(sends.join("\n")).not.toContain(":::celly-name")
+  expect(sends).toEqual(["done\n"])
+  expect(r.plainText()).toBe(raw)
+  expect(r.plainText()).toContain(":::celly-name Fix auth redirect loop")
+})

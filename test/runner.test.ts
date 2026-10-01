@@ -1107,19 +1107,19 @@ test("prompt seeds the renderer with the run's prompt text", async () => {
   expect(seen).toEqual(["hello"])
 })
 
-test("runner strips name markers, emits status, and reports final text", async () => {
+test("runner keeps raw marker text for onFinalText and strips it from the rendered output", async () => {
   const statuses: string[] = []
   const finals: string[] = []
-  const pushed: string[] = []
+  const rendered: string[] = []
   const { db } = makeDb()
+  let n = 0
   const runner = new Runner({ db,
     clientFor: () => ({ session: { promptAsync: async () => {} } }) as any,
-    createRenderer: async () => ({
-      push: (e: any) => { if (e.kind === "text") pushed.push(e.text) },
-      tick: async () => {}, flush: async () => {}, finalize: async () => {},
-      upsertQuestion: async () => {}, setFooter: () => {}, elapsedMs: () => 0,
-      plainText: () => "done\n:::celly-name Fix auth redirect loop\n",
-    }) as any,
+    createRenderer: async () => new Renderer({
+      send: async (c) => { rendered.push(c); return "m" + (++n) },
+      edit: async (_id, c) => { rendered.push(c) },
+      now: () => 0, intervalMs: 1000,
+    }),
     sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4,
     onThreadState: (_id, s) => statuses.push(s),
     onFinalText: (_id, text) => finals.push(text),
@@ -1127,8 +1127,9 @@ test("runner strips name markers, emits status, and reports final text", async (
   await runner.prompt("t1", "go", "u")
   await runner.onEvent("t1", { kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "done\n:::celly-name Fix auth redirect loop\n" })
   await runner.onEvent("t1", { kind: "idle", sessionId: "s" })
-  expect(pushed[0]).toBe("done\n")
   expect(statuses).toContain("working")
   expect(statuses).toContain("idle")
-  expect(finals[0]).toContain("Fix auth redirect loop")
+  expect(finals[0]).toContain(":::celly-name Fix auth redirect loop")
+  expect(rendered.join("\n")).not.toContain(":::celly-name")
+  expect(rendered[0]).toBe("done\n")
 })

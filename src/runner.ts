@@ -9,7 +9,6 @@ import type { ApprovalManager, QuestionStateUpdate } from "./approvals.ts"
 import type { AuditDraft } from "./audit.ts"
 import { formatCost, formatDuration, formatUsageFooter, resolveBudget } from "./usage.js"
 import { decidePermission, type PermissionReplyInput } from "./policy.js"
-import { stripNameMarker } from "./thread-name.js"
 import type { ThreadStatus } from "./thread-name.ts"
 import { unrefTimer } from "./helpers.js"
 
@@ -254,12 +253,7 @@ export class Runner {
   async onEvent(threadId: string, e: NormalizedEvent): Promise<void> {
     const db = this.deps.db
     const epoch = this.owner.get(threadId)
-    if (e.kind === "text" || e.kind === "tool") {
-      const event = e.kind === "text" ? { ...e, text: stripNameMarker(e.text) } : e
-      const r = await this.rendererFor(threadId)
-      r.push(event)
-      await r.tick()
-    }
+    if (e.kind === "text" || e.kind === "tool") { const r = await this.rendererFor(threadId); r.push(e); await r.tick() }
     else if (e.kind === "usage") {
       db.threads.addUsage(threadId, { cost: e.cost, tokensIn: e.tokensIn, tokensOut: e.tokensOut, cacheRead: e.cacheRead, cacheWrite: e.cacheWrite })
       const totals = db.usage.thread(threadId)
@@ -376,7 +370,7 @@ export class Runner {
       const messageId = last.info?.id ?? ""
       for (const part of last.parts ?? []) {
         const ev = partToEvent(thread.sessionId, messageId, part)
-        if (ev) renderer.push(ev.kind === "text" ? { ...ev, text: stripNameMarker(ev.text) } : ev)
+        if (ev) renderer.push(ev)
       }
     }
     try { await renderer.finalize() } catch (err) { this.deps.log("recover finalize failed", { threadId: thread.threadId, error: String(err) }) }

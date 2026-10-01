@@ -1,5 +1,6 @@
 import { MessageFlags } from "discord.js"
 import type { NormalizedEvent } from "./events.ts"
+import { stripNameMarker } from "./thread-name.js"
 import { DISCORD_CHUNK_LIMIT } from "./helpers.js"
 
 export interface RenderPayload {
@@ -162,7 +163,7 @@ type Segment =
 
 function renderSegment(segment: Segment): string {
   if (segment.kind === "prompt") return formatPrompt(segment.text)
-  if (segment.kind === "text") return segment.text
+  if (segment.kind === "text") return stripNameMarker(segment.text)
   if (segment.kind === "question") return segment.text
   if (segment.kind === "notice") {
     const flat = segment.text.replace(/\s+/g, " ").trim()
