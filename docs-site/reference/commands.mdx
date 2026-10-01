@@ -35,7 +35,7 @@ with block checked first.
 | --- | --- | --- |
 | `/new [prompt]` | authorized | Start a new thread/session in this project channel. |
 | `/resume` | authorized | Pick a past session (ephemeral select) and resume it in a new thread. |
-| `/abort` | authorized | Abort the current run in a thread, or every active run in the project channel. |
+| `/abort` | authorized | Abort the current run in a thread, or every active run in the project channel. While a run is active its streamed reply also carries a **Stop** button that aborts that thread; the button disappears when the run ends. |
 | `/model` | authorized | Choose the model for this thread, or the channel default in a project channel (two-step provider → model select). |
 | `/agent` | authorized | Choose the agent for this thread, or the channel default in a project channel (select). |
 | `/thinking [depth]` | authorized | Choose the current model's thinking depth (variant, for example `low`/`high`/`max`) for this thread, or the channel default in a project channel (select). `depth` sets it directly; `default` clears it. |

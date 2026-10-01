@@ -17,7 +17,7 @@ import { Sbx, SbxRunner } from "./sbx.js"
 import { ProjectService } from "./projects.js"
 import { WorktreeService, worktreeDefaultFor } from "./worktrees.js"
 import { createDiscordClient, fetchConfiguredGuilds, isAuthorized, isOwner, rolesOf } from "./discord.js"
-import { commandData, deployCommandsToGuilds, handleButton, handleCommand, handleModalSubmit, handleSelect } from "./commands.js"
+import { commandData, deployCommandsToGuilds, handleButton, handleCommand, handleModalSubmit, handleSelect, stopControls } from "./commands.js"
 import type { CommandDeps, CreateThreadInput } from "./commands.js"
 import { createAutoThreadResolver } from "./attach.js"
 import { APPROVAL_TIMEOUT_MS, ApprovalManager } from "./approvals.js"
@@ -340,6 +340,7 @@ export async function main(): Promise<void> {
         initialMessageId: liveMessageId,
         initialMessageIds: liveMessageIds,
         prompt,
+        controls: stopControls(threadId),
         send: async (content, components) => scheduleWithBucket(bucketChannelId, async () => {
           const sent = await (channel as any).send({ ...renderPayload(content), components: components ?? [] })
           db.threads.setLiveMessage(threadId, sent.id)

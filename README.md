@@ -71,6 +71,8 @@ The whole model fits in three lines:
 - **Model, agent, and thinking depth.** `/model`, `/agent`, and `/thinking` pick
   per-thread settings.
 - **Abort.** `/abort` stops the current run, or every active run in the channel.
+  A run's streamed reply also carries a **Stop** button for that thread, removed
+  when the run ends.
 - **Approvals.** `/mode` picks `auto`, `buttons`, or `plan`; `buttons` posts
   permission requests as Discord buttons. Agent questions render inline in the
   streamed reply, in the order they were asked, with
@@ -194,7 +196,7 @@ The everyday handful:
 | `/project add <name> <path>` | Register a directory and spin up its sandbox. |
 | `/new [prompt]` | Start a session in the project channel. |
 | `/resume` | Reopen a past session in a new thread. |
-| `/abort` | Stop the current run, or all runs in the channel. |
+| `/abort` | Stop the current run, or all runs in the channel (or use the **Stop** button on a live reply). |
 | `/model` · `/agent` · `/thinking` | Switch the model, agent, or thinking depth for a thread. |
 | `/mode auto\|buttons\|plan` | Choose how approvals are requested. |
 | `/cost` | Show accumulated cost, tokens, and the session budget. |
@@ -214,7 +216,7 @@ The everyday handful:
 | `/project remove <name> <confirm>` | guild (owner) | Remove the sandbox, project, and channel. |
 | `/new [prompt]` | project channel | Start a new session. |
 | `/resume` | project channel | Resume a past session in a new thread. |
-| `/abort` | channel or thread | Abort the current run (or all runs). |
+| `/abort` | channel or thread | Abort the current run (or all runs). A live run's streamed reply also has a **Stop** button. |
 | `/model` | thread or project channel | Choose the model for this thread or the channel default. |
 | `/agent` | thread or project channel | Choose the agent for this thread or the channel default. |
 | `/thinking [depth]` | thread or project channel | Choose the current model's thinking depth (variant) for this thread or the channel default. |

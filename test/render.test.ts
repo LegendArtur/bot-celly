@@ -418,6 +418,61 @@ test("renderer attaches question controls to the last chunk of a long body", asy
   expect(sends.at(-1)!.components).toEqual([{ type: 1 }])
 })
 
+test("renderer keeps run controls on the last chunk until finalize removes them", async () => {
+  const sends: Array<{ content: string; components: any[] }> = []
+  const edits: Array<{ id: string; content: string; components: any[] }> = []
+  const controls = [{ type: 1, components: [{ type: 2, custom_id: "celly:abort:t1", label: "Stop" }] }]
+  const r = new Renderer({
+    send: async (c, components) => { sends.push({ content: c, components: components ?? [] }); return "m1" },
+    edit: async (id, c, components) => { edits.push({ id, content: c, components: components ?? [] }) },
+    now: () => 0, intervalMs: 1000, controls,
+  })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "working" })
+  await r.flush()
+  expect(sends[0]!.components).toEqual(controls)
+  await r.finalize()
+  expect(edits.at(-1)!.components).toEqual([])
+})
+
+test("renderer re-attaches run controls to a new last chunk", async () => {
+  const sends: Array<{ content: string; components: any[] }> = []
+  const controls = [{ type: 1, components: [{ type: 2, custom_id: "celly:abort:t1" }] }]
+  const r = new Renderer({
+    send: async (c, components) => { sends.push({ content: c, components: components ?? [] }); return `m${sends.length}` },
+    edit: async () => {},
+    now: () => 0, intervalMs: 1000, controls,
+  })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "a".repeat(2600) })
+  await r.flush()
+  expect(sends.length).toBeGreaterThan(1)
+  expect(sends.slice(0, -1).every((s) => s.components.length === 0)).toBe(true)
+  expect(sends.at(-1)!.components).toEqual(controls)
+})
+
+test("renderer lists question controls before run controls and caps rows", async () => {
+  const sends: Array<{ content: string; components: any[] }> = []
+  const question = [{ type: 1, custom_id: "q" }]
+  const stop = [{ type: 1, custom_id: "celly:abort:t1" }]
+  const r = new Renderer({
+    send: async (c, components) => { sends.push({ content: c, components: components ?? [] }); return `m${sends.length}` },
+    edit: async () => {}, now: () => 0, intervalMs: 1000, controls: stop,
+  })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "hi" })
+  r.upsertQuestion("q1", "Q", question)
+  await r.flush()
+  expect(sends.at(-1)!.components).toEqual([...question, ...stop])
+
+  const many = Array.from({ length: 5 }, (_, i) => ({ type: 1, custom_id: `q${i}` }))
+  const r2 = new Renderer({
+    send: async (c, components) => { sends.push({ content: c, components: components ?? [] }); return `n${sends.length}` },
+    edit: async () => {}, now: () => 0, intervalMs: 1000, controls: stop,
+  })
+  r2.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "hi" })
+  r2.upsertQuestion("q1", "Q", many)
+  await r2.flush()
+  expect(sends.at(-1)!.components).toEqual(many)
+})
+
 test("renderer renders notices with a tone glyph", async () => {
   const sends: string[] = []
   const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async () => {},

@@ -175,6 +175,7 @@ export const THINKING_SELECT = "thinking"
 export const QUEUE_REMOVE = "queue-remove"
 export const QUEUE_CLEAR = "queue-clear"
 export const ARCHIVE_ACTION = "archive"
+export const ABORT_ACTION = "abort"
 
 export type ArchiveDecision = "keep" | "remove"
 
@@ -190,6 +191,23 @@ export function archiveNoticePayload(threadId: string): { content: string; compo
       ],
     }],
   }
+}
+
+/**
+ * The persistent control row attached to a live run's streamed reply. The
+ * custom_id carries the thread id, so the button keeps working across restarts;
+ * `handleButton` aborts only while the thread is still active.
+ */
+export function stopControls(threadId: string): any[] {
+  return [{
+    type: ComponentType.ActionRow,
+    components: [{
+      type: ComponentType.Button,
+      style: ButtonStyle.Danger,
+      custom_id: buttonCustomId(ABORT_ACTION, threadId),
+      label: "Stop",
+    }],
+  }]
 }
 
 export function selectCustomId(action: string, id: string): string { return `celly:${action}:${id}` }
@@ -770,6 +788,14 @@ export async function handleButton(interaction: any, deps: CommandDeps): Promise
   if (action === ANSWER_ACTION) return handleAnswerButton(interaction, deps)
   if (action === REJECT_QUESTION_ACTION) return handleRejectQuestionButton(interaction, deps)
   if (action === ARCHIVE_ACTION) return handleArchiveButton(interaction, deps)
+  if (action === ABORT_ACTION) return handleAbortButton(interaction, deps)
+}
+
+export async function handleAbortButton(interaction: any, deps: CommandDeps): Promise<void> {
+  const { id } = parseCustomIdFull(interaction.customId ?? "")
+  if (!id || !deps.runner.isActive(id)) { await stale(interaction); return }
+  await interaction.deferUpdate()
+  await deps.runner.abort(id)
 }
 
 export async function handleArchiveButton(interaction: any, deps: CommandDeps): Promise<void> {

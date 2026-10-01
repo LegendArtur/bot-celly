@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs"
 import { expect, test, vi } from "vitest"
 import { ApplicationCommandOptionType, ComponentType } from "discord.js"
-import { ANSWER_MODAL_INPUT, SELECT_OPTION_MAX, SELECT_OPTIONS_MAX, commandData, deployCommandsToGuilds, handleApprovalButton, handleButton, handleCommand, handleModalSubmit, handleRejectQuestionButton, handleSelect, parseCustomIdFull, requiresOwner, sanitizeSelectOptions } from "../src/commands.ts"
+import { ANSWER_MODAL_INPUT, SELECT_OPTION_MAX, SELECT_OPTIONS_MAX, commandData, deployCommandsToGuilds, handleApprovalButton, handleButton, handleCommand, handleModalSubmit, handleRejectQuestionButton, handleSelect, parseCustomIdFull, requiresOwner, sanitizeSelectOptions, stopControls } from "../src/commands.ts"
 import { isOwner } from "../src/discord.ts"
 import { freshDb, projectFixture, threadRow } from "./helpers/fixtures.ts"
 
@@ -238,6 +238,34 @@ test("abort inside an idle thread says nothing to abort", async () => {
   await handleCommand(i, { projects: {} as any, runner: { abort: async (id: string) => { aborted.push(id) }, isActive: () => false, activeThreadsFor: () => [] } as any, db: freshDb(), authorized: () => true })
   expect(aborted).toEqual([])
   expect(editOf(i)).toBe("nothing to abort")
+})
+
+test("stopControls carries the thread id in its button custom id", () => {
+  const row: any = stopControls("t1")[0]
+  expect(row.components[0]).toMatchObject({ custom_id: "celly:abort:t1", label: "Stop" })
+  expect(parseCustomIdFull(row.components[0].custom_id)).toMatchObject({ action: "abort", id: "t1" })
+})
+test("abort button aborts an active thread", async () => {
+  const i = button({ customId: "celly:abort:t1" })
+  const aborted: string[] = []
+  await handleButton(i, { projects: {} as any, runner: { isActive: () => true, abort: async (id: string) => { aborted.push(id) } } as any, db: freshDb(), authorized: () => true })
+  expect(i.calls[0]).toEqual({ kind: "deferUpdate" })
+  expect(aborted).toEqual(["t1"])
+})
+test("abort button on an idle thread is stale", async () => {
+  const i = button({ customId: "celly:abort:t1" })
+  await handleButton(i, { projects: {} as any, runner: { isActive: () => false, abort: async () => {} } as any, db: freshDb(), authorized: () => true })
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "this request is no longer active", flags: 64 } })
+})
+test("abort button without a thread id is stale", async () => {
+  const i = button({ customId: "celly:abort" })
+  await handleButton(i, { projects: {} as any, runner: { isActive: () => true, abort: async () => {} } as any, db: freshDb(), authorized: () => true })
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "this request is no longer active", flags: 64 } })
+})
+test("unauthorized abort buttons are rejected before deferUpdate", async () => {
+  const i = button({ customId: "celly:abort:t1" })
+  await handleButton(i, { projects: {} as any, runner: {} as any, db: freshDb(), authorized: () => false })
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "You are not authorized.", flags: 64 } })
 })
 
 test("project create makes a sanitized directory then adds the project", async () => {

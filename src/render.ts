@@ -178,6 +178,9 @@ function isQuote(segment: Segment): boolean {
   return segment.kind === "tool" || segment.kind === "notice"
 }
 
+/** Discord allows at most five component rows on a message. */
+const COMPONENT_ROWS_MAX = 5
+
 export class Renderer {
   private segments: Segment[] = []
   private segmentIndex = new Map<string, number>()
@@ -196,6 +199,12 @@ export class Renderer {
    * on the last chunk.
    */
   private questionControls: { id: string; components: any[] } | null = null
+  /**
+   * Persistent controls (the Stop button) shown on the last chunk for as long
+   * as the run is live. Cleared by `finalize()` so the run's last edit removes
+   * them, and re-attached to a new last chunk whenever the body outgrows it.
+   */
+  private controls: any[]
   constructor(private readonly deps: {
     send(content: string, components?: any[]): Promise<string>
     edit(messageId: string, content: string, components?: any[]): Promise<void>
@@ -204,7 +213,9 @@ export class Renderer {
     initialMessageId?: string | null
     initialMessageIds?: string[] | null
     prompt?: string | null
+    controls?: any[] | null
   }) {
+    this.controls = deps.controls ?? []
     if (deps.initialMessageIds && deps.initialMessageIds.length > 0) this.ids = [...deps.initialMessageIds]
     else if (deps.initialMessageId) this.ids = [deps.initialMessageId]
     if (deps.prompt && deps.prompt.trim()) {
@@ -269,6 +280,16 @@ export class Renderer {
     this.dirty = true
     this.revision++
   }
+  /**
+   * Components for the last chunk: pending question controls first (the
+   * actionable item), then the persistent run controls. Truncated to Discord's
+   * five-row limit, so a wide question UI drops the Stop row rather than
+   * failing the whole edit.
+   */
+  private lastChunkComponents(): any[] {
+    const rows = [...(this.questionControls?.components ?? []), ...this.controls]
+    return rows.slice(0, COMPONENT_ROWS_MAX)
+  }
   private async runFlush(): Promise<void> {
     const revision = this.revision
     const chunks = chunkMessage(this.body(), DISCORD_CHUNK_LIMIT)
@@ -285,7 +306,7 @@ export class Renderer {
       return
     }
     for (const [i, content] of chunks.entries()) {
-      const components = i === chunks.length - 1 && this.questionControls ? this.questionControls.components : []
+      const components = i === chunks.length - 1 ? this.lastChunkComponents() : []
       const existing = this.ids[i]
       if (existing !== undefined) await this.deps.edit(existing, content, components)
       else {
@@ -315,6 +336,13 @@ export class Renderer {
   }
   async finalize(): Promise<void> {
     if (this.endedAt === null) this.endedAt = this.deps.now()
+    // Drop the persistent controls on the run's final edit. Mark dirty so the
+    // message is rewritten even when the body itself did not change.
+    if (this.controls.length > 0) {
+      this.controls = []
+      this.dirty = true
+      this.revision++
+    }
     await this.flush()
   }
 }
