@@ -240,7 +240,8 @@ export async function main(): Promise<void> {
       threadId, channelId: project.channelId, sessionId, title,
       model: defaults.model, agent: defaults.agent, variant: defaults.variant,
       worktreePath, liveMessageId: null, originMessageId, archiveNoticeAt: null,
-      renderState: "idle", createdAt: now, lastActiveAt: now,
+      renderState: "idle", nameLocked: false, nameManual: false, lastThreadName: null,
+      createdAt: now, lastActiveAt: now,
     }
     db.threads.upsert(record)
     registerSession(threadId, sessionId)

@@ -276,7 +276,8 @@ export function createForkThread(deps: ForkThreadDeps): (input: ForkThreadInput)
     if (!sessionId) throw new Error("opencode session.fork returned no id")
     deps.db.threads.upsert({ threadId: thread.id, channelId: project.channelId, sessionId, title,
       model: source.model, agent: source.agent, variant: source.variant, worktreePath: worktreePath ?? null,
-      liveMessageId: null, renderState: "idle", createdAt: Date.now(), lastActiveAt: Date.now() })
+      liveMessageId: null, renderState: "idle", nameLocked: false, nameManual: false, lastThreadName: null,
+      createdAt: Date.now(), lastActiveAt: Date.now() })
     deps.registerSession(thread.id, sessionId)
     let notice: string | undefined
     if (input.prompt) {
