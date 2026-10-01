@@ -144,6 +144,7 @@ export class ThreadNamer {
     this.schedule(threadId)
   }
   onManualRename(threadId: string): void {
+    if (!this.deps.enabled()) return
     const state = this.state(threadId)
     state.manual = true
     this.clearTimer(threadId)

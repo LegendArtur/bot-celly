@@ -719,7 +719,7 @@ export async function main(): Promise<void> {
   })
   client.on(Events.ThreadUpdate, (oldThread, newThread) => {
     const thread = newThread?.id ? db.threads.get(newThread.id) : undefined
-    if (isManualRename({
+    if (cfg.smartThreadNames && isManualRename({
       oldName: oldThread?.name, newName: newThread?.name, archived: !!newThread?.archived,
       known: !!thread, manual: thread?.nameManual ?? false, lastThreadName: thread?.lastThreadName ?? null,
     })) {
