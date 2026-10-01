@@ -116,12 +116,11 @@ test("namer keeps the desired state when a rename fails, and retries", async () 
   vi.useFakeTimers()
   try {
     let fail = true
+    const calls = { n: 0 }
     const { deps } = namerDeps({
       settleMs: 5, refillMs: 50,
-      rename: async () => { if (fail) throw Object.assign(new Error("rate limited"), { retryAfter: 1 }) },
+      rename: async () => { calls.n++; if (fail) throw new Error("boom") },
     })
-    const calls = { n: 0 }
-    deps.rename = async () => { calls.n++; if (fail) throw new Error("boom") }
     const namer = new ThreadNamer(deps)
     namer.setStatus("t1", "working")
     await vi.advanceTimersByTimeAsync(10)
@@ -147,5 +146,58 @@ test("namer stops after a manual rename and when disabled", async () => {
     namer2.setStatus("t2", "working")
     await vi.advanceTimersByTimeAsync(25)
     expect(off.renames).toHaveLength(0)
+  } finally { vi.useRealTimers() }
+})
+
+test("namer does not rename again when the composed name is unchanged", async () => {
+  vi.useFakeTimers()
+  try {
+    const { deps, renames } = namerDeps()
+    const namer = new ThreadNamer(deps)
+    namer.setStatus("t1", "idle")
+    await vi.advanceTimersByTimeAsync(25)
+    namer.setStatus("t1", "idle")
+    await vi.advanceTimersByTimeAsync(25)
+    expect(renames).toHaveLength(1)
+  } finally { vi.useRealTimers() }
+})
+
+test("namer serializes flushes so a setStatus during a rename cannot double-rename", async () => {
+  vi.useFakeTimers()
+  try {
+    let resolveRename: (() => void) | null = null
+    const calls: string[] = []
+    const { deps } = namerDeps({
+      settleMs: 5,
+      rename: (_threadId: string, name: string) => {
+        calls.push(name)
+        return new Promise<void>((resolve) => { resolveRename = resolve })
+      },
+    })
+    const namer = new ThreadNamer(deps)
+    namer.setStatus("t1", "working")
+    await vi.advanceTimersByTimeAsync(10)
+    expect(calls).toHaveLength(1)
+    namer.setStatus("t1", "blocked")
+    await vi.advanceTimersByTimeAsync(10)
+    expect(calls).toHaveLength(1)
+    resolveRename?.()
+    await vi.advanceTimersByTimeAsync(10)
+    expect(calls).toHaveLength(2)
+    expect(calls.at(-1)).toBe("⛔ blocked · seed")
+  } finally { vi.useRealTimers() }
+})
+
+test("namer ignores markers after a manual rename", async () => {
+  vi.useFakeTimers()
+  try {
+    const { deps, titles, locked, renames } = namerDeps()
+    const namer = new ThreadNamer(deps)
+    namer.onManualRename("t1")
+    namer.noteFinalText("t1", "intro\n:::celly-name Fix auth redirect loop\n")
+    await vi.advanceTimersByTimeAsync(25)
+    expect(titles.t1).toBeUndefined()
+    expect(locked.has("t1")).toBe(false)
+    expect(renames).toHaveLength(0)
   } finally { vi.useRealTimers() }
 })

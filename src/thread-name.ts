@@ -76,6 +76,8 @@ interface NamerState {
   tokens: number
   lastRefill: number
   blockedUntil: number
+  flushing: boolean
+  pending: boolean
   timer?: ReturnType<typeof setTimeout>
 }
 
@@ -95,6 +97,7 @@ export class ThreadNamer {
       state = {
         status: "idle", title: this.deps.getTitle(threadId), manual: false,
         tokens: this.capacity, lastRefill: this.deps.now(), blockedUntil: 0,
+        flushing: false, pending: false,
       }
       this.states.set(threadId, state)
     }
@@ -122,6 +125,7 @@ export class ThreadNamer {
     const title = parseNameMarker(text)
     if (!title) return
     const state = this.state(threadId)
+    if (state.manual) return
     state.title = title
     this.deps.setLockedTitle(threadId, title)
     this.schedule(threadId)
@@ -137,26 +141,37 @@ export class ThreadNamer {
   }
   private async flush(threadId: string): Promise<void> {
     const state = this.states.get(threadId)
-    if (!state || state.manual || !this.deps.enabled()) return
-    const now = this.deps.now()
-    if (now < state.blockedUntil) { this.schedule(threadId); return }
-    const elapsed = now - state.lastRefill
-    if (elapsed >= this.refillMs) {
-      const gained = Math.floor(elapsed / this.refillMs)
-      state.tokens = Math.min(this.capacity, state.tokens + gained)
-      state.lastRefill += gained * this.refillMs
-    }
-    const name = composeThreadName(state.status, state.title)
-    if (name === state.last) return
-    if (state.tokens < 1) { this.schedule(threadId); return }
-    state.tokens -= 1
+    if (!state) return
+    if (state.flushing) { state.pending = true; return }
+    state.flushing = true
     try {
-      await this.deps.rename(threadId, name)
-      state.last = name
-    } catch (err) {
-      this.deps.log("thread rename failed", { threadId, error: String(err) })
-      state.blockedUntil = this.deps.now() + this.refillMs
-      this.schedule(threadId)
+      do {
+        state.pending = false
+        if (state.manual || !this.deps.enabled()) break
+        const now = this.deps.now()
+        if (now < state.blockedUntil) { this.schedule(threadId); break }
+        const elapsed = now - state.lastRefill
+        if (elapsed >= this.refillMs) {
+          const gained = Math.floor(elapsed / this.refillMs)
+          state.tokens = Math.min(this.capacity, state.tokens + gained)
+          state.lastRefill += gained * this.refillMs
+        }
+        const name = composeThreadName(state.status, state.title)
+        if (name === state.last) break
+        if (state.tokens < 1) { this.schedule(threadId); break }
+        state.tokens -= 1
+        try {
+          await this.deps.rename(threadId, name)
+          state.last = name
+        } catch (err) {
+          this.deps.log("thread rename failed", { threadId, error: String(err) })
+          state.blockedUntil = this.deps.now() + this.refillMs
+          this.schedule(threadId)
+          break
+        }
+      } while (state.pending)
+    } finally {
+      state.flushing = false
     }
   }
 }
