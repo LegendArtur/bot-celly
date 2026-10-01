@@ -70,6 +70,13 @@ test("the sandbox env and bootstrap carry the github token", () => {
   expect(buildBootstrapInstallScript("pw")).not.toContain("GITHUB_TOKEN")
 })
 
+test("bootstrap installs the global AGENTS.md naming instruction", () => {
+  const script = buildBootstrapInstallScript("pw")
+  expect(script).toContain('"$HOME/.config/opencode/AGENTS.md"')
+  expect(script).toContain(":::celly-name")
+  expect(buildOpencodeEnv("pw")).not.toContain(":::celly-name")
+})
+
 test("the git credential script writes a 0600 store and removes it without a token", () => {
   const withToken = buildGitCredentialScript({ githubToken: "ghp_secret" })
   expect(withToken).toContain("https://x-access-token:ghp_secret@github.com")

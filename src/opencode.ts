@@ -262,8 +262,26 @@ export async function applyAndAssertCellyPolicy(client: PolicyClient, v2?: Openc
   if (v2) await enableQuestionPermissionV2(v2)
 }
 
+export function cellyGlobalInstructions(): string {
+  return [
+    "# Celly session naming",
+    "",
+    "Celly shows this session's topic as the Discord thread name.",
+    "",
+    "Once you understand what this session is about — for example after gathering",
+    "requirements or writing a spec — set the name exactly once by emitting one",
+    "line on its own:",
+    "",
+    ":::celly-name <title>",
+    "",
+    "Rules: at most 10 words; no surrounding quotes and no trailing punctuation;",
+    "describe the task, not your reply; emit it only once per session; never",
+    "mention the line in your answer (it is removed before the user sees it).",
+  ].join("\n") + "\n"
+}
+
 export const BOOTSTRAP_PREPARE = `set -e; mkdir -p ${CELLY_CONFIG_DIR}; chmod 700 ${CELLY_CONFIG_DIR}`
-export const BOOTSTRAP_VERIFY = `test -s ${CELLY_CONFIG_PATH} && test -s ${CELLY_ENV_PATH} && grep -q '"permission"' ${CELLY_CONFIG_PATH} && grep -q 'OPENCODE_SERVER_PASSWORD=' ${CELLY_ENV_PATH}`
+export const BOOTSTRAP_VERIFY = `test -s ${CELLY_CONFIG_PATH} && test -s ${CELLY_ENV_PATH} && test -s "$HOME/.config/opencode/AGENTS.md" && grep -q '"permission"' ${CELLY_CONFIG_PATH} && grep -q 'OPENCODE_SERVER_PASSWORD=' ${CELLY_ENV_PATH} && grep -q 'celly-name' "$HOME/.config/opencode/AGENTS.md"`
 
 /**
  * The config/env files are written by the sandbox user itself (via `sbx exec -i
@@ -282,6 +300,10 @@ export function buildBootstrapInstallScript(password: string, options: GithubOpt
     `cat > "$HOME/.config/celly/opencode.env" <<'CELLY_ENV'`,
     buildOpencodeEnv(password, options).replace(/\n$/, ""),
     "CELLY_ENV",
+    `mkdir -p "$HOME/.config/opencode"`,
+    `cat > "$HOME/.config/opencode/AGENTS.md" <<'CELLY_AGENTS'`,
+    cellyGlobalInstructions().replace(/\n$/, ""),
+    "CELLY_AGENTS",
   ].join("\n") + "\n"
 }
 
