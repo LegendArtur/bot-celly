@@ -271,6 +271,12 @@ export class Renderer {
     if (this.startedAt === null) return 0
     return (this.endedAt ?? this.deps.now()) - this.startedAt
   }
+  plainText(): string {
+    return this.segments
+      .filter((segment): segment is Extract<Segment, { kind: "text" }> => segment.kind === "text")
+      .map((segment) => segment.text)
+      .join("\n\n")
+  }
   push(e: NormalizedEvent): void {
     if (this.startedAt === null) this.startedAt = this.deps.now()
     if (e.kind === "text") this.upsert({ kind: "text", id: e.partId, text: e.text })

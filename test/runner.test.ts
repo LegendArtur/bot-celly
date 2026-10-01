@@ -1106,3 +1106,29 @@ test("prompt seeds the renderer with the run's prompt text", async () => {
   await runner.onEvent("t1", { kind: "text", sessionId: "s1", messageId: "m", partId: "p", text: "a" })
   expect(seen).toEqual(["hello"])
 })
+
+test("runner strips name markers, emits status, and reports final text", async () => {
+  const statuses: string[] = []
+  const finals: string[] = []
+  const pushed: string[] = []
+  const { db } = makeDb()
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async () => {} } }) as any,
+    createRenderer: async () => ({
+      push: (e: any) => { if (e.kind === "text") pushed.push(e.text) },
+      tick: async () => {}, flush: async () => {}, finalize: async () => {},
+      upsertQuestion: async () => {}, setFooter: () => {}, elapsedMs: () => 0,
+      plainText: () => "done\n:::celly-name Fix auth redirect loop\n",
+    }) as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4,
+    onThreadState: (_id, s) => statuses.push(s),
+    onFinalText: (_id, text) => finals.push(text),
+  })
+  await runner.prompt("t1", "go", "u")
+  await runner.onEvent("t1", { kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "done\n:::celly-name Fix auth redirect loop\n" })
+  await runner.onEvent("t1", { kind: "idle", sessionId: "s" })
+  expect(pushed[0]).toBe("done\n")
+  expect(statuses).toContain("working")
+  expect(statuses).toContain("idle")
+  expect(finals[0]).toContain("Fix auth redirect loop")
+})

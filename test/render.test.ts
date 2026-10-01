@@ -532,3 +532,11 @@ test("renderer flattens multiline tool titles", async () => {
   await r.finalize()
   expect(sends).toEqual(["> ✅ `bash` · line one line two"])
 })
+
+test("plainText joins text segments and drops tool/notice segments", () => {
+  const r = new Renderer({ send: async () => "m1", edit: async () => {}, now: () => 0, intervalMs: 1 })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p1", text: "hello" })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "p2", name: "bash", status: "running" })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p3", text: "world" })
+  expect(r.plainText()).toBe("hello\n\nworld")
+})
