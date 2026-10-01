@@ -1,6 +1,6 @@
 // test/opencode.test.ts
 import { expect, test } from "vitest"
-import { applyAndAssertCellyPolicy, AUTH_ENV_BY_PROVIDER, BASH_DENY, bashDenyPatterns, basicAuth, buildBootstrapInstallScript, buildCellyConfigJson, buildGitCredentialScript, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, createV2Client, enableQuestionPermissionV2, GIT_PUSH_DENY, OPENCODE_AUTH_PATH, resolveClient, resolveV2Client, waitForHealth } from "../src/opencode.ts"
+import { applyAndAssertCellyPolicy, AUTH_ENV_BY_PROVIDER, BASH_DENY, bashDenyPatterns, basicAuth, bootstrapVerify, buildBootstrapInstallScript, buildCellyConfigJson, buildGitCredentialScript, buildOpencodeEnv, buildServeArgs, cellyPolicy, createClient, createV2Client, enableQuestionPermissionV2, GIT_PUSH_DENY, OPENCODE_AUTH_PATH, resolveClient, resolveV2Client, waitForHealth } from "../src/opencode.ts"
 import { startTestServer } from "./helpers/http.ts"
 
 test("basicAuth encodes the opencode user and password", () => {
@@ -75,6 +75,24 @@ test("bootstrap installs the global AGENTS.md naming instruction", () => {
   expect(script).toContain('"$HOME/.config/opencode/AGENTS.md"')
   expect(script).toContain(":::celly-name")
   expect(buildOpencodeEnv("pw")).not.toContain(":::celly-name")
+})
+
+test("bootstrap omits the naming instruction when smart names are disabled", () => {
+  const script = buildBootstrapInstallScript("pw", {}, { smartThreadNames: false })
+  expect(script).not.toContain('"$HOME/.config/opencode/AGENTS.md"')
+  expect(script).not.toContain(":::celly-name")
+  expect(script).toContain('"$HOME/.config/celly/opencode.json"')
+})
+
+test("bootstrapVerify gates the AGENTS.md checks on smart names", () => {
+  const on = bootstrapVerify(true)
+  const off = bootstrapVerify(false)
+  expect(on).toContain('test -s "$HOME/.config/opencode/AGENTS.md"')
+  expect(on).toContain("celly-name")
+  expect(off).not.toContain("AGENTS.md")
+  expect(off).not.toContain("celly-name")
+  expect(off).toContain(`test -s $HOME/.config/celly/opencode.json`)
+  expect(on).toContain(`test -s $HOME/.config/celly/opencode.json`)
 })
 
 test("the git credential script writes a 0600 store and removes it without a token", () => {

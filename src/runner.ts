@@ -140,11 +140,11 @@ export class Runner {
     if (!thread) return this.deps.budgetUsd ?? 0
     return resolveBudget(this.deps.db.settings, thread.channelId, this.deps.budgetUsd ?? 0)
   }
-  private idle(threadId: string, epoch: number | undefined): boolean {
+  private idle(threadId: string, epoch: number | undefined, status: ThreadStatus = "idle"): boolean {
     this.deps.approvals?.cancelThread(threadId)
     if (!this.ownsEpoch(threadId, epoch)) return false
     this.deps.db.threads.setRenderState(threadId, "idle")
-    this.deps.onThreadState?.(threadId, "idle")
+    this.deps.onThreadState?.(threadId, status)
     this.active.delete(threadId)
     this.owner.delete(threadId)
     this.prompts.delete(threadId)
@@ -244,6 +244,7 @@ export class Runner {
         this.prompts.delete(threadId)
         this.clearRenderer(threadId)
         try { db.threads.setRenderState(threadId, "idle") } catch {}
+        this.deps.onThreadState?.(threadId, "idle")
         this.deps.onThreadIdle?.(threadId)
         this.kickGlobalDrain()
       }
@@ -314,7 +315,7 @@ export class Runner {
       } catch (err) {
         this.deps.log("error render finalize failed", { threadId, error: String(err) })
       }
-      if (this.idle(threadId, epoch)) await this.drain(threadId)
+      if (this.idle(threadId, epoch, "error")) await this.drain(threadId)
     } else if (e.kind === "idle") {
       try {
         const r = await this.rendererFor(threadId)

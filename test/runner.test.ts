@@ -230,15 +230,33 @@ test("session.idle during abort clears the force-idle timer and clears the queue
 test("a 4xx from promptAsync surfaces and resets the run to idle", async () => {
   const { db, states } = makeDb()
   const idle: string[] = []
+  const statuses: string[] = []
   const runner = new Runner({ db,
     clientFor: () => ({ session: { promptAsync: async () => { throw new Error("opencode server POST /session → 400 Bad Request: bad request") } } }) as any,
     createRenderer: async () => makeRenderer() as any,
     sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 1,
+    onThreadState: (_id, s) => statuses.push(s),
     onThreadIdle: (threadId) => { idle.push(threadId) } })
   await expect(runner.prompt("t1", "a", "u")).rejects.toThrow(/400/)
   expect(states).toContain("idle")
+  expect(statuses).toEqual(["working", "idle"])
   expect(runner.activeCount).toBe(0)
   expect(idle).toEqual(["t1"])
+})
+
+test("an error event leaves the thread status at error, not idle", async () => {
+  const { db } = makeDb()
+  const statuses: string[] = []
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async () => {} } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4,
+    onThreadState: (_id, s) => statuses.push(s) })
+  await runner.prompt("t1", "a", "u")
+  await runner.onEvent("t1", { kind: "error", sessionId: "s1", message: "boom" })
+  expect(statuses).toContain("error")
+  expect(statuses.at(-1)).toBe("error")
+  expect(statuses).not.toContain("idle")
 })
 
 test("prompt releases the concurrency slot when starting the run throws", async () => {

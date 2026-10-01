@@ -402,7 +402,8 @@ The canonical roadmap is at
 - **Thread-name edits are rate-limited.** Discord allows roughly two thread-name
   edits per ten minutes per channel, so status updates are coalesced and may lag.
 - **Sandboxes created before smart thread names do not receive the naming
-  instruction until recreated.** Those threads keep their seeded prompt name.
+  instruction until recreated.** Those threads keep their seeded prompt-derived
+  title while still receiving live status prefixes.
 - **The agent may never name a thread.** When no name marker is emitted, the
   seeded prompt-derived title stands.
 

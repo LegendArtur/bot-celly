@@ -7,7 +7,7 @@ import type { Db } from "./db.ts"
 import type { Project } from "./types.ts"
 import { allocatePort, buildSandboxName, defaultForbiddenPaths, isPathInside, isSensitivePath, sanitizeProjectDirName, Sbx, SbxRunner } from "./sbx.js"
 import type { ChildProcess } from "./sbx.js"
-import { applyAndAssertCellyPolicy, BOOTSTRAP_PREPARE, BOOTSTRAP_VERIFY, buildBootstrapInstallScript, buildGitCredentialScript, buildServeArgs, createClient, createV2Client, waitForHealth } from "./opencode.js"
+import { applyAndAssertCellyPolicy, BOOTSTRAP_PREPARE, bootstrapVerify, buildBootstrapInstallScript, buildGitCredentialScript, buildServeArgs, createClient, createV2Client, waitForHealth } from "./opencode.js"
 import type { GithubOptions } from "./opencode.js"
 import type { OpencodeClient, OpencodeV2Client } from "./opencode.js"
 import { redact } from "./log.js"
@@ -125,10 +125,11 @@ export class ProjectService {
   private async runBootstrap(sandboxName: string, serverPassword: string): Promise<void> {
     // The sandbox user writes its own config/env (content on stdin, 0600 via
     // umask). No host temp files, no sandbox /tmp, no root-owned `sbx cp`.
+    const smartThreadNames = this.deps.config.smartThreadNames
     await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_PREPARE])
-    await this.deps.sbx.execWithInput(sandboxName, ["bash", "-s"], buildBootstrapInstallScript(serverPassword, this.githubOptions()))
+    await this.deps.sbx.execWithInput(sandboxName, ["bash", "-s"], buildBootstrapInstallScript(serverPassword, this.githubOptions(), { smartThreadNames }))
     await this.applyGitCredentials(sandboxName)
-    await this.deps.sbx.exec(sandboxName, ["bash", "-lc", BOOTSTRAP_VERIFY])
+    await this.deps.sbx.exec(sandboxName, ["bash", "-lc", bootstrapVerify(smartThreadNames)])
   }
 
   // Spec §14: a transient `sbx cp`/bootstrap failure gets one retry before the
