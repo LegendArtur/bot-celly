@@ -1,5 +1,5 @@
 ---
-"celly": minor
+"bot-celly": minor
 ---
 
 When a managed thread is archived, post a notice in its parent channel

@@ -17,13 +17,39 @@ boundary. See [Security](/reference/security) for the threat model.
 An owner can post the console URL to Discord with `/dashboard`. The link only
 opens from the Celly host or an SSH tunnel; `ADMIN_PORT=0` reports it disabled.
 
+### What the console shows
+
+- **Projects.** Live cards with sandbox status, host port, sandbox name, last
+  activity, spend, tokens, and session count, each with Start / Stop / Restart
+  and Remove actions.
+- **New project.** Create a directory under `PROJECTS_ROOT`, optionally cloning
+  an `https://` repository — the same operation as `/project create`.
+- **Usage and cost.** Cumulative spend and tokens, with prompt/completion and
+  cache read/write breakdowns.
+- **Audit.** The recent `audit.jsonl` entries.
+- **Logs and sessions.** Per-project redacted log tails and the project's
+  sessions, each with its terminal attach command.
+
+The page updates live over server-sent events, so it does not need a manual
+refresh. Removing a project stops the sandbox and deletes the Discord channel,
+but keeps the host directory.
+
 ### Endpoints
 
-- `GET /` — HTML status page.
-- `GET /api/projects`, `GET /api/health`.
-- `POST /api/projects/<channelId>/start|stop`.
-- `GET /api/logs/<channelId>?lines=200` — redacted log tail.
-- `GET /api/audit?limit=100` — recent audit entries.
+The JSON API is the surface the page is built on:
+
+- `GET /` — HTML console.
+- `GET /api/projects` — list; `POST /api/projects` — create.
+- `DELETE /api/projects/<channelId>` — remove (keeps the host directory).
+- `POST /api/projects/<channelId>/start|stop|restart`.
+- `GET /api/health`.
+- `GET /api/logs/<channelId>?lines=200` — redacted log tail (capped at `2000`).
+- `GET /api/audit?limit=100` — recent audit entries (capped at `1000`).
+- `GET /events` — server-sent event stream of live console fragments.
+- `GET /assets/<name>` — vendored console assets.
+
+The HTML page additionally uses `/partials/*` fragment routes. Those are an
+implementation detail of the console, not a stable API.
 
 ## Logs
 

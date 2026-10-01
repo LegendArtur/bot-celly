@@ -81,11 +81,12 @@ recreated.
   redacted log tails and start or stop projects, so local code shares the host
   trust boundary. It must never be rebound to `0.0.0.0`, published, or
   port-forwarded.
-- It exposes project names/status, start/stop actions, and redacted log tails.
-  Log redaction reuses the same `redact` path as `bot.log`. The console can also
-  create and remove projects: removal deletes the Discord channel and the
-  sandbox and keeps the host directory. It remains unauthenticated and
-  loopback-only.
+- It exposes project cards (status, host port, sandbox name, spend, tokens, and
+  session count), start/stop/restart actions, per-project redacted log tails and
+  session details, usage/cost totals, and the audit tail. Log redaction reuses
+  the same `redact` path as `bot.log`. The console can also create and remove
+  projects: removal deletes the Discord channel and the sandbox and keeps the
+  host directory. It remains unauthenticated and loopback-only.
 - `/dashboard` (owner-only) posts the console URL to Discord. The URL is a
   loopback address, so it only opens on the host or through an SSH tunnel;
   revealing it does not expose the console to other devices.
@@ -192,9 +193,10 @@ request dropped without a decision (run ended, opencode resolved it, or the
 timeout fired) is logged with its request id and cause; post-restart drops leave
 no log line because pending requests are held in memory only.
 
-Every permission decision, question answer or rejection, `!shell` command, and
-`/mode` change is appended to `DATA_DIR/audit.jsonl` (mode 0600, one JSON object
-per line) with timestamp, channel, thread, actor, kind, detail, and decision.
+Every permission decision, question answer or rejection, `!shell` command,
+`/mode` change, `/task` addition or removal, and archive-prompt session removal
+is appended to `DATA_DIR/audit.jsonl` (mode 0600, one JSON object per line) with
+timestamp, channel, thread, actor, kind, detail, and decision.
 Audit appends are best-effort: a failure logs and never fails the interaction.
 The log stores tool names, patterns, and shell commands verbatim and never
 tokens or passwords.

@@ -75,6 +75,21 @@ The runtime, libraries, and tooling are listed on
 | `src/commands.ts` | Slash-command definitions and handlers; delegates to `projects`/`runner`/`sbx`. |
 | `src/shell.ts` | `!cmd` handling: calls `sbx.exec()`, owns output chunking only. |
 | `src/worktrees.ts` | Per-thread worktrees: slug/branch/porcelain/merge parsing, `.gitignore` maintenance, and argv-only `sbx exec git …` add/list/status/merge/remove operations. Also resolves the `WORKTREE_DEFAULT` / per-project default and best-effort-creates the session worktree before the OpenCode session, falling back to the project root on non-git or failed adds. |
+| `src/approvals.ts` | Permission-request and agent-question manager: pending-request registry, Discord buttons/selects/modals, per-mode decisions, timeouts, and drop-cause logging. |
+| `src/handlers.ts` | Message handling, project down/missing notices, thread-archive prompts, boot reconcile, and session forks. |
+| `src/attach.ts` | Formats the terminal attach command and resolves `ATTACH_AUTO_THREAD` sessions into new threads. |
+| `src/attachments.ts` | Size-capped, text-like attachment ingest into a symlink-checked `.celly/inbox`. |
+| `src/cards.ts` | Components v2 notice and error cards with a tone-colored accent. |
+| `src/routing.ts` | Session-to-thread route registry (one-to-many after `/resume`); routes events to the active or most recently active thread. |
+| `src/bucket.ts` | Per-channel token bucket plus 429 `retry_after` backoff shared by every send and edit. |
+| `src/tasks.ts` | Scheduled recurring `/task` prompt runner. |
+| `src/idle.ts` | Idle auto-stop sweeper for `IDLE_STOP_MINUTES`. |
+| `src/backup.ts` | Scheduled SQLite `VACUUM INTO` backups with pruning. |
+| `src/rotate.ts` | Size-based log rotation. |
+| `src/admin.ts` / `src/admin/` | Loopback ops console and JSON API (htmx + SSE), vendored assets, and views. |
+| `src/audit.ts` | Best-effort `DATA_DIR/audit.jsonl` (mode `0600`) audit log with tail support. |
+| `src/helpers.ts` | Shared channel/thread/prompt helpers, the per-project subscription gate, and the startup banner. |
+| `src/cli.ts` / `src/cli/` | `bot-celly` CLI: argument parsing, home/`.env` wiring, the first-run wizard, and `doctor` checks. |
 | `src/index.ts` | Bootstrap: config → db → sbx preflight → single-instance lock → Discord login → command registration → graceful shutdown hooks. |
 
 Invariant: only `src/sbx.ts` spawns processes. `src/shell.ts` and
@@ -88,25 +103,30 @@ compensation at every step (`ProjectService.addProject` in `src/projects.ts`):
 
 1. **Validate the host directory.** `/project add` requires the path to resolve
    inside `PROJECTS_ROOT`; `/project create` creates it under
-   `PROJECTS_ROOT/<name>`. The sensitive-path denylist is applied.
-2. **Allocate a port and password.** Pick a free host port from the port range,
-   generate a 32-hex server password, and insert the `projects` row with
-   `status = 'provisioning'`.
-3. **`sbx create`.** Create the sandbox (`celly-<slug>`) from the template,
-   publishing `<port>:4096` and applying the CPU/memory limits.
+   `PROJECTS_ROOT/<name>`. The sensitive-path denylist is applied, and a
+   `clone:` URL is validated as a single `https://` repository URL.
+2. **Reserve the project.** Build a unique sandbox name (`celly-<slug>`),
+   allocate a free host port from the port range, generate a 32-hex server
+   password, create the Discord channel under the **Forge** category, and insert
+   the `projects` row with `status = 'provisioning'`.
+3. **`sbx create`.** Create the sandbox from the template, publishing
+   `<port>:4096` and applying the CPU/memory limits.
 4. **Wake check.** `sbx exec <name> true` ensures the sandbox is running before
    any copy.
 5. **Bootstrap.** Write the celly-managed OpenCode config and env file inside the
    sandbox over stdin (mode `0600`), so the server password never touches a host
    command line and a project-level `opencode.json` cannot clobber global
    config. When `GITHUB_TOKEN` is set, the token and a `github.com` git
-   credential store are written the same way before any clone step.
-6. **Start and wait.** Start the supervised serve child, read the actual port
-   mapping back from `sbx ports --json`, and wait for health within the boot
-   timeout.
-7. **Enforce the policy.** PATCH the permission policy and assert the running
-   server reports it; then mark the project `ready`, resolve its in-sandbox
-   path, and create the Discord channel under the **Forge** category.
+   credential store are written the same way.
+6. **Resolve and clone.** Read the actual port mapping back from
+   `sbx ports --json`, resolve the in-sandbox workspace path, and — for
+   `/project create` with `clone:` — `git clone` the repository into it
+   (optionally `--branch`), argv-only through the sandbox.
+7. **Start and wait.** Start the supervised serve child and wait for health
+   within the boot timeout.
+8. **Enforce the policy.** Read the running permission policy and PATCH it only
+   when a rule is missing or weakened, assert the server reports it, then mark
+   the project `ready`.
 
 On failure at any step: kill the child if started, `sbx rm --force <name>`,
 release the port, delete the channel/DB row, and report the failing step. A

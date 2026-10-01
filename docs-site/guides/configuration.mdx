@@ -17,7 +17,7 @@ invalid required value fails fast with an actionable error.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `CELLY_HOME` | `~/.bot-celly` | Directory holding `.env` and, by default, `DATA_DIR`. |
+| `CELLY_HOME` | `~/.bot-celly` | Directory holding `.env` and, by default, `DATA_DIR`. Set it in the environment or with `--home`; it is read before `.env` loads, so it cannot be set inside `.env`. |
 | `CELLY_ASCII` | unset | Set to `1` to force ASCII output symbols even when color is on. |
 | `DISCORD_TOKEN` | **required** | Bot token. |
 | `DISCORD_GUILD_IDS` | **required** | Comma-separated guild IDs. Entries are trimmed, blanks dropped, and duplicates ignored. |

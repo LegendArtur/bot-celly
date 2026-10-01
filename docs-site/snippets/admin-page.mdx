@@ -1,8 +1,12 @@
-`ADMIN_PORT` (default `4560`, `0` disables) serves a loopback-only status page
+`ADMIN_PORT` (default `4560`, `0` disables) serves a loopback-only ops console
 and JSON API. It binds **`127.0.0.1` only** and has **no authentication by
 design**: it is safe precisely because it is not network-exposed. It is never
 reachable from another device or the network, so never bind it to `0.0.0.0`,
 publish it, or port-forward it.
+
+The console shows live project cards with Start / Stop / Restart / Remove,
+usage and cost, the audit trail, and per-project logs and sessions, and it can
+create projects. It updates over server-sent events.
 
 For remote access, tunnel the loopback port over SSH:
 

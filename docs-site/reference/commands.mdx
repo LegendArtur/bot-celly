@@ -49,7 +49,7 @@ with block checked first.
 | `/unshare` | authorized | Stop sharing the session. |
 | `/compact` | authorized | Summarize the session using the thread's model; errors when no model is set. |
 | `/context-usage` | authorized | Show the last assistant message's token use against the model's context limit with a 20-cell bar (ephemeral). |
-| `/mode mode:<auto\|buttons\|plan>` | owner | Set the approval mode for this project channel (stored as `approval_mode:<channelId>`). |
+| `/mode mode:<auto\|buttons\|plan>` | owner | Set the approval mode for this project channel (stored as `approval_mode:<channelId>`). Run from a thread, it sets the thread's parent channel. |
 
 ## Scheduled tasks
 
@@ -159,8 +159,9 @@ than fetching on demand.
 | `!<command>` | channel or thread | Runs `bash -lc <command>` inside the project's sandbox and posts the output. |
 
 Text-like attachments on a message are size-capped, written to a validated
-`.celly/inbox`, and referenced in the prompt. Shell output is truncated and
-chunked across up to three messages with a total-length footer.
+`.celly/inbox`, and referenced in the prompt. Shell output is chunked across up
+to three messages; when the output is longer, a fourth notice reports the total
+length and exit code.
 
 <Warning>
 `!<command>` runs with the same privilege as the agent inside the microVM. It
