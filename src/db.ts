@@ -111,10 +111,10 @@ const MIGRATIONS: { version: number; up(raw: DatabaseSync): void }[] = [
   { version: 9, up: (raw) => raw.exec(`
     ALTER TABLE threads ADD COLUMN origin_message_id TEXT;
     ALTER TABLE threads ADD COLUMN archive_notice_at INTEGER;
-      CREATE TABLE IF NOT EXISTS usage_rollup (
-        channel_id TEXT PRIMARY KEY, cost REAL NOT NULL DEFAULT 0,
-        tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0,
-        tokens_cache_read INTEGER NOT NULL DEFAULT 0, tokens_cache_write INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS usage_rollup (
+      channel_id TEXT PRIMARY KEY, cost REAL NOT NULL DEFAULT 0,
+      tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0,
+      tokens_cache_read INTEGER NOT NULL DEFAULT 0, tokens_cache_write INTEGER NOT NULL DEFAULT 0);
   `) },
   { version: 10, up: (raw) => raw.exec(`
     ALTER TABLE threads ADD COLUMN name_locked INTEGER NOT NULL DEFAULT 0;
