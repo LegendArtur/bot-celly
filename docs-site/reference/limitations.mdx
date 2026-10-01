@@ -38,6 +38,12 @@ link here instead of restating it.
   normalizes agent output so long replies never emit a longer fence, but it
   cannot represent a nested fence — a code block whose body itself contains a
   fence — the way a plain Markdown file can.
+- **Thread-name edits are rate-limited.** Discord allows roughly two thread-name
+  edits per ten minutes per channel, so status updates are coalesced and may lag.
+- **Sandboxes created before smart thread names do not receive the naming
+  instruction until recreated.** Those threads keep their seeded prompt name.
+- **The agent may never name a thread.** When no name marker is emitted, the
+  seeded prompt-derived title stands.
 
 Deferred features and commands are on the [roadmap](/project/roadmap) and in
 the [changelog](/changelog). Confirmed bugs and their workarounds are on

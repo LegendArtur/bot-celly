@@ -43,6 +43,7 @@ invalid required value fails fast with an actionable error.
 | `MAX_QUEUE` | `20` | Per-thread prompt queue bound. |
 | `MAX_CONCURRENT_RUNS` | `4` | Global concurrent run cap. |
 | `ATTACH_AUTO_THREAD` | `false` | Auto-create a Discord thread for a terminal-started session on its first event. |
+| `SMART_THREAD_NAMES` | `true` | Gate the live status prefix and agent-authored thread names. When `false`, managed threads keep their seeded prompt-derived name. |
 | `WORKTREE_DEFAULT` | `false` | Start every new session in its own git worktree. Seeded into `settings.worktree_default` on first boot; `/worktree default` writes a per-project `worktree_default:<channelId>` override. Non-git projects fall back to the project root. |
 | `IDLE_STOP_MINUTES` | `0` | Stop a project after this many minutes without activity. `0` disables. |
 | `SESSION_BUDGET_USD` | `0` | Per-session cost budget in USD; `0` disables. Per-channel override with `/budget set`. |

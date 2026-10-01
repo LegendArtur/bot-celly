@@ -59,6 +59,10 @@ The whole model fits in three lines:
   filesystem outside the mounted project directory is unreachable by the agent.
 - **Streaming replies.** Assistant text and tool activity stream into the thread,
   throttled into a single live message.
+- **Smart thread names.** Each thread carries a live status prefix (`🟢 working`,
+  `⛔ blocked`, `⏸️ idle`, `❌ error`, `⏹️ stopping`), and the agent names the
+  session once, in-band, from the task; the title then locks. Off with
+  `SMART_THREAD_NAMES=false`.
 - **Session resume.** `/resume` reopens a past OpenCode session in a new thread.
 - **Archive cleanup.** When a thread is archived, Celly offers to remove its
   session from the parent channel, reclaiming sandbox disk while keeping `/cost`
@@ -171,7 +175,9 @@ Gather these before you start — the setup steps assume they are ready.
    `CELLY_HOME`), checks that `sbx` is installed and its network policy is
    initialized, then starts the bot. `PROJECTS_ROOT` defaults to
    `~/Celly/projects`. Optional `CELLY_ASCII=1` forces ASCII output symbols
-   (off by default). Re-run the same command to start; `npx bot-celly doctor`
+   (off by default). Managed threads show a live status prefix and an
+   agent-authored title by default; set `SMART_THREAD_NAMES=false` to keep the
+   seeded prompt-derived name. Re-run the same command to start; `npx bot-celly doctor`
    diagnoses the host without starting; `npx bot-celly setup` reconfigures.
    Prefer a source checkout? See [Development](#development).
 
@@ -393,6 +399,12 @@ The canonical roadmap is at
 - **Discord only renders code fences made of exactly three backticks.** Celly
   normalizes agent output so long replies never emit a longer fence, but it
   cannot represent a nested fence the way a plain Markdown file can.
+- **Thread-name edits are rate-limited.** Discord allows roughly two thread-name
+  edits per ten minutes per channel, so status updates are coalesced and may lag.
+- **Sandboxes created before smart thread names do not receive the naming
+  instruction until recreated.** Those threads keep their seeded prompt name.
+- **The agent may never name a thread.** When no name marker is emitted, the
+  seeded prompt-derived title stands.
 
 The canonical list, including what is deferred, lives in
 [Limitations](https://celly.agub.dev/reference/limitations).
