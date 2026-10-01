@@ -262,8 +262,42 @@ export async function applyAndAssertCellyPolicy(client: PolicyClient, v2?: Openc
   if (v2) await enableQuestionPermissionV2(v2)
 }
 
+export function cellyGlobalInstructions(): string {
+  return [
+    "# Celly session naming",
+    "",
+    "Celly shows this session's topic as the Discord thread name.",
+    "",
+    "Once you understand what this session is about — for example after gathering",
+    "requirements or writing a spec — set the name exactly once by emitting one",
+    "line on its own:",
+    "",
+    ":::celly-name <title>",
+    "",
+    "Rules: at most 10 words; no surrounding quotes and no trailing punctuation;",
+    "describe the task, not your reply; emit it only once per session; never",
+    "mention the line in your answer (it is removed before the user sees it).",
+  ].join("\n") + "\n"
+}
+
 export const BOOTSTRAP_PREPARE = `set -e; mkdir -p ${CELLY_CONFIG_DIR}; chmod 700 ${CELLY_CONFIG_DIR}`
-export const BOOTSTRAP_VERIFY = `test -s ${CELLY_CONFIG_PATH} && test -s ${CELLY_ENV_PATH} && grep -q '"permission"' ${CELLY_CONFIG_PATH} && grep -q 'OPENCODE_SERVER_PASSWORD=' ${CELLY_ENV_PATH}`
+
+/**
+ * The post-install assertion. The global naming instruction is only written
+ * when smart thread names are enabled, so only require it then. The config/env
+ * checks are unconditional.
+ */
+export function bootstrapVerify(smartThreadNames = true): string {
+  const checks = [
+    `test -s ${CELLY_CONFIG_PATH}`,
+    `test -s ${CELLY_ENV_PATH}`,
+  ]
+  if (smartThreadNames) checks.push(`test -s "$HOME/.config/opencode/AGENTS.md"`)
+  checks.push(`grep -q '"permission"' ${CELLY_CONFIG_PATH}`)
+  checks.push(`grep -q 'OPENCODE_SERVER_PASSWORD=' ${CELLY_ENV_PATH}`)
+  if (smartThreadNames) checks.push(`grep -q 'celly-name' "$HOME/.config/opencode/AGENTS.md"`)
+  return checks.join(" && ")
+}
 
 /**
  * The config/env files are written by the sandbox user itself (via `sbx exec -i
@@ -272,8 +306,9 @@ export const BOOTSTRAP_VERIFY = `test -s ${CELLY_CONFIG_PATH} && test -s ${CELLY
  * denied (EPERM). `umask 077` makes both files 0600, and the password never
  * touches a host command line.
  */
-export function buildBootstrapInstallScript(password: string, options: GithubOptions = {}): string {
-  return [
+export function buildBootstrapInstallScript(password: string, options: GithubOptions = {}, extras: { smartThreadNames?: boolean } = {}): string {
+  const smartThreadNames = extras.smartThreadNames ?? true
+  const lines = [
     "set -e",
     "umask 077",
     `cat > "$HOME/.config/celly/opencode.json" <<'CELLY_CONFIG'`,
@@ -282,7 +317,16 @@ export function buildBootstrapInstallScript(password: string, options: GithubOpt
     `cat > "$HOME/.config/celly/opencode.env" <<'CELLY_ENV'`,
     buildOpencodeEnv(password, options).replace(/\n$/, ""),
     "CELLY_ENV",
-  ].join("\n") + "\n"
+  ]
+  if (smartThreadNames) {
+    lines.push(
+      `mkdir -p "$HOME/.config/opencode"`,
+      `cat > "$HOME/.config/opencode/AGENTS.md" <<'CELLY_AGENTS'`,
+      cellyGlobalInstructions().replace(/\n$/, ""),
+      "CELLY_AGENTS",
+    )
+  }
+  return lines.join("\n") + "\n"
 }
 
 /**

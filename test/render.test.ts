@@ -532,3 +532,24 @@ test("renderer flattens multiline tool titles", async () => {
   await r.finalize()
   expect(sends).toEqual(["> ✅ `bash` · line one line two"])
 })
+
+test("plainText joins text segments and drops tool/notice segments", () => {
+  const r = new Renderer({ send: async () => "m1", edit: async () => {}, now: () => 0, intervalMs: 1 })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p1", text: "hello" })
+  r.push({ kind: "tool", sessionId: "s", messageId: "m", partId: "p2", name: "bash", status: "running" })
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p3", text: "world" })
+  expect(r.plainText()).toBe("hello\n\nworld")
+})
+
+test("renderer strips the name marker from the rendered output but keeps the raw text in plainText", async () => {
+  const sends: string[] = []
+  const r = new Renderer({ send: async (c) => { sends.push(c); return "m1" }, edit: async (_id, c) => { sends.push(c) },
+    now: () => 0, intervalMs: 1000 })
+  const raw = "done\n:::celly-name Fix auth redirect loop\n"
+  r.push({ kind: "text", sessionId: "s", messageId: "m", partId: "p", text: raw })
+  await r.finalize()
+  expect(sends.join("\n")).not.toContain(":::celly-name")
+  expect(sends).toEqual(["done\n"])
+  expect(r.plainText()).toBe(raw)
+  expect(r.plainText()).toContain(":::celly-name Fix auth redirect loop")
+})

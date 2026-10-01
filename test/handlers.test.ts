@@ -453,7 +453,7 @@ test("createForkThread forks the session and copies model, agent, and worktree",
     sandboxPath: null, sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 })
   db.threads.upsert({ threadId: "t1", channelId: "c", sessionId: "s1", title: "source", model: "anthropic/claude",
     agent: "build", variant: "high", worktreePath: "/sandbox/celly-demo/workspace/.celly/worktrees/t1",
-    liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 1 })
+    liveMessageId: null, renderState: "idle", nameLocked: false, nameManual: false, lastThreadName: null, createdAt: 1, lastActiveAt: 1 })
   const forkCalls: any[] = []
   const created: any[] = []
   const prompted: string[] = []
@@ -482,7 +482,7 @@ test("createForkThread with worktree:true forks into a fresh worktree", async ()
     sandboxPath: null, sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 })
   db.threads.upsert({ threadId: "t1", channelId: "c", sessionId: "s1", title: "source", model: null,
     agent: null, variant: null, worktreePath: "/sandbox/celly-demo/workspace/.celly/worktrees/t1",
-    liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 1 })
+    liveMessageId: null, renderState: "idle", nameLocked: false, nameManual: false, lastThreadName: null, createdAt: 1, lastActiveAt: 1 })
   const forkCalls: any[] = []
   const ensured: string[] = []
   const fork = createForkThread({
@@ -507,7 +507,7 @@ test("createForkThread with worktree:true falls back to the source root when ens
   db.projects.insertProvisioning({ channelId: "c", guildId: "g", name: "demo", directory: "C:\\p",
     sandboxPath: null, sandboxName: "celly-demo", hostPort: 4300, serverPassword: "pw", createdAt: 1 })
   db.threads.upsert({ threadId: "t1", channelId: "c", sessionId: "s1", title: "source", model: null,
-    agent: null, variant: null, worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 1 })
+    agent: null, variant: null, worktreePath: null, liveMessageId: null, renderState: "idle", nameLocked: false, nameManual: false, lastThreadName: null, createdAt: 1, lastActiveAt: 1 })
   const forkCalls: any[] = []
   const fork = createForkThread({
     db,

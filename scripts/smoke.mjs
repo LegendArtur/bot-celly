@@ -11,7 +11,7 @@
 //   node scripts/smoke.mjs <project-dir> [hostPort]
 import { spawn, spawnSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
-import { BOOTSTRAP_PREPARE, BOOTSTRAP_VERIFY, buildBootstrapInstallScript, buildServeArgs } from "../dist/opencode.js"
+import { BOOTSTRAP_PREPARE, bootstrapVerify, buildBootstrapInstallScript, buildServeArgs } from "../dist/opencode.js"
 
 const dir = process.argv[2]
 if (!dir) { console.error("usage: node scripts/smoke.mjs <project-dir> [hostPort]"); process.exit(2) }
@@ -96,7 +96,7 @@ async function main() {
   step("create", ["create", "opencode", dir, "--name", name, "--publish", `${hostPort}:4096`])
   step("prepare", ["exec", name, "bash", "-lc", BOOTSTRAP_PREPARE])
   step("bootstrap", ["exec", "-i", name, "bash", "-s"], buildBootstrapInstallScript(password))
-  step("verify bootstrap", ["exec", name, "bash", "-lc", BOOTSTRAP_VERIFY])
+  step("verify bootstrap", ["exec", name, "bash", "-lc", bootstrapVerify()])
 
   server = spawn("sbx", ["exec", name, ...buildServeArgs()], { stdio: ["ignore", "pipe", "pipe"], shell: false })
   server.on("error", (e) => fail(String(e)))

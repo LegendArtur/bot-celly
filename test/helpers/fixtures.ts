@@ -19,7 +19,9 @@ export function projectFixture(over: Partial<Project> = {}): Project {
 export function threadRow(over: Partial<Thread> = {}): Thread {
   return {
     threadId: "t1", channelId: "c", sessionId: "s1", title: "hello", model: null, agent: null, variant: null,
-    worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 1,
+    worktreePath: null, liveMessageId: null, renderState: "idle",
+    nameLocked: false, nameManual: false, lastThreadName: null,
+    createdAt: 1, lastActiveAt: 1,
     ...over,
   }
 }

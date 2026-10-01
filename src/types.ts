@@ -14,7 +14,9 @@ export interface Thread {
   title: string | null; model: string | null; agent: string | null; variant: string | null
   worktreePath: string | null; liveMessageId: string | null
   originMessageId?: string | null; archiveNoticeAt?: number | null
-  renderState: RenderState; createdAt: number; lastActiveAt: number
+  renderState: RenderState
+  nameLocked: boolean; nameManual: boolean; lastThreadName: string | null
+  createdAt: number; lastActiveAt: number
 }
 export interface ScheduledTask {
   id: number; channelId: string; prompt: string; everyMinutes: number

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
 import { openDb } from "../src/db.ts"
-import { BOOTSTRAP_PREPARE, BOOTSTRAP_VERIFY, cellyPolicy } from "../src/opencode.ts"
+import { BOOTSTRAP_PREPARE, bootstrapVerify, cellyPolicy } from "../src/opencode.ts"
 import { ProjectService } from "../src/projects.ts"
 import { projectFixture, silentLogger } from "./helpers/fixtures.ts"
 import { startTestServer } from "./helpers/http.ts"
@@ -160,7 +160,7 @@ test("addProject fails the saga when sandbox bootstrap fails", async () => {
   const db = openDb(":memory:"); db.migrate()
   const { sbx, runner, calls } = fakes()
   sbx.exec = async (_n: string, args: string[]) => {
-    if (args[0] === "bash" && args[2] === BOOTSTRAP_VERIFY) throw new Error("bootstrap failed")
+    if (args[0] === "bash" && args[2] === bootstrapVerify()) throw new Error("bootstrap failed")
     return { code: 0, stdout: "", stderr: "" }
   }
   const deleted: string[] = []

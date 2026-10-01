@@ -9,6 +9,7 @@ import type { ApprovalManager, QuestionStateUpdate } from "./approvals.ts"
 import type { AuditDraft } from "./audit.ts"
 import { formatCost, formatDuration, formatUsageFooter, resolveBudget } from "./usage.js"
 import { decidePermission, type PermissionReplyInput } from "./policy.js"
+import type { ThreadStatus } from "./thread-name.ts"
 import { unrefTimer } from "./helpers.js"
 
 const ABORT_TIMEOUT_MS = 10_000
@@ -59,6 +60,8 @@ export interface RunnerDeps {
   respondPermission?(input: PermissionReplyInput): Promise<void>
   approvals?: Pick<ApprovalManager, "requestPermission" | "askQuestion" | "cancel" | "cancelThread">
   audit?(entry: AuditDraft): void
+  onThreadState?(threadId: string, status: ThreadStatus): void
+  onFinalText?(threadId: string, text: string): void
 }
 
 export interface QueuedPrompt {
@@ -137,10 +140,11 @@ export class Runner {
     if (!thread) return this.deps.budgetUsd ?? 0
     return resolveBudget(this.deps.db.settings, thread.channelId, this.deps.budgetUsd ?? 0)
   }
-  private idle(threadId: string, epoch: number | undefined): boolean {
+  private idle(threadId: string, epoch: number | undefined, status: ThreadStatus = "idle"): boolean {
     this.deps.approvals?.cancelThread(threadId)
     if (!this.ownsEpoch(threadId, epoch)) return false
     this.deps.db.threads.setRenderState(threadId, "idle")
+    this.deps.onThreadState?.(threadId, status)
     this.active.delete(threadId)
     this.owner.delete(threadId)
     this.prompts.delete(threadId)
@@ -220,6 +224,7 @@ export class Runner {
     this.prompts.set(threadId, text)
     try {
       db.threads.setRenderState(threadId, "running"); db.threads.touch(threadId)
+      this.deps.onThreadState?.(threadId, "working")
       const sessionId = await this.deps.sessionFor(threadId)
       const client = this.deps.clientFor(threadId)
       const body: Record<string, unknown> = { parts: [{ type: "text", text }] }
@@ -239,6 +244,7 @@ export class Runner {
         this.prompts.delete(threadId)
         this.clearRenderer(threadId)
         try { db.threads.setRenderState(threadId, "idle") } catch {}
+        this.deps.onThreadState?.(threadId, "idle")
         this.deps.onThreadIdle?.(threadId)
         this.kickGlobalDrain()
       }
@@ -270,6 +276,7 @@ export class Runner {
       const mode = this.deps.approvalModeFor?.(thread?.channelId ?? threadId) ?? "auto"
       const decision = decidePermission(mode, { tool: e.tool, patterns: e.patterns }, this.deps.denyPatterns)
       if (decision === "ask") {
+        this.deps.onThreadState?.(threadId, "blocked")
         if (this.deps.approvals) {
           await this.deps.approvals.requestPermission({
             threadId, sessionId: e.sessionId, requestId: e.permissionId, source: e.source,
@@ -282,8 +289,10 @@ export class Runner {
         await this.respondToPermission(threadId, e, decision)
       }
     } else if (e.kind === "permission-replied") {
+      this.deps.onThreadState?.(threadId, "working")
       this.deps.approvals?.cancel(e.sessionId, e.requestId, "permission-replied")
     } else if (e.kind === "question-replied") {
+      this.deps.onThreadState?.(threadId, "working")
       this.deps.approvals?.cancel(e.sessionId, e.requestId, "question-replied")
     } else if (e.kind === "question-rejected") {
       this.deps.approvals?.cancel(e.sessionId, e.requestId, "question-rejected")
@@ -292,11 +301,13 @@ export class Runner {
         // Ensure the question has a streamed message to render into before the
         // approval manager emits its state.
         await this.rendererFor(threadId)
+        this.deps.onThreadState?.(threadId, "blocked")
         await this.deps.approvals?.askQuestion({ threadId, sessionId: e.sessionId, requestId: e.requestId, source: e.source, questions: e.questions })
       } catch (err) {
         this.deps.log("question handling failed", { threadId, requestId: e.requestId, error: String(err) })
       }
     } else if (e.kind === "error") {
+      this.deps.onThreadState?.(threadId, "error")
       try {
         const r = await this.rendererFor(threadId)
         r.push({ kind: "notice", sessionId: e.sessionId, partId: `err-${e.sessionId}`, text: e.message, tone: "error" })
@@ -304,10 +315,11 @@ export class Runner {
       } catch (err) {
         this.deps.log("error render finalize failed", { threadId, error: String(err) })
       }
-      if (this.idle(threadId, epoch)) await this.drain(threadId)
+      if (this.idle(threadId, epoch, "error")) await this.drain(threadId)
     } else if (e.kind === "idle") {
       try {
         const r = await this.rendererFor(threadId)
+        this.deps.onFinalText?.(threadId, r.plainText())
         await r.finalize()
       } catch (err) {
         this.deps.log("idle render finalize failed", { threadId, error: String(err) })
@@ -331,6 +343,7 @@ export class Runner {
     }
     if (!this.ownsEpoch(threadId, epoch)) return
     this.deps.db.threads.setRenderState(threadId, "aborting")
+    this.deps.onThreadState?.(threadId, "stopping")
     this.clearAbortTimer(threadId)
     const timer = setTimeout(() => { void this.forceIdle(threadId, epoch) }, ABORT_TIMEOUT_MS)
     unrefTimer(timer)

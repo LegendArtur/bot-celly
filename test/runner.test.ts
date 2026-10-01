@@ -230,15 +230,33 @@ test("session.idle during abort clears the force-idle timer and clears the queue
 test("a 4xx from promptAsync surfaces and resets the run to idle", async () => {
   const { db, states } = makeDb()
   const idle: string[] = []
+  const statuses: string[] = []
   const runner = new Runner({ db,
     clientFor: () => ({ session: { promptAsync: async () => { throw new Error("opencode server POST /session → 400 Bad Request: bad request") } } }) as any,
     createRenderer: async () => makeRenderer() as any,
     sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 1,
+    onThreadState: (_id, s) => statuses.push(s),
     onThreadIdle: (threadId) => { idle.push(threadId) } })
   await expect(runner.prompt("t1", "a", "u")).rejects.toThrow(/400/)
   expect(states).toContain("idle")
+  expect(statuses).toEqual(["working", "idle"])
   expect(runner.activeCount).toBe(0)
   expect(idle).toEqual(["t1"])
+})
+
+test("an error event leaves the thread status at error, not idle", async () => {
+  const { db } = makeDb()
+  const statuses: string[] = []
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async () => {} } }) as any,
+    createRenderer: async () => makeRenderer() as any,
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4,
+    onThreadState: (_id, s) => statuses.push(s) })
+  await runner.prompt("t1", "a", "u")
+  await runner.onEvent("t1", { kind: "error", sessionId: "s1", message: "boom" })
+  expect(statuses).toContain("error")
+  expect(statuses.at(-1)).toBe("error")
+  expect(statuses).not.toContain("idle")
 })
 
 test("prompt releases the concurrency slot when starting the run throws", async () => {
@@ -1105,4 +1123,31 @@ test("prompt seeds the renderer with the run's prompt text", async () => {
   await runner.prompt("t1", "hello", "u")
   await runner.onEvent("t1", { kind: "text", sessionId: "s1", messageId: "m", partId: "p", text: "a" })
   expect(seen).toEqual(["hello"])
+})
+
+test("runner keeps raw marker text for onFinalText and strips it from the rendered output", async () => {
+  const statuses: string[] = []
+  const finals: string[] = []
+  const rendered: string[] = []
+  const { db } = makeDb()
+  let n = 0
+  const runner = new Runner({ db,
+    clientFor: () => ({ session: { promptAsync: async () => {} } }) as any,
+    createRenderer: async () => new Renderer({
+      send: async (c) => { rendered.push(c); return "m" + (++n) },
+      edit: async (_id, c) => { rendered.push(c) },
+      now: () => 0, intervalMs: 1000,
+    }),
+    sessionFor: async () => "s1", log() {}, maxQueue: 2, maxConcurrentRuns: 4,
+    onThreadState: (_id, s) => statuses.push(s),
+    onFinalText: (_id, text) => finals.push(text),
+  })
+  await runner.prompt("t1", "go", "u")
+  await runner.onEvent("t1", { kind: "text", sessionId: "s", messageId: "m", partId: "p", text: "done\n:::celly-name Fix auth redirect loop\n" })
+  await runner.onEvent("t1", { kind: "idle", sessionId: "s" })
+  expect(statuses).toContain("working")
+  expect(statuses).toContain("idle")
+  expect(finals[0]).toContain(":::celly-name Fix auth redirect loop")
+  expect(rendered.join("\n")).not.toContain(":::celly-name")
+  expect(rendered[0]).toBe("done\n")
 })

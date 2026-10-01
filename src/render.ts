@@ -1,5 +1,6 @@
 import { MessageFlags } from "discord.js"
 import type { NormalizedEvent } from "./events.ts"
+import { stripNameMarker } from "./thread-name.js"
 import { DISCORD_CHUNK_LIMIT } from "./helpers.js"
 
 export interface RenderPayload {
@@ -162,7 +163,7 @@ type Segment =
 
 function renderSegment(segment: Segment): string {
   if (segment.kind === "prompt") return formatPrompt(segment.text)
-  if (segment.kind === "text") return segment.text
+  if (segment.kind === "text") return stripNameMarker(segment.text)
   if (segment.kind === "question") return segment.text
   if (segment.kind === "notice") {
     const flat = segment.text.replace(/\s+/g, " ").trim()
@@ -270,6 +271,12 @@ export class Renderer {
   elapsedMs(): number {
     if (this.startedAt === null) return 0
     return (this.endedAt ?? this.deps.now()) - this.startedAt
+  }
+  plainText(): string {
+    return this.segments
+      .filter((segment): segment is Extract<Segment, { kind: "text" }> => segment.kind === "text")
+      .map((segment) => segment.text)
+      .join("\n\n")
   }
   push(e: NormalizedEvent): void {
     if (this.startedAt === null) this.startedAt = this.deps.now()

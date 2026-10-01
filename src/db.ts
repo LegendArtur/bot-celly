@@ -27,6 +27,10 @@ export interface Db {
     setLiveMessages(threadId: string, messageIds: string[] | null): void
     liveMessageIds(threadId: string): string[]
     setModel(threadId: string, model: string | null): void
+    setTitle(threadId: string, title: string | null): void
+    setNameLocked(threadId: string, locked: boolean): void
+    setNameManual(threadId: string, manual: boolean): void
+    setLastThreadName(threadId: string, name: string | null): void
     setAgent(threadId: string, agent: string | null): void
     setVariant(threadId: string, variant: string | null): void
     setWorktree(threadId: string, path: string | null): void
@@ -112,6 +116,11 @@ const MIGRATIONS: { version: number; up(raw: DatabaseSync): void }[] = [
       tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0,
       tokens_cache_read INTEGER NOT NULL DEFAULT 0, tokens_cache_write INTEGER NOT NULL DEFAULT 0);
   `) },
+  { version: 10, up: (raw) => raw.exec(`
+    ALTER TABLE threads ADD COLUMN name_locked INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE threads ADD COLUMN name_manual INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE threads ADD COLUMN last_thread_name TEXT;
+  `) },
 ]
 function userVersion(raw: DatabaseSync): number {
   const row = raw.prepare("PRAGMA user_version").get() as { user_version?: number } | undefined
@@ -128,6 +137,9 @@ const rowToThread = (r: any): Thread => ({
   model: r.model, agent: r.agent, variant: r.variant ?? null, worktreePath: r.worktree_path ?? null,
   liveMessageId: r.live_message_id ?? null, originMessageId: r.origin_message_id ?? null,
   archiveNoticeAt: r.archive_notice_at ?? null, renderState: r.render_state,
+  nameLocked: Number(r.name_locked ?? 0) === 1,
+  nameManual: Number(r.name_manual ?? 0) === 1,
+  lastThreadName: r.last_thread_name ?? null,
   createdAt: r.created_at, lastActiveAt: r.last_active_at,
 })
 const addUsage = (a: UsageTotals, b: UsageTotals): UsageTotals => ({
@@ -185,10 +197,10 @@ export function openDb(path: string): Db {
     },
     threads: {
       upsert(t) {
-        raw.prepare(`INSERT INTO threads (thread_id,channel_id,session_id,title,model,agent,variant,worktree_path,live_message_id,origin_message_id,render_state,created_at,last_active_at)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-          ON CONFLICT(thread_id) DO UPDATE SET session_id=excluded.session_id, title=excluded.title, model=excluded.model, agent=excluded.agent, variant=excluded.variant, origin_message_id=excluded.origin_message_id, last_active_at=excluded.last_active_at`)
-          .run(t.threadId,t.channelId,t.sessionId,t.title,t.model,t.agent,t.variant,t.worktreePath,t.liveMessageId,t.originMessageId ?? null,t.renderState,t.createdAt,t.lastActiveAt)
+        raw.prepare(`INSERT INTO threads (thread_id,channel_id,session_id,title,model,agent,variant,worktree_path,live_message_id,origin_message_id,render_state,name_locked,name_manual,last_thread_name,created_at,last_active_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          ON CONFLICT(thread_id) DO UPDATE SET session_id=excluded.session_id, title=excluded.title, model=excluded.model, agent=excluded.agent, variant=excluded.variant, origin_message_id=excluded.origin_message_id, name_locked=excluded.name_locked, name_manual=excluded.name_manual, last_thread_name=excluded.last_thread_name, last_active_at=excluded.last_active_at`)
+          .run(t.threadId,t.channelId,t.sessionId,t.title,t.model,t.agent,t.variant,t.worktreePath,t.liveMessageId,t.originMessageId ?? null,t.renderState,t.nameLocked ? 1 : 0,t.nameManual ? 1 : 0,t.lastThreadName,t.createdAt,t.lastActiveAt)
       },
       get(threadId) { const r = raw.prepare(`SELECT * FROM threads WHERE thread_id=?`).get(threadId); return r ? rowToThread(r) : undefined },
       getBySession(sessionId) { return raw.prepare(`SELECT * FROM threads WHERE session_id=? ORDER BY last_active_at DESC`).all(sessionId).map(rowToThread) },
@@ -207,6 +219,10 @@ export function openDb(path: string): Db {
         return typeof row.live_message_id === "string" && row.live_message_id ? [row.live_message_id] : []
       },
       setModel(threadId, model) { raw.prepare(`UPDATE threads SET model=? WHERE thread_id=?`).run(model, threadId) },
+      setTitle(threadId, title) { raw.prepare(`UPDATE threads SET title=? WHERE thread_id=?`).run(title, threadId) },
+      setNameLocked(threadId, locked) { raw.prepare(`UPDATE threads SET name_locked=? WHERE thread_id=?`).run(locked ? 1 : 0, threadId) },
+      setNameManual(threadId, manual) { raw.prepare(`UPDATE threads SET name_manual=? WHERE thread_id=?`).run(manual ? 1 : 0, threadId) },
+      setLastThreadName(threadId, name) { raw.prepare(`UPDATE threads SET last_thread_name=? WHERE thread_id=?`).run(name, threadId) },
       setAgent(threadId, agent) { raw.prepare(`UPDATE threads SET agent=? WHERE thread_id=?`).run(agent, threadId) },
       setVariant(threadId, variant) { raw.prepare(`UPDATE threads SET variant=? WHERE thread_id=?`).run(variant, threadId) },
       setWorktree(threadId, path) { raw.prepare(`UPDATE threads SET worktree_path=? WHERE thread_id=?`).run(path, threadId) },

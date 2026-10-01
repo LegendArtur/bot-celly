@@ -68,6 +68,12 @@ test("parses ATTACH_AUTO_THREAD as a boolean defaulting to false", () => {
   expect(() => loadConfig({ ...base, ATTACH_AUTO_THREAD: "maybe" })).toThrow(/ATTACH_AUTO_THREAD/)
 })
 
+test("SMART_THREAD_NAMES defaults to true and parses booleans", () => {
+  expect(loadConfig({ ...base }).smartThreadNames).toBe(true)
+  expect(loadConfig({ ...base, SMART_THREAD_NAMES: "false" }).smartThreadNames).toBe(false)
+  expect(loadConfig({ ...base, SMART_THREAD_NAMES: "1" }).smartThreadNames).toBe(true)
+})
+
 test("parses IDLE_STOP_MINUTES, defaulting to 0 (disabled)", () => {
   expect(loadConfig(base).idleStopMinutes).toBe(0)
   expect(loadConfig({ ...base, IDLE_STOP_MINUTES: "5" }).idleStopMinutes).toBe(5)
