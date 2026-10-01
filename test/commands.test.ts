@@ -977,6 +977,39 @@ test("stale approval buttons answer that the request is no longer active", async
   expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "this request is no longer active", flags: 64 } })
 })
 
+test("archive keep acknowledges and dismisses the notice", async () => {
+  const i = button({ customId: "celly:archive:t1:keep" })
+  await handleButton(i, { projects: {} as any, runner: {} as any, db: freshDb(), authorized: () => true })
+  expect(i.calls[0]).toEqual({ kind: "deferUpdate" })
+  expect(i.calls[1].c).toMatchObject({ content: "Kept the session.", components: [] })
+})
+
+test("archive remove calls removeSession and reports the result", async () => {
+  const seen: string[] = []
+  const i = button({ customId: "celly:archive:t1:remove" })
+  await handleButton(i, {
+    projects: {} as any, runner: {} as any, db: freshDb(), authorized: () => true,
+    removeSession: async (id: string) => { seen.push(id); return true },
+  })
+  expect(seen).toEqual(["t1"])
+  expect(i.calls[1].c).toMatchObject({ content: "Session removed.", components: [] })
+})
+
+test("archive remove on an already-removed session says so", async () => {
+  const i = button({ customId: "celly:archive:t1:remove" })
+  await handleButton(i, {
+    projects: {} as any, runner: {} as any, db: freshDb(), authorized: () => true,
+    removeSession: async () => false,
+  })
+  expect(i.calls[1].c).toMatchObject({ content: "This session was already removed.", components: [] })
+})
+
+test("unauthorized archive buttons are rejected before deferUpdate", async () => {
+  const i = button({ customId: "celly:archive:t1:remove" })
+  await handleButton(i, { projects: {} as any, runner: {} as any, db: freshDb(), authorized: () => false })
+  expect(i.calls[0]).toMatchObject({ kind: "reply", c: { content: "You are not authorized.", flags: 64 } })
+})
+
 test("option buttons map through the manager and custom buttons open a modal", async () => {
   const { manager, calls } = fakeApprovals()
   const option = button({ customId: "celly:answer:r1:0.2" })

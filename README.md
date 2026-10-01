@@ -60,6 +60,9 @@ The whole model fits in three lines:
 - **Streaming replies.** Assistant text and tool activity stream into the thread,
   throttled into a single live message.
 - **Session resume.** `/resume` reopens a past OpenCode session in a new thread.
+- **Archive cleanup.** When a thread is archived, Celly offers to remove its
+  session from the parent channel, reclaiming sandbox disk while keeping `/cost`
+  history and the Discord transcript.
 - **Per-thread worktrees.** `/worktree` creates, merges, and removes git
   worktrees under `<project>/.celly/worktrees`. Set `WORKTREE_DEFAULT=true` (or
   `/worktree default state:on`) to start every new session in its own worktree;

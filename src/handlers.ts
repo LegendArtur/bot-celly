@@ -6,6 +6,7 @@ import { buildPromptText, projectForChannel, sessionIdFrom } from "./helpers.js"
 import { shouldHandleMessage } from "./discord.js"
 import { renderPayload, sanitizeThreadName } from "./render.js"
 import { cardPayload, noticeCard } from "./cards.js"
+import { archiveNoticePayload } from "./commands.js"
 import type { CreateThreadInput, ForkThreadInput, ForkedThread } from "./commands.ts"
 import type { Runner } from "./runner.ts"
 import { withDirectory } from "./runner.js"
@@ -80,7 +81,7 @@ export function createMessageHandler(deps: MessageHandlerDeps): (message: any) =
       await deps.projects.ensureReady(project.channelId)
       deps.subscribeProject(project)
       const title = sanitizeThreadName(text.trim() || message.attachments?.first?.()?.name || "")
-      const created = await deps.createThread({ channelId: project.channelId, title, prompt: promptText, authorId: message.author.id })
+      const created = await deps.createThread({ channelId: project.channelId, title, prompt: promptText, authorId: message.author.id, originMessageId: message.id })
       if (created.notice) await deps.bucketFor(project.channelId).schedule(() => message.reply(renderPayload(created.notice!)))
       if (!created.notice || created.notice.startsWith("queued")) deps.startTyping(created.threadId)
     } catch (err) {
@@ -151,6 +152,35 @@ export function createShutdown(deps: ShutdownDeps): (code?: number) => Promise<v
     deps.closeDb()
     deps.releaseLock()
     deps.exit(code)
+  }
+}
+
+export interface ThreadArchiveHandlerDeps {
+  db: Pick<Db, "threads">
+  isActive(threadId: string): boolean
+  send(channelId: string, payload: { content: string; components: any[] }, replyToMessageId?: string | null): Promise<void>
+  now(): number
+  log: Logger
+}
+
+/**
+ * When a managed thread becomes archived, post a notice in its parent channel
+ * offering to remove the session. Fires on any archive transition (including
+ * Discord's automatic archival); a stored `archive_notice_at` makes it once per
+ * thread, and in-flight runs are left alone.
+ */
+export function createThreadArchiveHandler(deps: ThreadArchiveHandlerDeps): (oldThread: any, newThread: any) => Promise<void> {
+  return async function onThreadUpdate(oldThread: any, newThread: any): Promise<void> {
+    try {
+      const id = newThread?.id ?? oldThread?.id
+      if (!id || !newThread?.archived || oldThread?.archived) return
+      const thread = deps.db.threads.get(id)
+      if (!thread || thread.archiveNoticeAt != null || deps.isActive(id)) return
+      deps.db.threads.setArchiveNotice(id, deps.now())
+      await deps.send(thread.channelId, archiveNoticePayload(id), thread.originMessageId ?? null)
+    } catch (err) {
+      deps.log.warn("archive notice failed", { error: String(err) })
+    }
   }
 }
 

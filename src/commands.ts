@@ -122,6 +122,7 @@ export async function deployCommandsToGuilds(guilds: CommandDeployGuild[], data:
 
 export interface CreateThreadInput {
   channelId: string; title: string; sessionId?: string; prompt?: string; authorId?: string
+  originMessageId?: string
 }
 
 export interface ForkThreadInput {
@@ -158,6 +159,8 @@ export interface CommandDeps {
   setChannelVariant?(channelId: string, variant: string | null): void
   sessions?: SessionOps
   approvals?: ApprovalManager
+  /** Remove a thread's data (OpenCode session + row) after an archive prompt. */
+  removeSession?(threadId: string): Promise<boolean>
   audit?(entry: AuditDraft): void
   worktree?: WorktreeCommands
   sessionBudgetUsd?: number
@@ -171,6 +174,23 @@ export const AGENT_SELECT = "agent"
 export const THINKING_SELECT = "thinking"
 export const QUEUE_REMOVE = "queue-remove"
 export const QUEUE_CLEAR = "queue-clear"
+export const ARCHIVE_ACTION = "archive"
+
+export type ArchiveDecision = "keep" | "remove"
+
+/** The parent-channel notice posted when a managed thread is archived. */
+export function archiveNoticePayload(threadId: string): { content: string; components: any[] } {
+  return {
+    content: `Thread <#${threadId}> was archived. Remove this session's data?`,
+    components: [{
+      type: ComponentType.ActionRow,
+      components: [
+        { type: ComponentType.Button, style: ButtonStyle.Secondary, custom_id: buttonCustomId(ARCHIVE_ACTION, threadId, "keep"), label: "Keep" },
+        { type: ComponentType.Button, style: ButtonStyle.Danger, custom_id: buttonCustomId(ARCHIVE_ACTION, threadId, "remove"), label: "Remove session" },
+      ],
+    }],
+  }
+}
 
 export function selectCustomId(action: string, id: string): string { return `celly:${action}:${id}` }
 export function buttonCustomId(action: string, id: string, extra?: string): string {
@@ -749,6 +769,24 @@ export async function handleButton(interaction: any, deps: CommandDeps): Promise
   if (action === APPROVAL_ACTION) return handleApprovalButton(interaction, deps)
   if (action === ANSWER_ACTION) return handleAnswerButton(interaction, deps)
   if (action === REJECT_QUESTION_ACTION) return handleRejectQuestionButton(interaction, deps)
+  if (action === ARCHIVE_ACTION) return handleArchiveButton(interaction, deps)
+}
+
+export async function handleArchiveButton(interaction: any, deps: CommandDeps): Promise<void> {
+  const { id, extra } = parseCustomIdFull(interaction.customId ?? "")
+  if (!id) return void await interaction.reply(noMentions("this notice is no longer active", { flags: 64 }))
+  await interaction.deferUpdate()
+  if (extra === "keep") {
+    return void await interaction.editReply({ content: "Kept the session.", components: [], allowedMentions: { parse: [] } })
+  }
+  if (extra === "remove") {
+    const removed = await deps.removeSession?.(id)
+    return void await interaction.editReply({
+      content: removed ? "Session removed." : "This session was already removed.",
+      components: [], allowedMentions: { parse: [] },
+    })
+  }
+  return void await interaction.editReply({ content: "unknown selection", components: [], allowedMentions: { parse: [] } })
 }
 
 export async function handleApprovalButton(interaction: any, deps: CommandDeps): Promise<void> {

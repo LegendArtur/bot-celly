@@ -1,6 +1,6 @@
 import { MessageFlags } from "discord.js"
 import { expect, test, vi } from "vitest"
-import { createForkThread, createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "../src/handlers.ts"
+import { createForkThread, createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown, createThreadArchiveHandler } from "../src/handlers.ts"
 import { describeDiscordStartupError, formatStartupBanner } from "../src/helpers.ts"
 import type { Project } from "../src/types.ts"
 import { freshDb, projectFixture, silentLogger, threadRow } from "./helpers/fixtures.ts"
@@ -18,6 +18,7 @@ function fakeMessage(over: any = {}) {
     send: async (o: any) => { sent.push(o); return { id: "live" } },
   }
   const message: any = {
+    id: over.id ?? "msg1",
     inGuild: () => true,
     guild: { ownerId: "owner" },
     member: { id: "u1", permissions: { has: () => true }, roles: { cache: new Map() } },
@@ -57,7 +58,53 @@ test("message in a project channel creates a thread and prompts", async () => {
   const { message } = fakeMessage({ content: "build the thing" })
   await createMessageHandler(deps)(message)
   expect(deps.runner.prompt).not.toHaveBeenCalled()
-  expect(deps.createThread).toHaveBeenCalledWith({ channelId: "c", title: "build the thing", prompt: "build the thing", authorId: "u1" })
+  expect(deps.createThread).toHaveBeenCalledWith({ channelId: "c", title: "build the thing", prompt: "build the thing", authorId: "u1", originMessageId: "msg1" })
+})
+
+test("an archived thread posts a remove-session notice replying to its origin message", async () => {
+  const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  db.threads.upsert(threadRow({ originMessageId: "m1" }))
+  const sends: any[] = []
+  const handler = createThreadArchiveHandler({
+    db, isActive: () => false, now: () => 111, log: silentLogger,
+    send: async (channelId, payload, replyTo) => { sends.push({ channelId, payload, replyTo }) },
+  })
+  await handler({ id: "t1", archived: false }, { id: "t1", archived: true })
+  expect(sends).toHaveLength(1)
+  expect(sends[0].channelId).toBe("c")
+  expect(sends[0].replyTo).toBe("m1")
+  expect(sends[0].payload.content).toContain("<#t1>")
+  expect(sends[0].payload.components[0].components.map((b: any) => b.custom_id))
+    .toEqual(["celly:archive:t1:keep", "celly:archive:t1:remove"])
+  expect(db.threads.get("t1")?.archiveNoticeAt).toBe(111)
+})
+
+test("an archived thread without an origin posts a plain notice", async () => {
+  const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  db.threads.upsert(threadRow())
+  const sends: any[] = []
+  const handler = createThreadArchiveHandler({
+    db, isActive: () => false, now: () => 1, log: silentLogger,
+    send: async (channelId, payload, replyTo) => { sends.push({ channelId, payload, replyTo }) },
+  })
+  await handler({ id: "t1", archived: false }, { id: "t1", archived: true })
+  expect(sends[0].replyTo).toBeNull()
+})
+
+test("the archive handler ignores non-transitions, active runs, unmanaged threads, and repeats", async () => {
+  const db = freshDb(); db.projects.insertProvisioning(project()); db.projects.setReady("c", "C:\\p")
+  db.threads.upsert(threadRow())
+  const sends: any[] = []
+  const send = async (channelId: string, payload: any, replyTo: any) => { sends.push({ channelId, payload, replyTo }) }
+  await createThreadArchiveHandler({ db, isActive: () => false, now: () => 1, log: silentLogger, send })({ id: "t1", archived: true }, { id: "t1", archived: true })
+  await createThreadArchiveHandler({ db, isActive: () => false, now: () => 1, log: silentLogger, send })({ id: "t1", archived: false }, { id: "t1", archived: false })
+  await createThreadArchiveHandler({ db, isActive: () => true, now: () => 1, log: silentLogger, send })({ id: "t1", archived: false }, { id: "t1", archived: true })
+  await createThreadArchiveHandler({ db, isActive: () => false, now: () => 1, log: silentLogger, send })({ id: "nope", archived: false }, { id: "nope", archived: true })
+  expect(sends).toEqual([])
+  // a repeat archive after a notice was posted does not post again
+  db.threads.setArchiveNotice("t1", 5)
+  await createThreadArchiveHandler({ db, isActive: () => false, now: () => 9, log: silentLogger, send })({ id: "t1", archived: false }, { id: "t1", archived: true })
+  expect(sends).toEqual([])
 })
 
 test("a queued first message that created a thread surfaces the notice", async () => {

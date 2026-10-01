@@ -30,10 +30,14 @@ export interface Db {
     setAgent(threadId: string, agent: string | null): void
     setVariant(threadId: string, variant: string | null): void
     setWorktree(threadId: string, path: string | null): void
+    setOriginMessage(threadId: string, messageId: string | null): void
+    setArchiveNotice(threadId: string, at: number | null): void
     touch(threadId: string): void
     byChannel(channelId: string): Thread[]
     recent(limit: number): Thread[]
     addUsage(threadId: string, delta: UsageTotals): void
+    /** Roll the thread's usage into the channel rollup, then delete the row. */
+    prune(threadId: string): boolean
   }
   usage: {
     thread(threadId: string): UsageTotals
@@ -100,6 +104,14 @@ const MIGRATIONS: { version: number; up(raw: DatabaseSync): void }[] = [
   { version: 6, up: (raw) => raw.exec(SCHEMA_V6) },
   { version: 7, up: (raw) => raw.exec(SCHEMA_V7) },
   { version: 8, up: (raw) => raw.exec("ALTER TABLE threads ADD COLUMN variant TEXT") },
+  { version: 9, up: (raw) => raw.exec(`
+    ALTER TABLE threads ADD COLUMN origin_message_id TEXT;
+    ALTER TABLE threads ADD COLUMN archive_notice_at INTEGER;
+    CREATE TABLE IF NOT EXISTS usage_rollup (
+      channel_id TEXT PRIMARY KEY, cost REAL NOT NULL DEFAULT 0,
+      tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0,
+      tokens_cache_read INTEGER NOT NULL DEFAULT 0, tokens_cache_write INTEGER NOT NULL DEFAULT 0);
+  `) },
 ]
 function userVersion(raw: DatabaseSync): number {
   const row = raw.prepare("PRAGMA user_version").get() as { user_version?: number } | undefined
@@ -114,8 +126,13 @@ const rowToProject = (r: any): Project => ({
 const rowToThread = (r: any): Thread => ({
   threadId: r.thread_id, channelId: r.channel_id, sessionId: r.session_id, title: r.title,
   model: r.model, agent: r.agent, variant: r.variant ?? null, worktreePath: r.worktree_path ?? null,
-  liveMessageId: r.live_message_id ?? null, renderState: r.render_state,
+  liveMessageId: r.live_message_id ?? null, originMessageId: r.origin_message_id ?? null,
+  archiveNoticeAt: r.archive_notice_at ?? null, renderState: r.render_state,
   createdAt: r.created_at, lastActiveAt: r.last_active_at,
+})
+const addUsage = (a: UsageTotals, b: UsageTotals): UsageTotals => ({
+  cost: a.cost + b.cost, tokensIn: a.tokensIn + b.tokensIn, tokensOut: a.tokensOut + b.tokensOut,
+  cacheRead: a.cacheRead + b.cacheRead, cacheWrite: a.cacheWrite + b.cacheWrite,
 })
 const rowToTask = (r: any): ScheduledTask => ({
   id: Number(r.id), channelId: r.channel_id, prompt: r.prompt, everyMinutes: r.every_minutes,
@@ -168,10 +185,10 @@ export function openDb(path: string): Db {
     },
     threads: {
       upsert(t) {
-        raw.prepare(`INSERT INTO threads (thread_id,channel_id,session_id,title,model,agent,variant,worktree_path,live_message_id,render_state,created_at,last_active_at)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-          ON CONFLICT(thread_id) DO UPDATE SET session_id=excluded.session_id, title=excluded.title, model=excluded.model, agent=excluded.agent, variant=excluded.variant, last_active_at=excluded.last_active_at`)
-          .run(t.threadId,t.channelId,t.sessionId,t.title,t.model,t.agent,t.variant,t.worktreePath,t.liveMessageId,t.renderState,t.createdAt,t.lastActiveAt)
+        raw.prepare(`INSERT INTO threads (thread_id,channel_id,session_id,title,model,agent,variant,worktree_path,live_message_id,origin_message_id,render_state,created_at,last_active_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+          ON CONFLICT(thread_id) DO UPDATE SET session_id=excluded.session_id, title=excluded.title, model=excluded.model, agent=excluded.agent, variant=excluded.variant, origin_message_id=excluded.origin_message_id, last_active_at=excluded.last_active_at`)
+          .run(t.threadId,t.channelId,t.sessionId,t.title,t.model,t.agent,t.variant,t.worktreePath,t.liveMessageId,t.originMessageId ?? null,t.renderState,t.createdAt,t.lastActiveAt)
       },
       get(threadId) { const r = raw.prepare(`SELECT * FROM threads WHERE thread_id=?`).get(threadId); return r ? rowToThread(r) : undefined },
       getBySession(sessionId) { return raw.prepare(`SELECT * FROM threads WHERE session_id=? ORDER BY last_active_at DESC`).all(sessionId).map(rowToThread) },
@@ -193,12 +210,33 @@ export function openDb(path: string): Db {
       setAgent(threadId, agent) { raw.prepare(`UPDATE threads SET agent=? WHERE thread_id=?`).run(agent, threadId) },
       setVariant(threadId, variant) { raw.prepare(`UPDATE threads SET variant=? WHERE thread_id=?`).run(variant, threadId) },
       setWorktree(threadId, path) { raw.prepare(`UPDATE threads SET worktree_path=? WHERE thread_id=?`).run(path, threadId) },
+      setOriginMessage(threadId, messageId) { raw.prepare(`UPDATE threads SET origin_message_id=? WHERE thread_id=?`).run(messageId, threadId) },
+      setArchiveNotice(threadId, at) { raw.prepare(`UPDATE threads SET archive_notice_at=? WHERE thread_id=?`).run(at, threadId) },
       touch(threadId) { raw.prepare(`UPDATE threads SET last_active_at=? WHERE thread_id=?`).run(Date.now(), threadId) },
       byChannel(channelId) { return raw.prepare(`SELECT * FROM threads WHERE channel_id=? ORDER BY last_active_at DESC`).all(channelId).map(rowToThread) },
       recent(limit) { return raw.prepare(`SELECT * FROM threads ORDER BY last_active_at DESC LIMIT ?`).all(limit).map(rowToThread) },
       addUsage(threadId, delta) {
         raw.prepare(`UPDATE threads SET cost=cost+?, tokens_in=tokens_in+?, tokens_out=tokens_out+?, tokens_cache_read=tokens_cache_read+?, tokens_cache_write=tokens_cache_write+? WHERE thread_id=?`)
           .run(delta.cost, delta.tokensIn, delta.tokensOut, delta.cacheRead, delta.cacheWrite, threadId)
+      },
+      prune(threadId) {
+        const r = raw.prepare(`SELECT channel_id, cost, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write FROM threads WHERE thread_id=?`).get(threadId) as any
+        if (!r) return false
+        raw.exec("BEGIN")
+        try {
+          raw.prepare(`INSERT INTO usage_rollup (channel_id,cost,tokens_in,tokens_out,tokens_cache_read,tokens_cache_write)
+            VALUES (?,?,?,?,?,?)
+            ON CONFLICT(channel_id) DO UPDATE SET cost=cost+excluded.cost, tokens_in=tokens_in+excluded.tokens_in,
+              tokens_out=tokens_out+excluded.tokens_out, tokens_cache_read=tokens_cache_read+excluded.tokens_cache_read,
+              tokens_cache_write=tokens_cache_write+excluded.tokens_cache_write`)
+            .run(r.channel_id, Number(r.cost ?? 0), Number(r.tokens_in ?? 0), Number(r.tokens_out ?? 0), Number(r.tokens_cache_read ?? 0), Number(r.tokens_cache_write ?? 0))
+          raw.prepare(`DELETE FROM threads WHERE thread_id=?`).run(threadId)
+          raw.exec("COMMIT")
+        } catch (e) {
+          raw.exec("ROLLBACK")
+          throw e
+        }
+        return true
       },
     },
     usage: {
@@ -207,16 +245,20 @@ export function openDb(path: string): Db {
         return r ? rowToUsage(r) : ZERO_USAGE()
       },
       channel(channelId) {
-        const r = raw.prepare(`SELECT COALESCE(SUM(cost),0) AS cost, COALESCE(SUM(tokens_in),0) AS tokens_in,
+        const live = raw.prepare(`SELECT COALESCE(SUM(cost),0) AS cost, COALESCE(SUM(tokens_in),0) AS tokens_in,
           COALESCE(SUM(tokens_out),0) AS tokens_out, COALESCE(SUM(tokens_cache_read),0) AS tokens_cache_read,
           COALESCE(SUM(tokens_cache_write),0) AS tokens_cache_write FROM threads WHERE channel_id=?`).get(channelId)
-        return rowToUsage(r)
+        const rolled = raw.prepare(`SELECT cost, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write FROM usage_rollup WHERE channel_id=?`).get(channelId)
+        return addUsage(rowToUsage(live), rowToUsage(rolled))
       },
       totals() {
-        const r = raw.prepare(`SELECT COALESCE(SUM(cost),0) AS cost, COALESCE(SUM(tokens_in),0) AS tokens_in,
+        const live = raw.prepare(`SELECT COALESCE(SUM(cost),0) AS cost, COALESCE(SUM(tokens_in),0) AS tokens_in,
           COALESCE(SUM(tokens_out),0) AS tokens_out, COALESCE(SUM(tokens_cache_read),0) AS tokens_cache_read,
           COALESCE(SUM(tokens_cache_write),0) AS tokens_cache_write FROM threads`).get()
-        return rowToUsage(r)
+        const rolled = raw.prepare(`SELECT COALESCE(SUM(cost),0) AS cost, COALESCE(SUM(tokens_in),0) AS tokens_in,
+          COALESCE(SUM(tokens_out),0) AS tokens_out, COALESCE(SUM(tokens_cache_read),0) AS tokens_cache_read,
+          COALESCE(SUM(tokens_cache_write),0) AS tokens_cache_write FROM usage_rollup`).get()
+        return addUsage(rowToUsage(live), rowToUsage(rolled))
       },
     },
     tasks: {

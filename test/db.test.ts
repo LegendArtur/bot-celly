@@ -69,6 +69,33 @@ test("updates the per-thread thinking depth", () => {
   db.threads.setVariant("t1", null)
   expect(db.threads.get("t1")?.variant).toBeNull()
 })
+test("stores the origin message id and the archive notice timestamp", () => {
+  const db = freshDb(); db.projects.insertProvisioning(proj)
+  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null, variant: null,
+    worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 })
+  expect(db.threads.get("t1")?.originMessageId).toBeNull()
+  expect(db.threads.get("t1")?.archiveNoticeAt).toBeNull()
+  db.threads.setOriginMessage("t1", "m1")
+  db.threads.setArchiveNotice("t1", 123)
+  expect(db.threads.get("t1")).toMatchObject({ originMessageId: "m1", archiveNoticeAt: 123 })
+})
+
+test("prune rolls the thread's usage into channel totals and deletes the row", () => {
+  const db = freshDb(); db.projects.insertProvisioning(proj)
+  db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null, variant: null,
+    worktreePath: null, liveMessageId: null, renderState: "idle", createdAt: 1, lastActiveAt: 5 })
+  db.threads.addUsage("t1", { cost: 0.5, tokensIn: 10, tokensOut: 2, cacheRead: 3, cacheWrite: 4 })
+  expect(db.threads.prune("t1")).toBe(true)
+  expect(db.threads.get("t1")).toBeUndefined()
+  expect(db.usage.channel("c1")).toEqual({ cost: 0.5, tokensIn: 10, tokensOut: 2, cacheRead: 3, cacheWrite: 4 })
+  expect(db.usage.totals()).toMatchObject({ cost: 0.5, tokensIn: 10, tokensOut: 2, cacheRead: 3, cacheWrite: 4 })
+})
+
+test("prune on an unknown thread is a no-op", () => {
+  const db = freshDb()
+  expect(db.threads.prune("nope")).toBe(false)
+})
+
 test("setWorktree stores and clears the thread worktree path", () => {
   const db = freshDb(); db.projects.insertProvisioning(proj)
   db.threads.upsert({ threadId: "t1", channelId: "c1", sessionId: "s1", title: null, model: null, agent: null, variant: null,

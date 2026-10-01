@@ -91,6 +91,22 @@ than interrupting the run.
 Clicking a button from a previous bot process answers "this request is no
 longer active"; pending requests are not persisted across restarts.
 
+## Archived threads
+
+When a managed thread is archived — from Discord's UI or by Discord's automatic
+inactivity timer — Celly posts a notice in the parent project channel, replying
+to the message that started the thread when there was one. The notice offers:
+
+- **Remove session** — delete the OpenCode session (reclaiming sandbox disk) and
+  the thread's stored record. Its usage is folded into the channel totals first,
+  so `/cost` history survives. The archived Discord thread is kept as a
+  transcript.
+- **Keep** — dismiss the notice and change nothing.
+
+Any authorized member can answer, and a run in progress is never prompted. The
+notice is posted at most once per thread. After a removal, messages posted in
+that thread are ignored and `/resume` no longer lists the session.
+
 ## Worktrees and forks
 
 New sessions can start in a per-session git worktree instead of the project

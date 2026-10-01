@@ -34,7 +34,7 @@ import { runShell } from "./shell.js"
 import { ingestAttachments } from "./attachments.js"
 import { ChannelBuckets, retryAfterMs, TokenBucket } from "./bucket.js"
 import { SessionRoutes } from "./routing.js"
-import { createForkThread, createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown } from "./handlers.js"
+import { createForkThread, createMessageHandler, createProjectDownHandler, createProjectMissingHandler, createReadyHandler, createReconcileThreads, createShutdown, createThreadArchiveHandler } from "./handlers.js"
 import { createIdleSweeper, formatIdleStopNotice } from "./idle.js"
 import { createTypingIndicators } from "./typing.js"
 import { buildPromptText, channelIdForBucket, createSubscriptionGate, describeDiscordStartupError, findCategoryId, formatStartupBanner, modelVariants, projectForChannel, sanitizeChannelName, seedThreadDefaults, sessionIdFrom, uniqueChannelName } from "./helpers.js"
@@ -233,13 +233,14 @@ export async function main(): Promise<void> {
     if (!sessionId) throw new Error("opencode session.create returned no id")
     return sessionId
   }
-  const registerThread = (project: Project, threadId: string, title: string, sessionId: string, worktreePath: string | null = null): Thread => {
+  const registerThread = (project: Project, threadId: string, title: string, sessionId: string, worktreePath: string | null = null, originMessageId: string | null = null): Thread => {
     const now = Date.now()
     const defaults = seedThreadDefaults((key) => db.settings.get(key), project.channelId)
     const record: Thread = {
       threadId, channelId: project.channelId, sessionId, title,
       model: defaults.model, agent: defaults.agent, variant: defaults.variant,
-      worktreePath, liveMessageId: null, renderState: "idle", createdAt: now, lastActiveAt: now,
+      worktreePath, liveMessageId: null, originMessageId, archiveNoticeAt: null,
+      renderState: "idle", createdAt: now, lastActiveAt: now,
     }
     db.threads.upsert(record)
     registerSession(threadId, sessionId)
@@ -542,7 +543,7 @@ export async function main(): Promise<void> {
       ? await worktrees.ensure(ready, thread.id)
       : null
     const sessionId = input.sessionId ?? (await createSessionFor(project, title, worktreePath))
-    registerThread(project, thread.id, title, sessionId, worktreePath)
+    registerThread(project, thread.id, title, sessionId, worktreePath, input.originMessageId ?? null)
     let notice: string | undefined
     if (input.prompt) {
       notice = await runnerSvc.prompt(thread.id, input.prompt, input.authorId ?? "n/a")
@@ -599,6 +600,24 @@ export async function main(): Promise<void> {
     if (variant) db.settings.set(`default_variant:${channelId}`, variant)
     else db.settings.set(`default_variant:${channelId}`, "")
   }
+  // Archive prompt "Remove session": delete the OpenCode session (best effort,
+  // to reclaim sandbox disk), then roll up usage and drop the thread row.
+  const removeThreadSession = async (threadId: string): Promise<boolean> => {
+    const thread = db.threads.get(threadId)
+    if (!thread) return false
+    const project = db.projects.getByChannel(thread.channelId)
+    if (project) {
+      try {
+        await resolveClient(project).session.delete(withDirectory(thread.worktreePath, { path: { id: thread.sessionId } }) as any)
+      } catch (err) {
+        log.warn("session delete failed", { threadId, sessionId: thread.sessionId, error: String(err) })
+      }
+    }
+    db.threads.prune(threadId)
+    sessionRoutes.forgetThread(threadId)
+    audit({ kind: "session", channelId: thread.channelId, threadId, actorId: "archive-prompt", detail: `remove session ${thread.sessionId}`, decision: "removed" })
+    return true
+  }
 
   const commandDeps: CommandDeps = {
     projects, runner: runnerSvc, db,
@@ -612,6 +631,7 @@ export async function main(): Promise<void> {
     listSessions, listModels, listAgents,
     setThreadModel, setThreadAgent, setThreadVariant, setChannelModel, setChannelAgent, setChannelVariant,
     sessions,
+    removeSession: removeThreadSession,
     worktree: worktrees,
     sessionBudgetUsd: cfg.sessionBudgetUsd,
     adminUrl,
@@ -656,6 +676,24 @@ export async function main(): Promise<void> {
   client.on(Events.MessageCreate, (message) => { void onMessage(message) })
   client.on(Events.InteractionCreate, (interaction) => { void onInteraction(interaction) })
   client.on(Events.ClientReady, createReadyHandler({ log, subscribeReadyProjects, reconcileThreads }))
+  const onThreadUpdate = createThreadArchiveHandler({
+    db,
+    isActive: (id) => runnerSvc.isActive(id),
+    now: () => Date.now(),
+    log,
+    send: async (channelId, payload, replyToMessageId) => {
+      const channel = await client.channels.fetch(channelId).catch(() => null) as any
+      if (!channel || typeof channel.send !== "function") return
+      await scheduleWithBucket(channelId, async () => {
+        if (replyToMessageId) {
+          const target = await channel.messages?.fetch?.(replyToMessageId).catch(() => null)
+          if (target && typeof target.reply === "function") { await target.reply(payload); return }
+        }
+        await channel.send(payload)
+      })
+    },
+  })
+  client.on(Events.ThreadUpdate, (oldThread, newThread) => { void onThreadUpdate(oldThread, newThread) })
 
   const shutdown = createShutdown({
     log,

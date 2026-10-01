@@ -157,7 +157,7 @@ test("index resolves the worktree default and ensures a worktree before creating
   const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8")
   expect(source).toContain("worktreeDefaultFor((key) => db.settings.get(key), project.channelId)")
   expect(source).toContain("await worktrees.ensure(ready, thread.id)")
-  expect(source).toContain("registerThread(project, thread.id, title, sessionId, worktreePath)")
+  expect(source).toContain("registerThread(project, thread.id, title, sessionId, worktreePath, input.originMessageId ?? null)")
 })
 
 test("index wires project create, remove, and restart into the admin server", () => {

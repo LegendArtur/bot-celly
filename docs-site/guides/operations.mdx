@@ -41,6 +41,14 @@ When a pending approval or question is dropped before a member decides it, the
 request was gone. Pending approvals live in memory only, so a bot restart drops
 every one of them; those drops leave no log line.
 
+## Session cleanup
+
+Archiving a managed thread prompts in its parent channel to remove the session
+(see [Archived threads](/reference/commands#archived-threads)). Choosing
+**Remove session** deletes the OpenCode session and the thread record and folds
+its usage into the channel totals, so `/cost` and the admin usage figures stay
+accurate. Removals are audited with `kind: "session"`.
+
 ## Backups and log rotation
 
 <Snippet file="snippets/backups-logs.mdx" />

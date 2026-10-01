@@ -1,7 +1,7 @@
 import { appendFileSync, chmodSync, mkdirSync, readFileSync } from "node:fs"
 import { dirname } from "node:path"
 
-export type AuditKind = "permission" | "question" | "shell" | "mode" | "task"
+export type AuditKind = "permission" | "question" | "shell" | "mode" | "task" | "session"
 export interface AuditDraft {
   guildId?: string
   channelId?: string
