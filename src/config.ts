@@ -14,6 +14,7 @@ export interface Config {
   bootTimeoutMs: number; healthTimeoutMs: number; editIntervalMs: number
   attachmentMaxBytes: number; maxQueue: number; maxConcurrentRuns: number; sessionBudgetUsd: number
   attachAutoThread: boolean
+  smartThreadNames: boolean
   worktreeDefault: boolean
   idleStopMinutes: number
   githubToken?: string
@@ -132,6 +133,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     attachmentMaxBytes: int(env, "ATTACHMENT_MAX_BYTES", 102400, 1),
     maxQueue: int(env, "MAX_QUEUE", 20, 1), maxConcurrentRuns: int(env, "MAX_CONCURRENT_RUNS", 4, 1),
     attachAutoThread: bool(env, "ATTACH_AUTO_THREAD", false),
+    smartThreadNames: bool(env, "SMART_THREAD_NAMES", true),
     worktreeDefault: bool(env, "WORKTREE_DEFAULT", false),
     idleStopMinutes: int(env, "IDLE_STOP_MINUTES", 0, 0),
     // One shared GitHub token for the host: `GITHUB_TOKEN` wins, `GH_TOKEN` (the
