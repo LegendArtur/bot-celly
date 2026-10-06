@@ -135,3 +135,10 @@ test("defaultForbiddenPaths allows ordinary home subfolders but keeps the profil
   expect(isSensitivePath(join(home, ".ssh", "keys"), forbidden)).toBe(true)
   expect(isSensitivePath(home, forbidden)).toBe(true)
 })
+
+test("defaultForbiddenPaths does not deny PROJECTS_ROOT when it nests under the working directory", () => {
+  const root = join(process.cwd(), "nested", "projects")
+  expect(isSensitivePath(join(root, "demo"), defaultForbiddenPaths(undefined, root))).toBe(false)
+  // Without the projects root, cwd is still denied (the bot repo stays off the mount).
+  expect(isSensitivePath(join(process.cwd(), "src"), defaultForbiddenPaths())).toBe(true)
+})

@@ -141,8 +141,14 @@ export function isSensitivePath(target: string, forbidden: string[]): boolean {
   return forbidden.some((f) => f !== "" && pathsOverlap(f, target))
 }
 
-export function defaultForbiddenPaths(dataDir?: string): string[] {
-  const paths = [process.cwd()]
+export function defaultForbiddenPaths(dataDir?: string, projectsRoot?: string): string[] {
+  const paths: string[] = []
+  // Deny the bot's working directory (its repo/config) so a sandbox cannot
+  // mount it — but not when it contains PROJECTS_ROOT. The default systemd unit
+  // uses WorkingDirectory=%h, and with the default ~/Celly/projects that would
+  // reject the root and every project under it as sensitive.
+  const root = projectsRoot ? resolve(projectsRoot) : undefined
+  if (!root || !isPathInside(process.cwd(), root)) paths.push(process.cwd())
   if (dataDir) paths.push(resolve(dataDir))
   const home = process.env.HOME ?? process.env.USERPROFILE
   if (home) {

@@ -66,7 +66,7 @@ export class ProjectService {
   private validateDirectory(directory: string): void {
     const { config } = this.deps
     if (!isPathInside(config.projectsRoot, directory)) throw new Error(`directory must be inside PROJECTS_ROOT (${config.projectsRoot})`)
-    const forbidden = this.deps.forbiddenPaths ?? defaultForbiddenPaths(config.dataDir)
+    const forbidden = this.deps.forbiddenPaths ?? defaultForbiddenPaths(config.dataDir, config.projectsRoot)
     if (isSensitivePath(directory, forbidden)) throw new Error(`directory is too sensitive to mount: ${directory}`)
   }
 

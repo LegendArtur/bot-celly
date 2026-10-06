@@ -2,7 +2,10 @@ A project directory must resolve (realpath, case-insensitive) **inside**
 `PROJECTS_ROOT`. On top of containment, a sensitive-path denylist rejects any
 project directory that overlaps:
 
-- The bot repository itself (`process.cwd()`).
+- The bot repository itself (`process.cwd()`), unless it contains
+  `PROJECTS_ROOT` — e.g. the default systemd unit's `WorkingDirectory=%h` with
+  the default `~/Celly/projects` — in which case it is skipped so the root and
+  its projects remain mountable.
 - `DATA_DIR`.
 - Under the user profile: `.ssh`, `.aws`, `.gnupg`, `.config`, `.docker`,
   `.kube`, `.azure`, `.npmrc`, `.netrc`, `.celly`, and `AppData`.
