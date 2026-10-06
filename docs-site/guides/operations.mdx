@@ -39,25 +39,14 @@ but keeps the host directory.
 The JSON API is the surface the page is built on:
 
 - `GET /` — HTML console.
-- `GET /api/projects` — registry list: `[{ channelId, path, status }]`.
-- `POST /api/projects` — create from JSON `{ "name", "path" }`. The path must
-  resolve inside `PROJECTS_ROOT` and pass the
-  [path denylist](/guides/configuration#projects_root-and-path-containment); the
-  existing create saga runs unchanged. Returns `{ channelId, status }`, `409`
-  when the path is already registered, and `400`/`403` for an invalid or
-  disallowed path.
-- `DELETE /api/projects/<channelId>` — remove (keeps the host directory); `204`
-  on success, `404` when unknown.
+- `GET /api/projects` — list; `POST /api/projects` — create.
+- `DELETE /api/projects/<channelId>` — remove (keeps the host directory).
 - `POST /api/projects/<channelId>/start|stop|restart`.
-- `GET /api/health` — `200` while the server is up.
+- `GET /api/health`.
 - `GET /api/logs/<channelId>?lines=200` — redacted log tail (capped at `2000`).
 - `GET /api/audit?limit=100` — recent audit entries (capped at `1000`).
 - `GET /events` — server-sent event stream of live console fragments.
 - `GET /assets/<name>` — vendored console assets.
-
-`status` uses registryd's vocabulary: `ready`, `provisioning`, `failed`, or
-`degraded` (`running`→`ready`, `starting`/`creating`→`provisioning`,
-`error`/`failed`→`failed`, `stopped`→`degraded`).
 
 The HTML page additionally uses `/partials/*` fragment routes. Those are an
 implementation detail of the console, not a stable API.

@@ -14,14 +14,6 @@ import { redact } from "./log.js"
 import { rotateIfNeeded } from "./rotate.js"
 import { getErrorMessage, unrefTimer } from "./helpers.js"
 
-/** Rejected project directory. `status` is the HTTP code the admin API returns. */
-export class ProjectPathError extends Error {
-  constructor(message: string, readonly status: 400 | 403) {
-    super(message)
-    this.name = "ProjectPathError"
-  }
-}
-
 export interface CloneOptions { url: string; branch?: string }
 const CLONE_URL = /^https:\/\/[^\s"'`\\<>]+$/i
 export function validateCloneUrl(url: string): void {
@@ -73,20 +65,16 @@ export class ProjectService {
 
   private validateDirectory(directory: string): void {
     const { config } = this.deps
-    if (!isPathInside(config.projectsRoot, directory)) throw new ProjectPathError(`directory must be inside PROJECTS_ROOT (${config.projectsRoot})`, 400)
+    if (!isPathInside(config.projectsRoot, directory)) throw new Error(`directory must be inside PROJECTS_ROOT (${config.projectsRoot})`)
     const forbidden = this.deps.forbiddenPaths ?? defaultForbiddenPaths(config.dataDir)
-    if (isSensitivePath(directory, forbidden)) throw new ProjectPathError(`directory is too sensitive to mount: ${directory}`, 403)
-  }
-
-  /** Validate an explicit host directory against the containment/denylist rules and create it. */
-  async prepareProjectDirectory(directory: string): Promise<string> {
-    this.validateDirectory(directory)
-    await mkdir(directory, { recursive: true })
-    return directory
+    if (isSensitivePath(directory, forbidden)) throw new Error(`directory is too sensitive to mount: ${directory}`)
   }
 
   async createProjectDirectory(name: string): Promise<string> {
-    return this.prepareProjectDirectory(join(this.deps.config.projectsRoot, sanitizeProjectDirName(name)))
+    const directory = join(this.deps.config.projectsRoot, sanitizeProjectDirName(name))
+    this.validateDirectory(directory)
+    await mkdir(directory, { recursive: true })
+    return directory
   }
 
   private githubOptions(): GithubOptions {

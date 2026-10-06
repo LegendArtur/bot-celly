@@ -108,21 +108,6 @@ test("createProjectDirectory rejects a sensitive path without creating it", asyn
   })
 })
 
-test("prepareProjectDirectory accepts an explicit path and reports rejection codes", async () => {
-  await withTempDir("celly-root-", async (root) => {
-    const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
-    const svc = new ProjectService({ sbx, runner: runner as any, db,
-      config: { ...makeCfg(4600, 4600), projectsRoot: root }, log: silentLogger,
-      isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {},
-      forbiddenPaths: [join(root, "secret")] } as any)
-    const dir = await svc.prepareProjectDirectory(join(root, "alpha"))
-    expect(dir).toBe(join(root, "alpha"))
-    expect(existsSync(dir)).toBe(true)
-    await expect(svc.prepareProjectDirectory("/outside/root")).rejects.toMatchObject({ status: 400 })
-    await expect(svc.prepareProjectDirectory(join(root, "secret"))).rejects.toMatchObject({ status: 403 })
-  })
-})
-
 test("addProject writes and verifies the celly bootstrap before starting the serve child", async () => {
   const db = openDb(":memory:"); db.migrate()
   const { sbx, runner, children } = fakes()
