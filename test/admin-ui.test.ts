@@ -20,7 +20,7 @@ async function ui(over: any = {}) {
     start: async (id: string) => { calls.push(`start:${id}`) },
     stop: async (id: string) => { calls.push(`stop:${id}`) },
     restart: async (id: string) => { calls.push(`restart:${id}`) },
-    create: async (input: any, onProgress?: (stage: string) => void) => { calls.push(`create:${input.name}:${input.guildId}`); progress = onProgress },
+    create: async (input: any, onProgress?: (stage: string) => void) => { calls.push(`create:${input.name}:${input.guildId}`); progress = onProgress; return { ...proj, channelId: "c-new", name: input.name, status: "ready" } },
     remove: async (id: string) => { calls.push(`remove:${id}`) },
     auditTail: over.auditTail,
     now: over.now, liveTickMs: over.liveTickMs ?? 20,
@@ -275,8 +275,12 @@ test("POST /partials/projects/:id/delete removes the project and clears the deta
 test("JSON create, delete, and delete 404 mirror the fragment behavior", async () => {
   const { svr, base, calls } = await ui()
   try {
-    expect((await fetch(`${base}/api/projects`, { method: "POST", body: new URLSearchParams({ name: "newproj", guildId: "g1" }) })).status).toBe(201)
-    expect((await fetch(`${base}/api/projects/c1`, { method: "DELETE" })).status).toBe(200)
+    const created = await fetch(`${base}/api/projects`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "newproj", path: "C:\\projects\\newproj" }),
+    })
+    expect(created.status).toBe(200)
+    expect(await created.json()).toEqual({ channelId: "c-new", status: "ready" })
+    expect((await fetch(`${base}/api/projects/c1`, { method: "DELETE" })).status).toBe(204)
     expect((await fetch(`${base}/api/projects/nope`, { method: "DELETE" })).status).toBe(404)
     expect(calls).toEqual(["create:newproj:g1", "remove:c1"])
   } finally { svr.close() }

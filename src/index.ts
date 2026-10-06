@@ -536,9 +536,11 @@ export async function main(): Promise<void> {
         },
         create: async (input, onProgress) => {
           if (input.branch && !input.cloneUrl) throw new Error("branch requires clone")
-          const directory = await projects.createProjectDirectory(input.name)
+          const directory = input.path
+            ? await projects.prepareProjectDirectory(input.path)
+            : await projects.createProjectDirectory(input.name)
           const clone = input.cloneUrl ? { url: input.cloneUrl, ...(input.branch ? { branch: input.branch } : {}) } : undefined
-          await projects.addProject({ guildId: input.guildId, name: input.name, directory, ...(clone ? { clone } : {}) }, onProgress)
+          return projects.addProject({ guildId: input.guildId, name: input.name, directory, ...(clone ? { clone } : {}) }, onProgress)
         },
         auditTail: (limit) => auditLog.tail(limit),
       })

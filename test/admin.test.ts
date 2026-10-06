@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "vitest"
-import { adminConsoleUrl, createAdminServer } from "../src/admin.ts"
+import { adminConsoleUrl, createAdminServer, registryStatus } from "../src/admin.ts"
+import { ProjectPathError } from "../src/projects.ts"
 import { freshDb, projectFixture } from "./helpers/fixtures.ts"
 
 async function admin(over: any = {}) {
@@ -18,7 +19,12 @@ async function admin(over: any = {}) {
     start: async (channelId: string) => { calls.push(`start:${channelId}`) },
     stop: async (channelId: string) => { calls.push(`stop:${channelId}`) },
     restart: async (channelId: string) => { calls.push(`restart:${channelId}`) },
-    create: async (input: any) => { calls.push(`create:${input.name}`) },
+    create: async (input: any) => {
+      calls.push(`create:${input.name}`)
+      if (String(input.path ?? "").includes("outside")) throw new ProjectPathError("directory must be inside PROJECTS_ROOT", 400)
+      if (String(input.path ?? "").includes("secret")) throw new ProjectPathError("directory is too sensitive to mount", 403)
+      return projectFixture({ channelId: "c-new", name: input.name, directory: input.path, status: "ready" })
+    },
     remove: async (channelId: string) => { calls.push(`remove:${channelId}`) },
     auditTail: over.auditTail,
     now: over.now,
@@ -45,12 +51,87 @@ test("the admin server binds loopback and renders the ops console", async () => 
   }
 })
 
-test("GET /api/projects returns the registered projects", async () => {
+test("GET /api/projects returns channel, path, and registry status", async () => {
   const { svr, base } = await admin()
   try {
     const res = await fetch(`${base}/api/projects`)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual([{ channelId: "c1", name: "demo", status: "ready", hostPort: 4300 }])
+    expect(await res.json()).toEqual([{ channelId: "c1", path: "C:\\p", status: "ready" }])
+  } finally {
+    svr.close()
+  }
+})
+
+test("registryStatus maps process states onto the registry vocabulary", () => {
+  expect(registryStatus("ready")).toBe("ready")
+  expect(registryStatus("running")).toBe("ready")
+  expect(registryStatus("provisioning")).toBe("provisioning")
+  expect(registryStatus("starting")).toBe("provisioning")
+  expect(registryStatus("creating")).toBe("provisioning")
+  expect(registryStatus("failed")).toBe("failed")
+  expect(registryStatus("error")).toBe("failed")
+  expect(registryStatus("degraded")).toBe("degraded")
+  expect(registryStatus("stopped")).toBe("degraded")
+})
+
+test("POST /api/projects validates JSON, creates, and returns the channel and status", async () => {
+  const { svr, base, calls } = await admin()
+  try {
+    const res = await fetch(`${base}/api/projects`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "alpha", path: "C:\\projects\\alpha" }),
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ channelId: "c-new", status: "ready" })
+    expect(calls).toEqual(["create:alpha"])
+
+    const invalid = await fetch(`${base}/api/projects`, { method: "POST", body: "not json" })
+    expect(invalid.status).toBe(400)
+    expect(await invalid.json()).toEqual({ error: "invalid JSON body" })
+
+    const missing = await fetch(`${base}/api/projects`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "alpha" }),
+    })
+    expect(missing.status).toBe(400)
+
+    const outside = await fetch(`${base}/api/projects`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "bad", path: "C:\\outside" }),
+    })
+    expect(outside.status).toBe(400)
+
+    const secret = await fetch(`${base}/api/projects`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "bad", path: "C:\\secret" }),
+    })
+    expect(secret.status).toBe(403)
+  } finally {
+    svr.close()
+  }
+})
+
+test("POST /api/projects rejects a path that is already registered", async () => {
+  const { svr, base, calls } = await admin()
+  try {
+    const res = await fetch(`${base}/api/projects`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "dup", path: "C:\\p" }),
+    })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: "path already registered" })
+    expect(calls).toEqual([])
+  } finally {
+    svr.close()
+  }
+})
+
+test("DELETE /api/projects/:channelId calls remove and returns 204", async () => {
+  const { svr, base, calls } = await admin()
+  try {
+    const res = await fetch(`${base}/api/projects/c1`, { method: "DELETE" })
+    expect(res.status).toBe(204)
+    expect(await res.text()).toBe("")
+    expect(calls).toEqual(["remove:c1"])
+    const missing = await fetch(`${base}/api/projects/nope`, { method: "DELETE" })
+    expect(missing.status).toBe(404)
   } finally {
     svr.close()
   }

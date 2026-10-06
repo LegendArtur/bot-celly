@@ -4,6 +4,8 @@ import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } fro
 import type { Db } from "./db.ts"
 import type { Project, Thread, UsageTotals } from "./types.ts"
 import { redact } from "./log.js"
+import { isPathInside } from "./sbx.js"
+import { ProjectPathError } from "./projects.js"
 import { attachCommand } from "./attach.js"
 import { readAsset } from "./admin/assets.js"
 import { createSseHub, encodeFrame } from "./admin/sse.js"
@@ -43,8 +45,34 @@ function tailFileSync(path: string, maxBytes: number): string {
 export interface AdminCreateInput {
   guildId: string
   name: string
+  path?: string
   cloneUrl?: string
   branch?: string
+}
+
+/**
+ * The status vocabulary registryd consumes. Celly's own `ProjectStatus` already
+ * uses the right-hand values; the extra aliases let a caller map the generic
+ * states (`running`, `starting`, `creating`, `error`, `stopped`) onto them.
+ */
+export type RegistryStatus = "ready" | "provisioning" | "failed" | "degraded"
+
+export function registryStatus(status: string): RegistryStatus {
+  switch (status) {
+    case "ready":
+    case "running":
+      return "ready"
+    case "provisioning":
+    case "starting":
+    case "creating":
+      return "provisioning"
+    case "failed":
+    case "error":
+    case "errored":
+      return "failed"
+    default:
+      return "degraded"
+  }
 }
 
 export interface AdminDeps {
@@ -56,7 +84,7 @@ export interface AdminDeps {
   start(channelId: string): Promise<void>
   stop(channelId: string): Promise<void>
   restart(channelId: string): Promise<void>
-  create(input: AdminCreateInput, onProgress?: (stage: string) => void): Promise<void>
+  create(input: AdminCreateInput, onProgress?: (stage: string) => void): Promise<Project>
   remove(channelId: string): Promise<void>
   auditTail?(limit: number): unknown[]
   now?(): number
@@ -150,7 +178,7 @@ function sendHtml(res: ServerResponse, status: number, body: string): void {
   res.end(body)
 }
 
-async function readForm(req: import("node:http").IncomingMessage): Promise<URLSearchParams> {
+async function readBody(req: import("node:http").IncomingMessage): Promise<string> {
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of req) {
@@ -159,7 +187,25 @@ async function readForm(req: import("node:http").IncomingMessage): Promise<URLSe
     if (size > 8192) break
     chunks.push(buf)
   }
-  return new URLSearchParams(Buffer.concat(chunks).toString("utf8"))
+  return Buffer.concat(chunks).toString("utf8")
+}
+
+async function readForm(req: import("node:http").IncomingMessage): Promise<URLSearchParams> {
+  return new URLSearchParams(await readBody(req))
+}
+
+function sameDir(a: string, b: string): boolean {
+  return isPathInside(a, b) && isPathInside(b, a)
+}
+
+function parseProjectBody(body: unknown): { name: string; path: string } | { error: string; status: number } {
+  if (typeof body !== "object" || body === null) return { error: "invalid JSON body", status: 400 }
+  const raw = body as Record<string, unknown>
+  const name = typeof raw.name === "string" ? raw.name.trim() : ""
+  const path = typeof raw.path === "string" ? raw.path.trim() : ""
+  if (!name) return { error: "name required", status: 400 }
+  if (!path) return { error: "path required", status: 400 }
+  return { name, path }
 }
 
 function parseCreateInput(form: URLSearchParams, deps: AdminDeps): { input: AdminCreateInput } | { error: string } {
@@ -343,13 +389,21 @@ export async function createAdminServer(deps: AdminDeps): Promise<AdminServer> {
           return
         }
         if (parts[0] === "api" && parts[1] === "projects" && parts.length === 2 && method === "POST") {
-          const parsed = parseCreateInput(await readForm(req), deps)
-          if ("error" in parsed) return sendJson(res, 400, { error: parsed.error })
+          let body: unknown
+          try { body = JSON.parse(await readBody(req)) } catch { return sendJson(res, 400, { error: "invalid JSON body" }) }
+          const parsed = parseProjectBody(body)
+          if ("error" in parsed) return sendJson(res, parsed.status, { error: parsed.error })
+          const guildId = deps.guildIds[0]
+          if (!guildId) return sendJson(res, 400, { error: "no guild configured" })
+          if (deps.db.projects.list().some((p) => sameDir(p.directory, parsed.path))) {
+            return sendJson(res, 409, { error: "path already registered" })
+          }
           try {
-            await deps.create(parsed.input)
+            const project = await deps.create({ guildId, name: parsed.name, path: parsed.path })
             broadcastAll()
-            return sendJson(res, 201, { ok: true, name: parsed.input.name })
+            return sendJson(res, 200, { channelId: project.channelId, status: registryStatus(project.status) })
           } catch (e) {
+            if (e instanceof ProjectPathError) return sendJson(res, e.status, { error: e.message })
             return sendJson(res, 500, { error: e instanceof Error ? e.message : String(e) })
           }
         }
@@ -359,13 +413,15 @@ export async function createAdminServer(deps: AdminDeps): Promise<AdminServer> {
           try {
             await deps.remove(channelId)
             broadcastAll()
-            return sendJson(res, 200, { ok: true, channelId })
+            res.writeHead(204)
+            res.end()
+            return
           } catch (e) {
             return sendJson(res, 500, { error: e instanceof Error ? e.message : String(e) })
           }
         }
         if (parts[0] === "api" && parts[1] === "projects" && parts.length === 2 && method === "GET") {
-          sendJson(res, 200, deps.db.projects.list().map((p) => ({ channelId: p.channelId, name: p.name, status: p.status, hostPort: p.hostPort })))
+          sendJson(res, 200, deps.db.projects.list().map((p) => ({ channelId: p.channelId, path: p.directory, status: registryStatus(p.status) })))
           return
         }
         if (parts[0] === "api" && parts[1] === "health" && parts.length === 2) {
