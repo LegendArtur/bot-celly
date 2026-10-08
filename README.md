@@ -94,6 +94,8 @@ The everyday handful:
 | `/model` · `/agent` · `/thinking` | Switch the model, agent, or thinking depth for a thread. |
 | `/mode auto\|buttons\|plan` | Choose how approvals are requested. |
 | `/cost` | Show accumulated cost, tokens, and the session budget. |
+| `/attach` | Show the terminal attach command for this thread's session. |
+| `/session-id` | Show this thread's session id and attach command. |
 
 The full command surface, access rules, scheduled tasks, worktrees, and
 archived-thread behavior live in the
