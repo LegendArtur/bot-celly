@@ -1,5 +1,100 @@
 # celly
 
+## 0.3.0
+
+### Minor Changes
+
+- cb1aca6: When a managed thread is archived, post a notice in its parent channel
+  (replying to the thread's originating message when known) offering to remove
+  the session. **Remove session** deletes the OpenCode session and the thread
+  record and folds its usage into the channel totals so `/cost` history is
+  preserved; the archived Discord thread is kept. **Keep** dismisses the notice.
+  Any authorized member can answer.
+- ba33e54: Add `npx bot-celly@latest`: a guided first-run setup for the Discord token and
+  guild IDs, a `bot-celly doctor` prerequisite check, a hidden-token wizard, and a
+  `setup`/`help`/`version` CLI surface. Config and data now default to
+  `~/.bot-celly` (override with `CELLY_HOME`), and the package publishes to npm as
+  `bot-celly`.
+- bd1e3bb: Rebuild the loopback admin page as an ops console: live project cards, usage
+  and cost, audit trail, per-project logs and sessions, and project create/remove,
+  served with vendored htmx 4 and server-sent events. The existing JSON API is
+  unchanged and gains restart, create, and delete routes.
+- 5a16c2c: Add an optional shared GitHub token. The setup wizard now asks whether to add
+  one (and there is a `--github-token` flag for headless setups); `GITHUB_TOKEN`
+  (with `GH_TOKEN` as a fallback) is copied into every sandbox over stdin at mode
+  `0600` into `opencode.env` and a `github.com` git credential store, so the agent
+  can clone, fetch, and push private repos. When a token is configured, `git push`
+  moves from the hard deny list to the normal approval flow (runs in `auto`, asks
+  in `buttons`, rejected in `plan`); without one it stays blocked. The token is
+  host-only, shared across projects, and never stored by Celly.
+- 55a9c87: Smart thread names: managed threads now show a live status prefix
+  (`🟢 working`, `⛔ blocked`, `⏸️ idle`, `❌ error`, `⏹️ stopping`) and let the
+  session agent author a short title once, in-band, before it locks. The new
+  `SMART_THREAD_NAMES` setting (default on) gates the feature; sandboxes get a
+  global naming instruction at bootstrap.
+
+### Patch Changes
+
+- 6920b88: Render context-usage token counts with the same `k`/`M` formatting as `/cost`, and render non-Error command failures as their thrown value instead of `undefined`.
+- 683ca18: Add an owner-only `/dashboard` command that posts the loopback admin console
+  URL to Discord, and print the console URL in the startup banner. The link is
+  only reachable on the Celly host; `/dashboard` reports the console as disabled
+  when `ADMIN_PORT=0`.
+- 0fb2057: Evaluate the whole bash command in the permission policy: deny-listed commands
+  hidden behind separators (`;`, `&&`, `||`, `|`, `&`), command substitutions
+  (`$(...)`, backticks), or heredoc bodies are now rejected, and commands the
+  policy cannot statically analyze fail closed (approval in buttons mode,
+  rejection in auto and plan).
+- f68d1f5: Fix broken code blocks in long Discord replies: Celly now always emits fences
+  of exactly three backticks and reopens a split code block with its language,
+  instead of escalating to four-backtick fences that Discord renders as literal
+  text. One-shot notices and errors (handler failures, project stopped, sandbox
+  missing, project connected, idle timeout) are now posted as Components v2 cards
+  with a tone-coloured accent.
+- 68f5315: Docs recheck: document the loopback ops console (live project cards, usage and
+  cost, audit trail, per-project logs and sessions, project create/remove, and
+  server-sent-event updates) and its full JSON API; refresh the architecture
+  module map and create saga; list `CELLY_ASCII` in `.env.example`; and correct
+  the audit-trail, `/mode` scope, and shell-output notes.
+- 5b006b6: Fix the sensitive-path denylist rejecting every project when Celly's working
+  directory contains `PROJECTS_ROOT`. The default systemd unit runs Celly with
+  `WorkingDirectory=%h`, so `process.cwd()` (home) overlapped the default
+  `~/Celly/projects` and every project under it was treated as sensitive. The
+  working directory is now skipped when it is an ancestor of `PROJECTS_ROOT`;
+  the bot repository itself stays denied in every other case.
+- 23cf07f: Stop echoing the prompt twice in a streamed reply. opencode publishes
+  `message.part.updated` for the user's own message parts, which the renderer
+  pushed after the `> **you** · …` quote; the event router now tracks each
+  message's role from `message.updated` and drops user-authored parts so only the
+  assistant output is rendered.
+- 43ed42a: Fix agent questions never reaching opencode: reply to v1 (`question.asked`) requests through the instance `/question/:id/reply` route (v2 sessions keep the session-scoped route), react to server-side question.replied/rejected events, clear pending questions when a run idles, and abort instead of wedging forever when a reply can no longer be delivered.
+- 9286ec2: Render agent questions inline in the streamed reply instead of posting them as
+  separate messages that split the answer around the question. The question (and
+  its answers) now appears in order in the agent's output, with its
+  buttons/selects/modals attached to the message holding the question and removed
+  once the request is answered, rejected, timed out, or dropped. Question text is
+  also formatted with numbered headers, option descriptions, and per-question
+  answer lines.
+- cd6f898: Log the cause when a pending approval or question is dropped without a decision (`run-ended`, `server-resolved`, `permission-replied`, `question-replied`, `question-rejected`, or `timeout`), with the thread, session, and request id. A later "this request is no longer active" click can now be traced to the request that was dropped.
+- e9d054c: Verify the bot-enforced permission policy before writing it. A config `PATCH`
+  disposes the project's OpenCode instance and aborts every running thread, so
+  Celly now reads the running policy after each wake and health check and only
+  re-writes it when a rule is missing or weakened. This stops a message in one
+  thread from aborting every other concurrent thread in the same project.
+- 43ed42a: Show question answers in the Discord question message: each answer appears as it lands, unanswered questions stay marked as waiting (with their controls still usable), and the final edit lists every selected answer under the original question.
+- 9f3f494: Add `/thinking` to pick a model's thinking depth (an OpenCode model variant,
+  for example `low`/`high`/`max`) per thread or as a project channel default.
+  The depth is sent with each prompt, and unsupported variants are ignored.
+- 937481c: Show a persistent **Stop** button on a run's streamed reply. Clicking it aborts
+  that thread's run, the same as `/abort`, and the button disappears when the run
+  ends.
+- 3552879: Start new sessions in their own git worktree. Add `WORKTREE_DEFAULT` (global,
+  seeded once into `settings.worktree_default`), an owner-only
+  `/worktree default state:<inherit|on|off>` per-project override, and a
+  `new_worktree` option on `/fork`. Non-git projects, an unresolved sandbox path,
+  or a failed `git worktree add` fall back to the project root with a console
+  warning instead of failing session creation.
+
 ## 0.2.0
 
 ### Minor Changes
