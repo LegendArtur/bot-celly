@@ -76,5 +76,13 @@
     "ga4": {
       "measurementId": "G-FPFTQZH6NE"
     }
+  },
+  "logo": {
+    "light": "/docs-site/images/Illustration_sans_titre.png",
+    "dark": "/docs-site/images/Illustration_sans_titre.png"
+  },
+  "favicon": {
+    "light": "/docs-site/images/Illustration_sans_titre.png",
+    "dark": "/docs-site/images/Illustration_sans_titre.png"
   }
 }
