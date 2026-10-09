@@ -1,4 +1,6 @@
-<h1 align="center">Celly</h1>
+<p align="center">
+  <img src="assets/celly-lockup.png" alt="Celly" width="600">
+</p>
 
 <p align="center"><strong>Drive OpenCode coding agents from Discord — one isolated microVM per project.</strong></p>
 
