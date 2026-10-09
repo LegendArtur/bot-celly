@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process"
 import { existsSync, readFileSync, rmSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { expect, test } from "vitest"
-import { BOOTSTRAP_PREPARE, bootstrapVerify, buildBootstrapInstallScript } from "../src/opencode.ts"
+import { BOOTSTRAP_PREPARE, bootstrapVerify, buildBootstrapInstallScript, buildPolicyFilesScript } from "../src/opencode.ts"
 import { withTempDir } from "./helpers/tmp.ts"
 
 const onWindows = process.platform === "win32"
@@ -59,5 +59,21 @@ test.skipIf(onWindows)("bootstrap with smart names disabled writes no naming ins
     expect(inline(bootstrapVerify(false), home).status).toBe(0)
     // …and must still fail closed when it is on.
     expect(inline(bootstrapVerify(true), home).status).not.toBe(0)
+  })
+})
+
+test.skipIf(onWindows)("policy files script propagates a token to an existing sandbox home", async () => {
+  await withTempDir("celly-home-", (home) => {
+    const dest = join(home, ".config", "celly")
+    expect(install(buildBootstrapInstallScript("secret-password"), home).status).toBe(0)
+    expect(readFileSync(join(dest, "opencode.env"), "utf8")).toContain('"git push*":"deny"')
+
+    const refreshed = install(buildPolicyFilesScript("secret-password", { githubToken: "ghp_x" }), home)
+    expect(refreshed.stderr).toBe("")
+    expect(refreshed.status).toBe(0)
+    const env = readFileSync(join(dest, "opencode.env"), "utf8")
+    expect(env).toContain("GITHUB_TOKEN=ghp_x")
+    expect(env).toContain('"git push*":"ask"')
+    expect(readFileSync(join(dest, "opencode.json"), "utf8")).toContain('"git push*": "ask"')
   })
 })

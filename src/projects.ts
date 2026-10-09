@@ -7,7 +7,7 @@ import type { Db } from "./db.ts"
 import type { Project } from "./types.ts"
 import { allocatePort, buildSandboxName, defaultForbiddenPaths, isPathInside, isSensitivePath, sanitizeProjectDirName, Sbx, SbxRunner } from "./sbx.js"
 import type { ChildProcess } from "./sbx.js"
-import { applyAndAssertCellyPolicy, BOOTSTRAP_PREPARE, bootstrapVerify, buildBootstrapInstallScript, buildGitCredentialScript, buildServeArgs, createClient, createV2Client, waitForHealth } from "./opencode.js"
+import { applyAndAssertCellyPolicy, BOOTSTRAP_PREPARE, bootstrapVerify, buildBootstrapInstallScript, buildGitCredentialScript, buildPolicyFilesScript, buildServeArgs, createClient, createV2Client, waitForHealth } from "./opencode.js"
 import type { GithubOptions } from "./opencode.js"
 import type { OpencodeClient, OpencodeV2Client } from "./opencode.js"
 import { redact } from "./log.js"
@@ -88,6 +88,25 @@ export class ProjectService {
   /** Write/remove the sandbox git credentials for github.com (token on stdin). */
   private async applyGitCredentials(sandboxName: string): Promise<void> {
     await this.deps.sbx.execWithInput(sandboxName, ["bash", "-s"], buildGitCredentialScript(this.githubOptions()))
+  }
+
+  /**
+   * Rewrite the sandbox policy files from the current host options. A token
+   * added or removed after the sandbox was created otherwise stays baked into
+   * `OPENCODE_CONFIG_CONTENT`, which no API PATCH can override.
+   */
+  private async applyPolicyFiles(sandboxName: string, serverPassword: string): Promise<void> {
+    await this.deps.sbx.execWithInput(sandboxName, ["bash", "-s"], buildPolicyFilesScript(serverPassword, this.githubOptions()))
+  }
+
+  /** Stop and wake the microVM so a server with a stale baked policy dies. */
+  private async rebootSandbox(sandboxName: string): Promise<void> {
+    try {
+      await this.deps.sbx.stop(sandboxName)
+    } catch (e) {
+      this.deps.log.warn("sandbox stop during policy reboot failed", { sandboxName, error: getErrorMessage(e) })
+    }
+    await this.deps.sbx.start(sandboxName)
   }
 
   private async isPortFree(port: number): Promise<boolean> {
@@ -450,19 +469,34 @@ export class ProjectService {
         healthy = await this.probeHealth(client, probeTimeout)
       }
       if (healthy) {
-        // Re-assert the policy: a project opencode.json may have weakened the
-        // bootstrap config, and a newly woken server starts from files again.
-        await this.applyPolicy(client, createV2Client(`http://127.0.0.1:${hostPort}`, p.serverPassword))
-        this.deps.db.projects.setStatus(channelId, "ready")
-        // A healthy server with no tracked child is an orphan from a previous
-        // bot process; adopt it rather than spawning a second one that would
-        // fail to bind and flip the project to degraded.
-        if (!this.children.has(channelId)) this.adopted.add(channelId)
-        return
+        try {
+          // Re-assert the policy: a project opencode.json may have weakened the
+          // bootstrap config, and a newly woken server starts from files again.
+          await this.applyPolicy(client, createV2Client(`http://127.0.0.1:${hostPort}`, p.serverPassword))
+          this.deps.db.projects.setStatus(channelId, "ready")
+          // A healthy server with no tracked child is an orphan from a previous
+          // bot process; adopt it rather than spawning a second one that would
+          // fail to bind and flip the project to degraded.
+          if (!this.children.has(channelId)) this.adopted.add(channelId)
+          return
+        } catch (e) {
+          // A server left running from an earlier configuration (for example
+          // before a GitHub token was added) has its policy baked into
+          // OPENCODE_CONFIG_CONTENT, which no PATCH can override. Reboot the
+          // sandbox so the refreshed files below take effect.
+          this.deps.log.warn("policy re-assert failed on a running server; rebooting the sandbox", { channelId, error: getErrorMessage(e) })
+          this.killChild(channelId)
+          await this.rebootSandbox(p.sandboxName)
+          hostPort = await this.recycleHostPortMapping(channelId, p, hostPort)
+          client = createClient(`http://127.0.0.1:${hostPort}`, p.serverPassword)
+        }
+      } else {
+        this.killChild(channelId)
       }
-      this.killChild(channelId)
-      // Re-assert git credentials on every (re)start so token rotation and
-      // sandboxes created before a token was configured are covered.
+      // Refresh the policy files and git credentials on every (re)start so
+      // token rotation and sandboxes created before a token was configured are
+      // covered, then boot the server on the refreshed configuration.
+      await this.applyPolicyFiles(p.sandboxName, p.serverPassword)
       await this.applyGitCredentials(p.sandboxName)
       this.bootServer(channelId)
       try {

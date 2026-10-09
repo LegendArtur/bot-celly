@@ -360,6 +360,60 @@ test("ensureReady re-asserts the policy on an adopted server that was weakened",
   } finally { await server.close() }
 })
 
+test("ensureReady refreshes the policy files before restarting an unhealthy sandbox", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner } = fakes()
+  const server = await healthServer(false)
+  const inputs: string[] = []
+  sbx.execWithInput = async (_n: string, _argv: string[], input: string) => { inputs.push(input); return { code: 0, stdout: "", stderr: "" } }
+  try {
+    db.projects.insertProvisioning({ channelId: "chan1", guildId: "g", name: "demo", directory: "C:\\projects\\demo",
+      sandboxPath: null, sandboxName: "celly-demo", hostPort: server.port, serverPassword: "pw", createdAt: Date.now() })
+    db.projects.setStatus("chan1", "ready")
+    const svc = new ProjectService({ sbx, runner: runner as any, db,
+      config: { ...makeCfg(server.port, server.port), githubToken: "ghp_x" }, log: silentLogger,
+      isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
+    await expect(svc.ensureReady("chan1")).rejects.toThrow(/not healthy/)
+    expect(inputs.some((i) => i.includes('"git push*":"ask"'))).toBe(true)
+  } finally { await server.close() }
+})
+
+test("ensureReady reboots a running server whose baked policy is stale", async () => {
+  const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls, children } = fakes()
+  let current: any = cellyPolicy()
+  const fresh = cellyPolicy({ githubToken: "ghp_x" })
+  const server = await startTestServer((req, res) => {
+    const url = req.url ?? ""
+    if (url.startsWith("/config")) {
+      if (req.method === "PATCH" || req.method === "POST") { req.resume(); res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(current)); return }
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(current))
+      return
+    }
+    if (url.startsWith("/global/health")) {
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ healthy: true }))
+      return
+    }
+    res.writeHead(404).end()
+  })
+  const inputs: string[] = []
+  sbx.execWithInput = async (_n: string, _argv: string[], input: string) => { inputs.push(input); return { code: 0, stdout: "", stderr: "" } }
+  // The sandbox reboot is what makes the refreshed files take effect.
+  sbx.stop = async (n: string) => { calls.push(["stop", n]); current = fresh }
+  try {
+    db.projects.insertProvisioning({ channelId: "chan1", guildId: "g", name: "demo", directory: "C:\\projects\\demo",
+      sandboxPath: null, sandboxName: "celly-demo", hostPort: server.port, serverPassword: "pw", createdAt: Date.now() })
+    db.projects.setStatus("chan1", "ready")
+    const svc = new ProjectService({ sbx, runner: runner as any, db,
+      config: { ...makeCfg(server.port, server.port), githubToken: "ghp_x" }, log: silentLogger,
+      isPortFree: async () => true, createChannel: async () => "chan1", deleteChannel: async () => {} } as any)
+    await svc.ensureReady("chan1")
+    expect(calls).toContainEqual(["stop", "celly-demo"])
+    expect(children).toHaveLength(1)
+    expect(inputs.some((i) => i.includes("GITHUB_TOKEN=ghp_x"))).toBe(true)
+    expect(inputs.some((i) => i.includes('"git push*":"ask"'))).toBe(true)
+    expect(db.projects.getByChannel("chan1")?.status).toBe("ready")
+  } finally { await server.close() }
+})
+
 test("ensureReady rejects while the project is still provisioning", async () => {
   const db = openDb(":memory:"); db.migrate(); const { sbx, runner, calls } = fakes()
   db.projects.insertProvisioning({ channelId: "chan1", guildId: "g", name: "demo", directory: "C:\\projects\\demo",

@@ -300,6 +300,27 @@ export function bootstrapVerify(smartThreadNames = true): string {
 }
 
 /**
+ * Writes the sandbox policy files (`opencode.json` + `opencode.env`) from the
+ * current host options. Idempotent, so it is re-run on every (re)start to
+ * propagate a GitHub token added or removed after the sandbox was created.
+ * Content travels on stdin; `umask 077` makes both files 0600.
+ */
+export function buildPolicyFilesScript(password: string, options: GithubOptions = {}): string {
+  return [
+    "set -e",
+    "umask 077",
+    `mkdir -p ${CELLY_CONFIG_DIR}`,
+    `chmod 700 ${CELLY_CONFIG_DIR}`,
+    `cat > "$HOME/.config/celly/opencode.json" <<'CELLY_CONFIG'`,
+    buildCellyConfigJson(options).replace(/\n$/, ""),
+    "CELLY_CONFIG",
+    `cat > "$HOME/.config/celly/opencode.env" <<'CELLY_ENV'`,
+    buildOpencodeEnv(password, options).replace(/\n$/, ""),
+    "CELLY_ENV",
+  ].join("\n") + "\n"
+}
+
+/**
  * The config/env files are written by the sandbox user itself (via `sbx exec -i
  * bash -s`, content on stdin). `sbx cp` creates root-owned 0755 files and the
  * agent cannot chmod them, and staging in the sandbox /tmp then moving is
@@ -308,16 +329,7 @@ export function bootstrapVerify(smartThreadNames = true): string {
  */
 export function buildBootstrapInstallScript(password: string, options: GithubOptions = {}, extras: { smartThreadNames?: boolean } = {}): string {
   const smartThreadNames = extras.smartThreadNames ?? true
-  const lines = [
-    "set -e",
-    "umask 077",
-    `cat > "$HOME/.config/celly/opencode.json" <<'CELLY_CONFIG'`,
-    buildCellyConfigJson(options).replace(/\n$/, ""),
-    "CELLY_CONFIG",
-    `cat > "$HOME/.config/celly/opencode.env" <<'CELLY_ENV'`,
-    buildOpencodeEnv(password, options).replace(/\n$/, ""),
-    "CELLY_ENV",
-  ]
+  const lines = [buildPolicyFilesScript(password, options).replace(/\n$/, "")]
   if (smartThreadNames) {
     lines.push(
       `mkdir -p "$HOME/.config/opencode"`,

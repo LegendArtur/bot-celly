@@ -74,8 +74,9 @@ and is not readable by the agent (the deny list blocks `~/.git-credentials`).
 
 Easiest way to set it: run `bot-celly setup` and answer the
 "Add a GitHub token…?" prompt. For headless setups pass `--github-token`, or set
-`GITHUB_TOKEN` in `.env` directly. Changing the token takes effect for a project
-the next time its sandbox (re)starts.
+`GITHUB_TOKEN` in `.env` directly. Changing the token takes effect the next time
+a project starts or wakes: the sandbox policy files are rewritten, and a server
+still running with the old policy is restarted automatically.
 
 ## Multiple guilds
 
