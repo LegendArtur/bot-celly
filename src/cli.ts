@@ -6,7 +6,7 @@ import { applyHome } from "./cli/home.js"
 import type { ApplyHomeResult } from "./cli/home.js"
 import { createUi } from "./cli/ui.js"
 import type { Ui } from "./cli/ui.js"
-import { createPrompter, runWizard } from "./cli/wizard.js"
+import { createPrompter, persistEnvUpdates, runWizard } from "./cli/wizard.js"
 import type { Prompter } from "./cli/wizard.js"
 import { hasHardFailure, reportDoctor, runDoctor } from "./cli/doctor.js"
 import { SbxRunner } from "./sbx.js"
@@ -19,7 +19,7 @@ Usage: bot-celly [command] [flags]
 Commands:
   (none)      Set up on first run, then start the bot
   run         Start the bot (same as passing no command)
-  setup       Re-run the setup wizard
+  setup       Re-run the setup wizard; with flags, update just those values
   doctor      Check host prerequisites and configuration
   --version   Print the version
   --help      Show this help
@@ -27,7 +27,7 @@ Commands:
 Flags:
   --token <value>         Discord bot token (headless)
   --guilds <a,b,c>        Comma-separated guild IDs (headless)
-  --github-token <value>  GitHub token for the sandboxes (optional, headless)
+  --github-token <value>  GitHub token for the sandboxes (optional; empty removes it)
   --home <dir>            Config and data directory (default ~/.bot-celly)
   --run                   With setup, start the bot after setup`
 
@@ -77,8 +77,26 @@ export async function runCli(deps: RunCliDeps): Promise<number> {
 
   const applied = appliedHome({ env })
 
+  const updates: Record<string, string> = {}
+  const remove: string[] = []
+  if (options.token !== undefined) updates.DISCORD_TOKEN = options.token
+  if (options.guilds !== undefined) updates.DISCORD_GUILD_IDS = options.guilds
+  if (options.githubToken !== undefined) {
+    if (options.githubToken.trim() === "") remove.push("GITHUB_TOKEN", "GH_TOKEN")
+    else updates.GITHUB_TOKEN = options.githubToken
+  }
+  const targetedSetup = options.command === "setup" && (Object.keys(updates).length > 0 || remove.length > 0)
   const configOk = configPresent(env)
-  const wantsWizard = options.command === "setup" || (options.command !== "doctor" && !configOk)
+  if (targetedSetup) {
+    persistEnvUpdates({ envFile: applied.envFile }, updates, remove)
+    ui.status("ok", `Updated ${[...Object.keys(updates), ...remove].join(", ")} in ${applied.envFile}`)
+    if (!options.run && configOk) {
+      ui.hint("Restart the bot to apply the change.")
+      return 0
+    }
+  }
+
+  const wantsWizard = (!targetedSetup && options.command === "setup") || (options.command !== "doctor" && !configOk)
   if (wantsWizard) {
     if (!isTTY) {
       if (configOk) {

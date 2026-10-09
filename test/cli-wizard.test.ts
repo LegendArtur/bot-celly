@@ -29,6 +29,11 @@ test("mergeEnv creates a fresh file when there is no existing content", () => {
   expect(mergeEnv("", { DISCORD_TOKEN: "t", DISCORD_GUILD_IDS: "1" })).toBe("DISCORD_TOKEN=t\nDISCORD_GUILD_IDS=1\n")
 })
 
+test("mergeEnv removes keys when asked", () => {
+  const existing = "DISCORD_TOKEN=t\nGITHUB_TOKEN=old\nGH_TOKEN=old2\n"
+  expect(mergeEnv(existing, {}, ["GITHUB_TOKEN", "GH_TOKEN"])).toBe("DISCORD_TOKEN=t\n")
+})
+
 test("runWizard collects values, writes 0600, and refreshes process.env", async () => {
   const env: NodeJS.ProcessEnv = {}
   const writes: Array<{ path: string; data: string; mode: number }> = []
@@ -77,6 +82,70 @@ test("runWizard skips the GitHub token on no", async () => {
   expect(result.githubToken).toBeUndefined()
   expect(writes[0]).not.toContain("GITHUB_TOKEN")
   expect(env.GITHUB_TOKEN).toBeUndefined()
+})
+
+test("runWizard keeps existing token and guilds on empty input", async () => {
+  const env: NodeJS.ProcessEnv = { DISCORD_TOKEN: "old-token", DISCORD_GUILD_IDS: "123456789012345678" }
+  const writes: string[] = []
+  const result = await runWizard({
+    env,
+    envFile: "/tmp/.env",
+    ui: silentUi(),
+    prompter: fakePrompter({ secret: [""], visible: ["", ""] }),
+    readFile: () => "",
+    writeFile: (_path, data) => { writes.push(data) },
+  })
+  expect(result.token).toBe("old-token")
+  expect(result.guilds).toEqual(["123456789012345678"])
+  expect(writes[0]).toContain("DISCORD_TOKEN=old-token")
+  expect(writes[0]).toContain("DISCORD_GUILD_IDS=123456789012345678")
+})
+
+test("runWizard keeps, updates, or removes the existing GitHub token", async () => {
+  const base = { DISCORD_TOKEN: "t", DISCORD_GUILD_IDS: "123456789012345678", GITHUB_TOKEN: "ghp_old" }
+
+  const keepEnv: NodeJS.ProcessEnv = { ...base }
+  let keepData = ""
+  const kept = await runWizard({
+    env: keepEnv,
+    envFile: "/tmp/.env",
+    ui: silentUi(),
+    prompter: fakePrompter({ secret: [""], visible: ["", "k"] }),
+    readFile: () => "GITHUB_TOKEN=ghp_old\n",
+    writeFile: (_path, data) => { keepData = data },
+  })
+  expect(kept.githubToken).toBe("ghp_old")
+  expect(keepData).toContain("GITHUB_TOKEN=ghp_old")
+  expect(keepEnv.GITHUB_TOKEN).toBe("ghp_old")
+
+  const updateEnv: NodeJS.ProcessEnv = { ...base }
+  let updateData = ""
+  const updated = await runWizard({
+    env: updateEnv,
+    envFile: "/tmp/.env",
+    ui: silentUi(),
+    prompter: fakePrompter({ secret: ["", "ghp_new"], visible: ["", "u"] }),
+    readFile: () => "GITHUB_TOKEN=ghp_old\n",
+    writeFile: (_path, data) => { updateData = data },
+  })
+  expect(updated.githubToken).toBe("ghp_new")
+  expect(updateData).toContain("GITHUB_TOKEN=ghp_new")
+  expect(updateData).not.toContain("ghp_old")
+  expect(updateEnv.GITHUB_TOKEN).toBe("ghp_new")
+
+  const removeEnv: NodeJS.ProcessEnv = { ...base }
+  let removeData = ""
+  const removed = await runWizard({
+    env: removeEnv,
+    envFile: "/tmp/.env",
+    ui: silentUi(),
+    prompter: fakePrompter({ secret: [""], visible: ["", "r"] }),
+    readFile: () => "GITHUB_TOKEN=ghp_old\n",
+    writeFile: (_path, data) => { removeData = data },
+  })
+  expect(removed.githubToken).toBeUndefined()
+  expect(removeData).not.toContain("GITHUB_TOKEN")
+  expect(removeEnv.GITHUB_TOKEN).toBeUndefined()
 })
 
 test("runWizard re-prompts on a bad guild id and an empty token", async () => {

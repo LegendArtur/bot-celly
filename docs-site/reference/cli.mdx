@@ -16,10 +16,23 @@ npx bot-celly@latest
 | --- | --- |
 | `bot-celly` | Set up on first run (wizard), check the host, then start the bot. |
 | `bot-celly run` | Start the bot (same as passing no command). |
-| `bot-celly setup` | Re-run the setup wizard. Add `--run` to start after setup. |
+| `bot-celly setup` | Re-run the setup wizard. With `--token`, `--guilds`, or `--github-token` it updates just those values, no prompts. Add `--run` to start after setup. |
 | `bot-celly doctor` | Check prerequisites and configuration; never starts the bot. |
 | `bot-celly --version` · `-v` | Print the version. |
 | `bot-celly --help` · `-h` | Show usage. |
+
+## Updating a single value
+
+Any configuration flag turns `setup` into a targeted update — only the keys you
+pass are rewritten in the env file, and the wizard is skipped:
+
+```bash
+npx bot-celly setup --github-token ghp_...   # add or replace the GitHub token
+npx bot-celly setup --github-token ""        # remove it
+```
+
+Restart the bot afterwards to apply the change. If the Discord token or guild
+IDs are still missing, `setup` falls back to the wizard for those.
 
 ## Flags
 
@@ -27,19 +40,20 @@ npx bot-celly@latest
 | --- | --- |
 | `--token <value>` | Discord bot token, for headless setup. |
 | `--guilds <a,b,c>` | Comma-separated guild IDs, for headless setup. |
-| `--github-token <value>` | Optional GitHub token copied into every sandbox (see [GitHub token](/guides/configuration#github-token)). |
+| `--github-token <value>` | Optional GitHub token copied into every sandbox (see [GitHub token](/guides/configuration#github-token)); pass an empty value to remove it. |
 | `--home <dir>` | Config and data directory; same as `CELLY_HOME`. |
 | `--run` | With `setup`, start the bot after setup. |
 
 ## Configuration and data
 
 The wizard writes `~/.bot-celly/.env` (Windows:
-`%USERPROFILE%\.bot-celly\.env`) with mode `600`. On an interactive run it also
-asks whether to add a GitHub token for the sandboxes (stored as
-`GITHUB_TOKEN`; skip it with `n` or pass `--github-token`). `DATA_DIR` defaults to
-`~/.bot-celly/data`; `PROJECTS_ROOT` still defaults to `~/Celly/projects`. Set
-`CELLY_HOME` to move the directory, and `CELLY_ASCII=1` to force ASCII output
-symbols even when color is on. See
+`%USERPROFILE%\.bot-celly\.env`) with mode `600`. Existing values are shown as
+defaults — press Enter to keep them. On a first run it also asks whether to add
+a GitHub token for the sandboxes (stored as `GITHUB_TOKEN`; skip it with `n` or
+pass `--github-token`); when a token already exists the prompt offers
+keep/update/remove. `DATA_DIR` defaults to `~/.bot-celly/data`; `PROJECTS_ROOT`
+still defaults to `~/Celly/projects`. Set `CELLY_HOME` to move the directory,
+and `CELLY_ASCII=1` to force ASCII output symbols even when color is on. See
 [Configuration](/guides/configuration) for every variable.
 
 ## Exit codes

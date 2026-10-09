@@ -1,4 +1,5 @@
 import { expect, test, vi } from "vitest"
+import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { runCli } from "../src/cli.ts"
 import type { RunCliDeps } from "../src/cli.ts"
@@ -154,5 +155,64 @@ test("setup stops after setup unless --run is passed", async () => {
 
     expect(await runCli(makeDeps(dir, { ...deps, argv: [...base, "--run"] }))).toBe(0)
     expect(mainCalls).toBe(1)
+  })
+})
+
+test("setup with a single flag updates just that key without prompting", async () => {
+  await withTempDir("celly-cli-", async (dir) => {
+    const envFile = join(dir, ".env")
+    writeFileSync(envFile, "DISCORD_TOKEN=old\nDISCORD_GUILD_IDS=123456789012345678\nGITHUB_TOKEN=old-gh\n", { mode: 0o600 })
+    let prompterCalls = 0
+    let mainCalls = 0
+    const code = await runCli(makeDeps(dir, {
+      argv: ["setup", "--github-token", "new-gh"],
+      env: { DISCORD_TOKEN: "old", DISCORD_GUILD_IDS: "123456789012345678" },
+      isTTY: true,
+      makePrompter: () => { prompterCalls++; return fakePrompter() },
+      main: async () => { mainCalls++ },
+    }))
+    expect(code).toBe(0)
+    expect(prompterCalls).toBe(0)
+    expect(mainCalls).toBe(0)
+    const contents = readFileSync(envFile, "utf8")
+    expect(contents).toContain("GITHUB_TOKEN=new-gh")
+    expect(contents).toContain("DISCORD_TOKEN=old")
+    expect(contents).not.toContain("old-gh")
+  })
+})
+
+test("setup with an empty --github-token removes the token without prompting", async () => {
+  await withTempDir("celly-cli-", async (dir) => {
+    const envFile = join(dir, ".env")
+    writeFileSync(envFile, "DISCORD_TOKEN=old\nDISCORD_GUILD_IDS=123456789012345678\nGITHUB_TOKEN=old-gh\n", { mode: 0o600 })
+    const code = await runCli(makeDeps(dir, {
+      argv: ["setup", "--github-token", ""],
+      env: { DISCORD_TOKEN: "old", DISCORD_GUILD_IDS: "123456789012345678" },
+      isTTY: true,
+      makePrompter: () => { throw new Error("prompter must not be created") },
+    }))
+    expect(code).toBe(0)
+    expect(readFileSync(envFile, "utf8")).not.toContain("GITHUB_TOKEN")
+  })
+})
+
+test("targeted setup falls back to the wizard when required config is missing", async () => {
+  await withTempDir("celly-cli-", async (dir) => {
+    let prompterCalls = 0
+    const code = await runCli(makeDeps(dir, {
+      argv: ["setup", "--github-token", "ghp_new"],
+      env: { DISCORD_TOKEN: "t" },
+      isTTY: true,
+      makePrompter: () => {
+        prompterCalls++
+        return { ask: async () => "123456789012345678", askSecret: async () => "", close: () => {} }
+      },
+    }))
+    expect(code).toBe(0)
+    expect(prompterCalls).toBe(1)
+    const contents = readFileSync(join(dir, ".env"), "utf8")
+    expect(contents).toContain("DISCORD_TOKEN=t")
+    expect(contents).toContain("DISCORD_GUILD_IDS=123456789012345678")
+    expect(contents).toContain("GITHUB_TOKEN=ghp_new")
   })
 })

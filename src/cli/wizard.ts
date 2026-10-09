@@ -32,24 +32,43 @@ const defaultWriteFile = (path: string, data: string, options: { mode: number })
   try { chmodSync(path, options.mode) } catch {}
 }
 
-export function mergeEnv(existing: string, updates: Record<string, string>): string {
+export function mergeEnv(existing: string, updates: Record<string, string>, remove: string[] = []): string {
   const lines = existing.length > 0 ? existing.split(/\r?\n/) : []
+  const removed = new Set(remove)
   const seen = new Set<string>()
-  const out = lines.map((line) => {
+  const out: string[] = []
+  for (const line of lines) {
     const match = /^([A-Z0-9_]+)=/.exec(line)
     const key = match?.[1]
+    if (key && removed.has(key)) continue
     if (key && Object.prototype.hasOwnProperty.call(updates, key)) {
       seen.add(key)
-      return `${key}=${updates[key]}`
+      out.push(`${key}=${updates[key]}`)
+      continue
     }
-    return line
-  })
+    out.push(line)
+  }
   const missing = Object.keys(updates).filter((key) => !seen.has(key))
   if (missing.length > 0) {
     if (out.length > 0 && out[out.length - 1] !== "") out.push("")
     for (const key of missing) out.push(`${key}=${updates[key]}`)
   }
   return out.join("\n").replace(/\n*$/, "\n")
+}
+
+export interface EnvFileDeps {
+  envFile: string
+  readFile?: (path: string) => string
+  writeFile?: (path: string, data: string, options: { mode: number }) => void
+}
+
+/** Merge updates (and removals) into the env file, creating it with mode 0600. */
+export function persistEnvUpdates(deps: EnvFileDeps, updates: Record<string, string>, remove: string[] = []): void {
+  const readFile = deps.readFile ?? ((path: string) => readFileSync(path, "utf8"))
+  const writeFile = deps.writeFile ?? defaultWriteFile
+  let existing = ""
+  try { existing = readFile(deps.envFile) } catch { existing = "" }
+  writeFile(deps.envFile, mergeEnv(existing, updates, remove), { mode: 0o600 })
 }
 
 export async function runWizard(deps: WizardDeps): Promise<WizardResult> {
@@ -62,15 +81,25 @@ export async function runWizard(deps: WizardDeps): Promise<WizardResult> {
   ui.bullet(`Saves your Discord token and guild IDs to ${deps.envFile} (mode 600).`)
   ui.bullet("Everything else has a sensible default.")
 
-  let token = ""
-  while (token.length === 0) {
-    token = (await prompter.askSecret("Discord bot token: ")).trim()
-    if (token.length === 0) ui.status("warn", "A token is required.")
+  const existingToken = env.DISCORD_TOKEN?.trim()
+  let token = existingToken ?? ""
+  if (token.length > 0) {
+    const entered = (await prompter.askSecret("Discord bot token (Enter to keep the current one): ")).trim()
+    if (entered.length > 0) token = entered
+  } else {
+    while (token.length === 0) {
+      token = (await prompter.askSecret("Discord bot token: ")).trim()
+      if (token.length === 0) ui.status("warn", "A token is required.")
+    }
   }
 
+  let existingGuilds: string[] = []
+  try { existingGuilds = parseGuildIds(env) ?? [] } catch { existingGuilds = [] }
   let guilds: string[] = []
   for (;;) {
-    const raw = (await prompter.ask("Discord guild IDs (comma-separated): ")).trim()
+    const suffix = existingGuilds.length > 0 ? ` [${existingGuilds.join(",")}]` : ""
+    const raw = (await prompter.ask(`Discord guild IDs (comma-separated)${suffix}: `)).trim()
+    if (raw === "" && existingGuilds.length > 0) { guilds = existingGuilds; break }
     let parsed: string[] | undefined
     try { parsed = parseGuildIds({ DISCORD_GUILD_IDS: raw }) } catch { parsed = undefined }
     const invalid = (parsed ?? []).filter((id) => !GUILD_RE.test(id))
@@ -80,28 +109,42 @@ export async function runWizard(deps: WizardDeps): Promise<WizardResult> {
 
   // Optional: a shared GitHub token shipped into every sandbox so the agent can
   // clone/fetch/push private repos. Entered hidden, stored 0600 in the env file.
+  const existingGithub = env.GITHUB_TOKEN?.trim()
   let githubToken: string | undefined
-  const wantsGithub = (await prompter.ask("Add a GitHub token so the agent can clone/push private repos? (y/N) ")).trim().toLowerCase()
-  if (wantsGithub === "y" || wantsGithub === "yes") {
-    const entered = (await prompter.askSecret("GitHub token (github.com, repo scope): ")).trim()
-    if (entered.length > 0) githubToken = entered
-    else ui.status("warn", "No token entered; skipping GitHub.")
+  let removeGithub = false
+  if (existingGithub) {
+    const choice = (await prompter.ask("GitHub token — keep, update, or remove? (k/u/r) [k]: ")).trim().toLowerCase()
+    if (choice === "u" || choice === "update") {
+      const entered = (await prompter.askSecret("GitHub token (github.com, repo scope): ")).trim()
+      if (entered.length > 0) githubToken = entered
+      else { ui.status("warn", "No token entered; keeping the current one."); githubToken = existingGithub }
+    } else if (choice === "r" || choice === "remove") {
+      removeGithub = true
+    } else {
+      githubToken = existingGithub
+    }
+  } else {
+    const wantsGithub = (await prompter.ask("Add a GitHub token so the agent can clone/push private repos? (y/N) ")).trim().toLowerCase()
+    if (wantsGithub === "y" || wantsGithub === "yes") {
+      const entered = (await prompter.askSecret("GitHub token (github.com, repo scope): ")).trim()
+      if (entered.length > 0) githubToken = entered
+      else ui.status("warn", "No token entered; skipping GitHub.")
+    }
   }
   prompter.close()
 
   const updates: Record<string, string> = { DISCORD_TOKEN: token, DISCORD_GUILD_IDS: guilds.join(",") }
-  if (githubToken) updates.GITHUB_TOKEN = githubToken
+  if (githubToken && !removeGithub) updates.GITHUB_TOKEN = githubToken
+  const remove = removeGithub ? ["GITHUB_TOKEN", "GH_TOKEN"] : []
   loadConfig({ ...env, ...updates })
 
-  let existing = ""
-  try { existing = readFile(deps.envFile) } catch { existing = "" }
-  writeFile(deps.envFile, mergeEnv(existing, updates), { mode: 0o600 })
-
+  persistEnvUpdates({ envFile: deps.envFile, readFile, writeFile }, updates, remove)
   env.DISCORD_TOKEN = token
   env.DISCORD_GUILD_IDS = guilds.join(",")
-  if (githubToken) env.GITHUB_TOKEN = githubToken
+  if (githubToken && !removeGithub) env.GITHUB_TOKEN = githubToken
+  if (removeGithub) { delete env.GITHUB_TOKEN; delete env.GH_TOKEN }
   ui.status("ok", `Saved config to ${deps.envFile}`)
-  return { token, guilds, ...(githubToken ? { githubToken } : {}) }
+  return { token, guilds, ...(githubToken && !removeGithub ? { githubToken } : {}) }
 }
 
 export function createPrompter(input: NodeJS.ReadableStream, output: NodeJS.WritableStream): Prompter {

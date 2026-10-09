@@ -68,7 +68,8 @@ Full documentation: **https://celly.agub.dev**
    `~/Celly/projects`.
 
    `npx bot-celly doctor` checks the host without starting; `npx bot-celly setup`
-   reconfigures.
+   reconfigures — or updates a single value without prompts, e.g.
+   `npx bot-celly setup --github-token <value>`.
 
 3. **Add a project.** In Discord:
 
