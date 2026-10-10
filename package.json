@@ -1,6 +1,6 @@
 {
   "name": "bot-celly",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Drive OpenCode coding agents from Discord, with one isolated microVM per project.",
   "keywords": [
     "discord",

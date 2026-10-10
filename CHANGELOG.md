@@ -1,5 +1,24 @@
 # celly
 
+## 0.4.0
+
+### Minor Changes
+
+- b65ff77: Guided Discord onboarding in `bot-celly`/`bot-celly setup`: the bot token is now
+  verified against Discord, the required Gateway Intents are checked (with a direct
+  Developer Portal link when one is off), a ready-made invite URL is printed, and
+  the guilds the bot can see are listed so you can pick one instead of pasting IDs.
+  `bot-celly doctor` gained a Discord row that reports the bot identity, the intent
+  state, and a bad token (hard) versus an unreachable API (advisory). Everything
+  still works offline, falling back to the previous manual token/guild entry.
+
+### Patch Changes
+
+- 602d28a: Fix projects failing to wake after `GITHUB_TOKEN` is added or removed: the
+  sandbox policy files are now rewritten on every (re)start, and a server still
+  running with the old baked policy is rebooted automatically instead of failing
+  the wake with "celly permission policy was not enforced".
+
 ## 0.3.1
 
 ### Patch Changes
