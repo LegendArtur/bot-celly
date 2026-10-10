@@ -216,6 +216,25 @@ root and a warning is written to the console; the bot never runs a fallible
 git operation through a shell. `/worktree merge` refuses dirty worktrees and
 dirty project roots before it touches the main branch.
 
+## Discord invite permissions
+
+The invite URL the setup wizard prints requests only what the bot needs, by name
+(the decimal bitfield is built in `src/discord-api.ts`):
+
+| Permission | Why |
+| --- | --- |
+| View Channels | See the project channels it is added to. |
+| Send Messages · Send Messages in Threads | Stream replies in channels and threads. |
+| Create Public Threads | Open a thread per session. |
+| Read Message History | Resume and continue an existing thread. |
+| Manage Channels | Create the `#project` channels under the Forge category. |
+| Embed Links · Attach Files | Post status cards and sandbox file attachments. |
+| Add Reactions | Reflect session state on its own messages. |
+
+It requests only the `bot` and `applications.commands` scopes and never more
+permissions than the table above. The set lives in one place — a permission added
+there must be added to this table in the same change.
+
 ## Secrets
 
 - `DISCORD_TOKEN` and the optional `GITHUB_TOKEN` live only in `.env`

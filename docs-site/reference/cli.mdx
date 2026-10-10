@@ -16,8 +16,8 @@ npx bot-celly@latest
 | --- | --- |
 | `bot-celly` | Set up on first run (wizard), check the host, then start the bot. |
 | `bot-celly run` | Start the bot (same as passing no command). |
-| `bot-celly setup` | Re-run the setup wizard. With `--token`, `--guilds`, or `--github-token` it updates just those values, no prompts. Add `--run` to start after setup. |
-| `bot-celly doctor` | Check prerequisites and configuration; never starts the bot. |
+| `bot-celly setup` | Re-run the setup wizard (see [Guided Discord setup](#guided-discord-setup)). With `--token`, `--guilds`, or `--github-token` it updates just those values, no prompts. Add `--run` to start after setup. |
+| `bot-celly doctor` | Check prerequisites, configuration, and Discord access; never starts the bot. |
 | `bot-celly --version` · `-v` | Print the version. |
 | `bot-celly --help` · `-h` | Show usage. |
 
@@ -43,6 +43,26 @@ IDs are still missing, `setup` falls back to the wizard for those.
 | `--github-token <value>` | Optional GitHub token copied into every sandbox (see [GitHub token](/guides/configuration#github-token)); pass an empty value to remove it. |
 | `--home <dir>` | Config and data directory; same as `CELLY_HOME`. |
 | `--run` | With `setup`, start the bot after setup. |
+
+## Guided Discord setup
+
+On a first run — or any interactive `setup` — Celly verifies your bot token
+against Discord and helps you finish the Discord side without leaving the
+terminal:
+
+- **Token check.** It prints the bot the token belongs to so you can confirm it.
+- **Intents.** If the **Message Content** or **Server Members** intent is off it
+  warns you and prints the exact Developer Portal URL to enable it. Message
+  Content off is the usual reason a bot never comes online.
+- **Invite URL.** A ready-made invite link carrying the permissions Celly needs
+  (see [Discord invite permissions](/reference/security#discord-invite-permissions)).
+- **Guild discovery.** It lists the guilds the bot can already see; pick one by
+  number, or type `manual` to paste IDs.
+
+Everything is best-effort: with no network the wizard falls back to the previous
+manual token and guild-ID prompts, so setup always completes. `bot-celly doctor`
+runs the same checks and reports the bot identity, the intent state, and a bad
+token (hard failure) versus an unreachable API (advisory).
 
 ## Configuration and data
 

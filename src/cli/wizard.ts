@@ -2,6 +2,8 @@ import { chmodSync, readFileSync, writeFileSync } from "node:fs"
 import { emitKeypressEvents } from "node:readline"
 import { createInterface } from "node:readline/promises"
 import { loadConfig, parseGuildIds } from "../config.js"
+import { DiscordApiError, buildInviteUrl, intentStatus, settingsUrl } from "../discord-api.js"
+import type { DiscordSetup, GuildInfo } from "../discord-api.js"
 import type { Ui } from "./ui.js"
 
 export interface Prompter {
@@ -15,6 +17,8 @@ export interface WizardDeps {
   envFile: string
   ui: Ui
   prompter: Prompter
+  /** Optional Discord client; when omitted the wizard stays fully offline. */
+  discord?: DiscordSetup
   readFile?: (path: string) => string
   writeFile?: (path: string, data: string, options: { mode: number }) => void
 }
@@ -93,18 +97,79 @@ export async function runWizard(deps: WizardDeps): Promise<WizardResult> {
     }
   }
 
+  // Verify the token against Discord and surface what would otherwise require a
+  // trip to the Developer Portal: which bot it is, whether the privileged
+  // Gateway Intents are on, and a ready-made invite URL. Every call is
+  // best-effort — an unreachable Discord never blocks setup.
+  let applicationId: string | undefined
+  let discoveredGuilds: GuildInfo[] | undefined
+  if (deps.discord) {
+    try {
+      const identity = await deps.discord.validateToken(token)
+      applicationId = identity.id
+      ui.status("ok", `Discord bot: ${identity.username}`, `#${identity.id}`)
+      try {
+        const application = await deps.discord.getApplication(token)
+        applicationId = application.id
+        const intents = intentStatus(application.flags)
+        if (!intents.messageContent) {
+          ui.status("warn", "Message Content intent is OFF", "the bot will not come online")
+          ui.hint(`Enable it, then Save: ${settingsUrl(application.id)}`)
+        }
+        if (!intents.guildMembers) {
+          ui.status("warn", "Server Members intent is OFF", "member lookups may fail")
+        }
+      } catch { /* the application lookup is best-effort */ }
+      if (applicationId) ui.status("info", "Invite the bot", buildInviteUrl(applicationId))
+      try { discoveredGuilds = await deps.discord.listGuilds(token) } catch { discoveredGuilds = undefined }
+    } catch (error) {
+      if (error instanceof DiscordApiError && error.kind === "unauthorized") {
+        ui.status("warn", "Discord rejected that token", "double-check it was copied whole")
+      } else {
+        ui.status("warn", "Could not reach Discord; continuing with manual setup.")
+      }
+    }
+  }
+
   let existingGuilds: string[] = []
   try { existingGuilds = parseGuildIds(env) ?? [] } catch { existingGuilds = [] }
   let guilds: string[] = []
-  for (;;) {
-    const suffix = existingGuilds.length > 0 ? ` [${existingGuilds.join(",")}]` : ""
-    const raw = (await prompter.ask(`Discord guild IDs (comma-separated)${suffix}: `)).trim()
-    if (raw === "" && existingGuilds.length > 0) { guilds = existingGuilds; break }
-    let parsed: string[] | undefined
-    try { parsed = parseGuildIds({ DISCORD_GUILD_IDS: raw }) } catch { parsed = undefined }
-    const invalid = (parsed ?? []).filter((id) => !GUILD_RE.test(id))
-    if (parsed && parsed.length > 0 && invalid.length === 0) { guilds = parsed; break }
-    ui.status("warn", invalid.length > 0 ? `Not a guild ID: ${invalid.join(", ")}` : "Enter at least one guild ID.")
+
+  const list = discoveredGuilds
+  if (list && list.length > 0) {
+    ui.bullet("Guilds this bot can see:")
+    list.forEach((guild, index) => { ui.bullet(`  ${index + 1}. ${guild.name} (${guild.id})`) })
+    for (;;) {
+      const raw = (await prompter.ask("Pick guild number(s), comma-separated, or 'manual' to type IDs: ")).trim()
+      if (raw === "") {
+        if (existingGuilds.length > 0) { guilds = existingGuilds; break }
+        ui.status("warn", "Enter at least one number.")
+        continue
+      }
+      if (raw.toLowerCase() === "manual" || raw.toLowerCase() === "m") break
+      const chosen = raw.split(",")
+        .map((part) => Number.parseInt(part.trim(), 10))
+        .map((n) => (Number.isInteger(n) && n >= 1 && n <= list.length ? list[n - 1] : undefined))
+        .filter((guild): guild is GuildInfo => guild !== undefined)
+        .map((guild) => guild.id)
+      if (chosen.length > 0) { guilds = [...new Set(chosen)]; break }
+      ui.status("warn", `Enter a number from 1 to ${list.length}, or 'manual'.`)
+    }
+  } else if (list) {
+    ui.hint("No guilds yet — invite the bot with the link above, then re-run setup to pick one.")
+  }
+
+  if (guilds.length === 0) {
+    for (;;) {
+      const suffix = existingGuilds.length > 0 ? ` [${existingGuilds.join(",")}]` : ""
+      const raw = (await prompter.ask(`Discord guild IDs (comma-separated)${suffix}: `)).trim()
+      if (raw === "" && existingGuilds.length > 0) { guilds = existingGuilds; break }
+      let parsed: string[] | undefined
+      try { parsed = parseGuildIds({ DISCORD_GUILD_IDS: raw }) } catch { parsed = undefined }
+      const invalid = (parsed ?? []).filter((id) => !GUILD_RE.test(id))
+      if (parsed && parsed.length > 0 && invalid.length === 0) { guilds = parsed; break }
+      ui.status("warn", invalid.length > 0 ? `Not a guild ID: ${invalid.join(", ")}` : "Enter at least one guild ID.")
+    }
   }
 
   // Optional: a shared GitHub token shipped into every sandbox so the agent can

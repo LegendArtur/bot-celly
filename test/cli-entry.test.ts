@@ -5,6 +5,8 @@ import { runCli } from "../src/cli.ts"
 import type { RunCliDeps } from "../src/cli.ts"
 import type { Ui } from "../src/cli/ui.ts"
 import type { Prompter } from "../src/cli/wizard.ts"
+import { DiscordApiError } from "../src/discord-api.ts"
+import type { DiscordSetup } from "../src/discord-api.ts"
 import { withTempDir } from "./helpers/tmp.ts"
 
 vi.mock("../src/cli/doctor.ts", async (importOriginal) => {
@@ -38,6 +40,14 @@ const okSbx = async (args: string[]) => ({
   stderr: "",
 })
 
+// Keep the CLI tests off the network: the default Discord client would otherwise
+// call discord.com from the wizard/doctor paths.
+const offlineDiscord: DiscordSetup = {
+  validateToken: async () => { throw new DiscordApiError("network", "offline") },
+  getApplication: async () => { throw new DiscordApiError("network", "offline") },
+  listGuilds: async () => { throw new DiscordApiError("network", "offline") },
+}
+
 function makeDeps(dir: string, extra: Partial<RunCliDeps> = {}): RunCliDeps {
   return {
     argv: [],
@@ -47,6 +57,7 @@ function makeDeps(dir: string, extra: Partial<RunCliDeps> = {}): RunCliDeps {
     applyHome: () => ({ home: dir, envFile: join(dir, ".env"), dataDir: join(dir, "data"), envFileLoaded: true }),
     makePrompter: fakePrompter,
     runSbx: okSbx,
+    discord: offlineDiscord,
     ...extra,
   }
 }

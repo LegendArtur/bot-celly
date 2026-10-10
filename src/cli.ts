@@ -9,6 +9,8 @@ import type { Ui } from "./cli/ui.js"
 import { createPrompter, persistEnvUpdates, runWizard } from "./cli/wizard.js"
 import type { Prompter } from "./cli/wizard.js"
 import { hasHardFailure, reportDoctor, runDoctor } from "./cli/doctor.js"
+import { createDiscordSetup } from "./discord-api.js"
+import type { DiscordSetup } from "./discord-api.js"
 import { SbxRunner } from "./sbx.js"
 import type { RunResult } from "./sbx.js"
 
@@ -19,8 +21,10 @@ Usage: bot-celly [command] [flags]
 Commands:
   (none)      Set up on first run, then start the bot
   run         Start the bot (same as passing no command)
-  setup       Re-run the setup wizard; with flags, update just those values
-  doctor      Check host prerequisites and configuration
+  setup       Re-run the setup wizard (verifies your token, checks the Discord
+              intents, prints an invite link, and lists your guilds); with
+              flags, update just those values
+  doctor      Check host prerequisites, configuration, and Discord access
   --version   Print the version
   --help      Show this help
 
@@ -50,6 +54,7 @@ export interface RunCliDeps {
   applyHome?: (deps: { env: NodeJS.ProcessEnv }) => ApplyHomeResult
   makePrompter?: () => Prompter
   runSbx?: (args: string[]) => Promise<RunResult>
+  discord?: DiscordSetup
   main?: () => Promise<void>
 }
 
@@ -58,6 +63,7 @@ export async function runCli(deps: RunCliDeps): Promise<number> {
   const appliedHome = deps.applyHome ?? applyHome
   const makePrompter = deps.makePrompter ?? (() => createPrompter(process.stdin, process.stdout))
   const runSbx = deps.runSbx ?? ((args: string[]) => new SbxRunner().run(args))
+  const discord = deps.discord ?? createDiscordSetup()
   const main = deps.main ?? (async () => { const { main } = await import("./index.js"); await main() })
 
   const parsed = parseArgs(argv)
@@ -108,11 +114,11 @@ export async function runCli(deps: RunCliDeps): Promise<number> {
       }
     } else {
       const prompter = makePrompter()
-      await runWizard({ env, envFile: applied.envFile, ui, prompter })
+      await runWizard({ env, envFile: applied.envFile, ui, prompter, discord })
     }
   }
 
-  const results = await runDoctor({ env, home: applied.home, dataDir: applied.dataDir, runSbx })
+  const results = await runDoctor({ env, home: applied.home, dataDir: applied.dataDir, runSbx, discord })
   reportDoctor(results, ui)
 
   if (options.command === "doctor") return hasHardFailure(results) ? 1 : 0

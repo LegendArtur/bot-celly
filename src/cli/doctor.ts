@@ -1,6 +1,8 @@
 import { mkdirSync } from "node:fs"
 import { loadConfig } from "../config.js"
 import type { RunResult } from "../sbx.js"
+import { DiscordApiError, intentStatus, settingsUrl } from "../discord-api.js"
+import type { DiscordSetup } from "../discord-api.js"
 import type { StatusKind, Ui, UiRow } from "./ui.js"
 
 export type CheckKind = "hard" | "advisory"
@@ -20,6 +22,8 @@ export interface DoctorDeps {
   nodeVersion?: string
   runSbx?: (args: string[]) => Promise<RunResult>
   mkdir?: (path: string) => void
+  /** Optional Discord client; when omitted no Discord row is emitted. */
+  discord?: DiscordSetup
 }
 
 export function satisfiesNode(version: string): boolean {
@@ -60,6 +64,30 @@ export async function runDoctor(deps: DoctorDeps): Promise<CheckResult[]> {
     results.push({ name: "Config", ok: true, kind: "hard", detail: "token and guild IDs present" })
   } catch (error) {
     results.push({ name: "Config", ok: false, kind: "hard", detail: (error as Error).message, fix: "Set DISCORD_TOKEN and DISCORD_GUILD_IDS, or run `bot-celly setup`." })
+  }
+
+  if (deps.discord) {
+    const token = deps.env.DISCORD_TOKEN?.trim()
+    if (!token) {
+      results.push({ name: "Discord", ok: false, kind: "advisory", detail: "no token to verify", fix: "Set DISCORD_TOKEN or run `bot-celly setup`." })
+    } else {
+      try {
+        const identity = await deps.discord.validateToken(token)
+        const detail = `${identity.username} (#${identity.id})`
+        const application = await deps.discord.getApplication(token).catch(() => undefined)
+        if (application && !intentStatus(application.flags).messageContent) {
+          results.push({ name: "Discord", ok: false, kind: "advisory", detail: `${detail} — Message Content intent OFF`, fix: `Enable Message Content Intent: ${settingsUrl(application.id)}` })
+        } else {
+          results.push({ name: "Discord", ok: true, kind: "hard", detail })
+        }
+      } catch (error) {
+        if (error instanceof DiscordApiError && error.kind === "unauthorized") {
+          results.push({ name: "Discord", ok: false, kind: "hard", detail: "token rejected (401)", fix: "Run `bot-celly setup` with a valid bot token." })
+        } else {
+          results.push({ name: "Discord", ok: false, kind: "advisory", detail: "could not reach Discord", fix: "Check your network; setup still works offline." })
+        }
+      }
+    }
   }
 
   try {

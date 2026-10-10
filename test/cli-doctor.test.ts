@@ -1,6 +1,8 @@
 import { expect, test } from "vitest"
 import { hasHardFailure, reportDoctor, runDoctor, satisfiesNode } from "../src/cli/doctor.ts"
 import { createUi } from "../src/cli/ui.ts"
+import { DiscordApiError } from "../src/discord-api.ts"
+import type { DiscordSetup } from "../src/discord-api.ts"
 
 const baseEnv = { DISCORD_TOKEN: "t", DISCORD_GUILD_ID: "123456789012345678" }
 const okSbx = async (args: string[]) => ({ code: 0, stdout: args[0] === "version" ? "sbx 0.45.0\n" : "balanced\n", stderr: "" })
@@ -54,4 +56,45 @@ test("reportDoctor prints pass and fail lines", async () => {
   expect(text).toContain("Celly doctor")
   expect(text).toContain("x  Node")
   expect(text).toContain("-> Install Node 24")
+})
+
+const healthyDiscord: DiscordSetup = {
+  validateToken: async () => ({ id: "42", username: "celly" }),
+  getApplication: async () => ({ id: "42", name: "Celly", flags: (1 << 18) | (1 << 14) }),
+  listGuilds: async () => [],
+}
+
+test("doctor reports a healthy Discord row when reachable", async () => {
+  const results = await runDoctor({ env: baseEnv, home: "/h", dataDir: "/h/data", nodeVersion: "24.0.0", runSbx: okSbx, mkdir: () => {}, discord: healthyDiscord })
+  const row = results.find((r) => r.name === "Discord")!
+  expect(row.ok).toBe(true)
+  expect(row.kind).toBe("hard")
+  expect(row.detail).toContain("celly")
+  expect(hasHardFailure(results)).toBe(false)
+})
+
+test("doctor fails hard when Discord rejects the token", async () => {
+  const rejected: DiscordSetup = { ...healthyDiscord, validateToken: async () => { throw new DiscordApiError("unauthorized", "401", 401) } }
+  const results = await runDoctor({ env: baseEnv, home: "/h", dataDir: "/h/data", nodeVersion: "24.0.0", runSbx: okSbx, mkdir: () => {}, discord: rejected })
+  const row = results.find((r) => r.name === "Discord")!
+  expect(row.kind).toBe("hard")
+  expect(row.ok).toBe(false)
+  expect(hasHardFailure(results)).toBe(true)
+})
+
+test("doctor keeps the Discord row advisory when the API is unreachable", async () => {
+  const offline: DiscordSetup = { ...healthyDiscord, validateToken: async () => { throw new DiscordApiError("network", "offline") } }
+  const results = await runDoctor({ env: baseEnv, home: "/h", dataDir: "/h/data", nodeVersion: "24.0.0", runSbx: okSbx, mkdir: () => {}, discord: offline })
+  const row = results.find((r) => r.name === "Discord")!
+  expect(row.kind).toBe("advisory")
+  expect(row.ok).toBe(false)
+  expect(hasHardFailure(results)).toBe(false)
+})
+
+test("doctor warns when the Message Content intent is disabled", async () => {
+  const noIntent: DiscordSetup = { ...healthyDiscord, getApplication: async () => ({ id: "42", name: "Celly", flags: 0 }) }
+  const results = await runDoctor({ env: baseEnv, home: "/h", dataDir: "/h/data", nodeVersion: "24.0.0", runSbx: okSbx, mkdir: () => {}, discord: noIntent })
+  const row = results.find((r) => r.name === "Discord")!
+  expect(row.kind).toBe("advisory")
+  expect(row.fix).toContain("https://discord.com/developers/applications/42/bot")
 })

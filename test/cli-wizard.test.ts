@@ -5,6 +5,8 @@ import { PassThrough } from "node:stream"
 import { createPrompter, mergeEnv, runWizard } from "../src/cli/wizard.ts"
 import { createUi } from "../src/cli/ui.ts"
 import type { Prompter } from "../src/cli/wizard.ts"
+import { DiscordApiError } from "../src/discord-api.ts"
+import type { BotIdentity, DiscordSetup, GuildInfo } from "../src/discord-api.ts"
 import { withTempDir } from "./helpers/tmp.ts"
 
 function fakePrompter(answers: { secret: string[]; visible: string[] }): Prompter {
@@ -226,4 +228,74 @@ test("createPrompter never writes the hidden token to the output", async () => {
   expect(await secret).toBe("hunter2")
   expect(output.get()).not.toContain("hunter2")
   prompter.close()
+})
+
+function fakeDiscord(options: { identity?: BotIdentity; flags?: number; guilds?: GuildInfo[]; fail?: "unauthorized" | "network" } = {}): DiscordSetup {
+  const fail = options.fail
+  const reject = <T>(): Promise<T> => Promise.reject(
+    new DiscordApiError(fail ?? "network", fail === "unauthorized" ? "bad token" : "offline", fail === "unauthorized" ? 401 : undefined),
+  )
+  return {
+    validateToken: () => (fail ? reject<BotIdentity>() : Promise.resolve(options.identity ?? { id: "42", username: "celly" })),
+    getApplication: () => (fail ? reject<{ id: string; name: string; flags: number }>() : Promise.resolve({ id: "42", name: "Celly", flags: options.flags ?? ((1 << 18) | (1 << 14)) })),
+    listGuilds: () => (fail ? reject<GuildInfo[]>() : Promise.resolve(options.guilds ?? [])),
+  }
+}
+
+function captureUi() {
+  const chunks: string[] = []
+  const out = { write: (chunk: string) => { chunks.push(chunk); return true } } as unknown as NodeJS.WritableStream
+  return { ui: createUi({ out, color: false, ascii: true }), text: () => chunks.join("") }
+}
+
+test("runWizard verifies the token, prints an invite link, and picks a discovered guild", async () => {
+  const captured = captureUi()
+  let data = ""
+  const result = await runWizard({
+    env: {}, envFile: "/tmp/.env", ui: captured.ui,
+    prompter: fakePrompter({ secret: ["token-123"], visible: ["2"] }),
+    readFile: () => "", writeFile: (_p, d) => { data = d },
+    discord: fakeDiscord({ guilds: [{ id: "111111111111111111", name: "One" }, { id: "222222222222222222", name: "Two" }] }),
+  })
+  expect(result.guilds).toEqual(["222222222222222222"])
+  expect(data).toContain("DISCORD_GUILD_IDS=222222222222222222")
+  expect(captured.text()).toContain("Discord bot: celly")
+  expect(captured.text()).toContain("https://discord.com/oauth2/authorize?client_id=42")
+})
+
+test("runWizard falls back to manual guild IDs when Discord is unreachable", async () => {
+  let data = ""
+  const result = await runWizard({
+    env: {}, envFile: "/tmp/.env", ui: silentUi(),
+    prompter: fakePrompter({ secret: ["token-123"], visible: ["123456789012345678"] }),
+    readFile: () => "", writeFile: (_p, d) => { data = d },
+    discord: fakeDiscord({ fail: "network" }),
+  })
+  expect(result.guilds).toEqual(["123456789012345678"])
+  expect(data).toContain("DISCORD_GUILD_IDS=123456789012345678")
+})
+
+test("runWizard warns and links the Developer Portal when Message Content intent is off", async () => {
+  const captured = captureUi()
+  const result = await runWizard({
+    env: {}, envFile: "/tmp/.env", ui: captured.ui,
+    prompter: fakePrompter({ secret: ["token-123"], visible: ["123456789012345678"] }),
+    readFile: () => "", writeFile: () => {},
+    discord: fakeDiscord({ flags: 0, guilds: [] }),
+  })
+  expect(captured.text()).toContain("Message Content intent is OFF")
+  expect(captured.text()).toContain("https://discord.com/developers/applications/42/bot")
+  expect(result.guilds).toEqual(["123456789012345678"])
+})
+
+test("runWizard warns on a rejected token and still lets you proceed manually", async () => {
+  const captured = captureUi()
+  const result = await runWizard({
+    env: {}, envFile: "/tmp/.env", ui: captured.ui,
+    prompter: fakePrompter({ secret: ["token-123"], visible: ["123456789012345678"] }),
+    readFile: () => "", writeFile: () => {},
+    discord: fakeDiscord({ fail: "unauthorized" }),
+  })
+  expect(captured.text()).toContain("Discord rejected that token")
+  expect(result.guilds).toEqual(["123456789012345678"])
 })

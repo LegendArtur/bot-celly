@@ -39,8 +39,9 @@ Full documentation: **https://celly.agub.dev**
   >= 0.45, installed and logged in.
 - A Docker login and an initialized network policy
   (`sbx policy init balanced`).
-- A [Discord application](https://discord.com/developers/applications) with a
-  bot token, the **Message Content** intent enabled, and one or more guild IDs.
+- A [Discord application](https://discord.com/developers/applications) bot token
+  (setup verifies it, points you at the **Message Content** intent toggle,
+  prints an invite URL, and can list your guilds).
 - An OpenCode provider credential registered with `sbx secret`.
 
 ## Quick start
@@ -61,11 +62,13 @@ Full documentation: **https://celly.agub.dev**
    npx bot-celly@latest
    ```
 
-   The first run asks for your Discord bot token and guild IDs — and optionally a
-   GitHub token for the sandboxes — and saves them to `~/.bot-celly/.env`
-   (`%USERPROFILE%\.bot-celly\.env` on Windows; override with `CELLY_HOME`). It
+   The first run asks for your Discord bot token, verifies it, links you to any
+   missing Gateway Intents, prints an invite URL, and lists your guilds so you
+   can pick one — then optionally asks for a GitHub token for the sandboxes. It
+   saves everything to `~/.bot-celly/.env`
+   (`%USERPROFILE%\.bot-celly\.env` on Windows; override with `CELLY_HOME`),
    checks the host, then starts the bot. `PROJECTS_ROOT` defaults to
-   `~/Celly/projects`.
+   `~/Celly/projects`. Works offline too.
 
    `npx bot-celly doctor` checks the host without starting; `npx bot-celly setup`
    reconfigures — or updates a single value without prompts, e.g.

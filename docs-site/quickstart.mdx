@@ -13,8 +13,9 @@ binary.
 - **Node 24.x** exactly (pinned by `engines` and `.nvmrc`).
 - **Docker Sandboxes `sbx` >= 0.45** installed and logged in.
 - A Docker login and an initialized network policy.
-- A Discord application with a bot token, the **Message Content** intent
-  enabled, and one or more guild IDs.
+- A Discord application with a bot token (setup verifies it, links you to the
+  **Message Content** intent toggle, prints an invite URL, and can list your
+  guilds).
 - An OpenCode provider credential registered through `sbx secret`.
 
 ## Setup
@@ -41,11 +42,16 @@ binary.
     npx bot-celly@latest
     ```
 
-    The first run asks for your **Discord bot token** and **guild IDs** — and
-    optionally a **GitHub token** for the sandboxes — and saves them to
-    `~/.bot-celly/.env`. `PROJECTS_ROOT` defaults to `~/Celly/projects`
-    (created on boot). Re-run the command to start again; `npx bot-celly doctor`
-    checks the host without starting.
+    The first run asks for your **Discord bot token**, then verifies it and walks
+    you through the Discord side: it reports which bot the token belongs to,
+    warns — with a direct link — when the **Message Content** or **Server
+    Members** intent is off, prints a ready-made **invite URL**, and lists the
+    guilds the bot can see so you can pick one instead of pasting IDs. It also
+    asks whether to add a **GitHub token** for the sandboxes. Everything is saved
+    to `~/.bot-celly/.env`. `PROJECTS_ROOT` defaults to `~/Celly/projects`
+    (created on boot). Setup also works offline: when Discord is unreachable it
+    falls back to entering the token and guild IDs by hand. Re-run the command to
+    start again; `npx bot-celly doctor` checks the host without starting.
 
     On boot the bot performs a preflight (`sbx version`, policy check,
     single-instance lock) and fails fast with an actionable message. Logs are
